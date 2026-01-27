@@ -337,14 +337,16 @@ label: {
   // - zoomLevel>=4：完全不显示（由于 findFirstRule 机制，直接用 zoom=[0,3] 即可）
   // - 且仅当 Stations.length>=2 才显示
   // ------------------------------------------------------------------
+
 {
-  name: '车站建筑 STB：zoom<4 中心点+label（Stations>=2）；zoom>=4 显示面；楼层视角激活建筑变淡',
+  name: '车站建筑 STB：常态不显示边界；放大到显示楼层时出现边界；中心点+右侧label（Stations>=2）',
   match: { Class: 'STB', Type: 'Polygon' },
   zoom: [0, 99],
   symbol: {
     pathStyle: (r, ctx) => {
-      // zoom<4：不画面（只留 label+dot）
-      if (ctx.zoomLevel < 4) return { opacity: 0, fillOpacity: 0, weight: 0 };
+      // 边界出现阈值：与楼层视角的 minLevel 保持一致
+      const borderLevel = DEFAULT_FLOOR_VIEW.minLevel;
+      if (ctx.zoomLevel < borderLevel) return { opacity: 0, fillOpacity: 0, weight: 0 };
 
       const base: L.PathOptions = {
         color: '#111827',
@@ -360,44 +362,40 @@ label: {
       }
       return base;
     },
-label: {
-  enabled: true,
-  minLevel: 0,
-  placement: 'center',
+    label: {
+      enabled: true,
+      styleKey: 'bubble-dark-13',
+      minLevel: 0,
+      placement: 'center',
+      // 类 STA：中心点（dot）+ 右侧文字（candidates:['E']）
+      withDot: true,
+      // 字段解析接口：
+      // - 楼层页面（ctx.inFloorView=true）时，为避免遮挡楼层 label，BUD/STB 的 label+dot 需要停止显示
       textFrom: (r, ctx) => {
-        // zoom>=4：不显示中心点 label
-        if (ctx.zoomLevel >= 4) return '';
-
-        // zoom<4：仅 Stations>=2 才显示
+        if (ctx.inFloorView) return '';
+        // 仅换乘站（Stations>=2）显示（保持你现有的筛选/强制显示逻辑）
         const stations = (r.featureInfo as any)?.Stations;
         const n = Array.isArray(stations) ? stations.length : 0;
         if (n < 2) return '';
-
         return String((r.featureInfo as any)?.staBuildingName ?? '').trim();
       },
-  offsetY: 10,
-  withDot: true,
-  declutter: {
-    priority: 10,
-    minSpacingPx: 6,
-    candidates: ['N', 'NE', 'NW', 'E', 'W', 'SE', 'SW', 'S'],
-    allowHide: true,
-    allowAbbrev: true,
-    abbrev: (s) => (s.length > 6 ? s.slice(0, 6) + '…' : s),
-  },
-  
-},
+      // 尽量固定在右侧（类似 STA 的“点+右侧文字”视觉）
+      declutter: {
+        priority: 10,
+        minSpacingPx: 6,
+        candidates: ['E'],
+        allowHide: true,
+        allowAbbrev: true,
+        abbrev: (s) => (s.length > 10 ? s.slice(0, 10) + '…' : s),
+      },
+    },
     labelClick: {
       enabled: true,
       mode: 'normal',
+      labelStyleKey: 'bubble-dark-13',
+      highlightStyleKey: 'dash',
       openCard: true,
-        // 新增：几何点击开关（按要素自由组合）
-  geom: {
-    point: true, // 点要素本体可点击
-  },
-
     },
-
   },
 },
 
@@ -410,50 +408,60 @@ label: {
   // - zoomLevel>=4：显示面
   // - 楼层视角激活建筑变淡（与 STB 一致）
   // ------------------------------------------------------------------
-  {
-    name: '建筑 BUD：zoom<4 中心点+label；zoom>=4 显示面；楼层视角激活建筑变淡',
-    match: { Class: 'BUD', Type: 'Polygon' },
-    zoom: [0, 99],
-    symbol: {
-      pathStyle: (r, ctx) => {
-        // zoom<4：不画面（只留 label+dot）
-        if (ctx.zoomLevel < 4) return { opacity: 0, fillOpacity: 0, weight: 0 };
 
-        const base: L.PathOptions = {
-          color: '#111827',
-          opacity: 0.2,
-          weight: 2,
-          fillColor: '#9ca3af',
-          fillOpacity: 0.05,
-        };
+{
+  name: '建筑 BUD：常态不显示边界；放大到显示楼层时出现边界；中心点+右侧label',
+  match: { Class: 'BUD', Type: 'Polygon' },
+  zoom: [0, 99],
+  symbol: {
+    pathStyle: (r, ctx) => {
+      const borderLevel = DEFAULT_FLOOR_VIEW.minLevel;
+      if (ctx.zoomLevel < borderLevel) return { opacity: 0, fillOpacity: 0, weight: 0 };
 
-        // 楼层视角：激活建筑变淡
-        if (ctx.inFloorView && ctx.activeBuildingUid && ctx.activeBuildingUid === r.uid) {
-          return { ...base, opacity: 0.25, fillOpacity: 0.06 };
-        }
-        return base;
+      const base: L.PathOptions = {
+        color: '#111827',
+        opacity: 0.2,
+        weight: 2,
+        fillColor: '#9ca3af',
+        fillOpacity: 0.05,
+      };
+
+      if (ctx.inFloorView && ctx.activeBuildingUid && ctx.activeBuildingUid === r.uid) {
+        return { ...base, opacity: 0.25, fillOpacity: 0.06 };
+      }
+      return base;
+    },
+    label: {
+      enabled: true,
+      styleKey: 'bubble-dark-13',
+      minLevel: 0,
+      placement: 'center',
+      // 类 STA：中心点（dot）+ 右侧文字（candidates:['E']）
+      withDot: true,
+      // 字段解析接口：
+      // - 楼层页面（ctx.inFloorView=true）时，为避免遮挡楼层 label，BUD/STB 的 label+dot 需要停止显示
+      textFrom: (r, ctx) => {
+        if (ctx.inFloorView) return '';
+        return String((r.featureInfo as any)?.BuildingName ?? '').trim();
       },
-      label: {
-        enabled: true,
-        minLevel: 0,
-        placement: 'center',
-        textFrom: (r, ctx) => {
-          if (ctx.zoomLevel >= 4) return '';
-          return String((r.featureInfo as any)?.BuildingName ?? '').trim();
-        },
-        offsetY: 10,
-        withDot: true,
-        declutter: {
-          priority: 10,
-          minSpacingPx: 6,
-          candidates: ['N', 'NE', 'NW', 'E', 'W', 'SE', 'SW', 'S'],
-          allowHide: true,
-          allowAbbrev: true,
-          abbrev: (s) => (s.length > 6 ? s.slice(0, 6) + '…' : s),
-        },
+      declutter: {
+        priority: 10,
+        minSpacingPx: 6,
+        candidates: ['E'],
+        allowHide: true,
+        allowAbbrev: true,
+        abbrev: (s) => (s.length > 10 ? s.slice(0, 10) + '…' : s),
       },
     },
+    labelClick: {
+      enabled: true,
+      mode: 'normal',
+      labelStyleKey: 'bubble-dark-13',
+      highlightStyleKey: 'dash',
+      openCard: true,
+    },
   },
+},
 
   // (5) 车站点 STA：
   // - zoomLevel<4：不显示
@@ -632,16 +640,39 @@ label: {
           fillOpacity: 0.28,
         };
       },
-      label: {
-        enabled: true,
-        placement: 'center',
-        textFrom: (r) => {
-          const name = String((r.featureInfo as any)?.staBFloorName ?? '').trim();
-          if (name) return name;
-          return fmtFloorLabel((r.featureInfo as any)?.[DEFAULT_FLOOR_VIEW.floorSelectorField]);
-        },
-        minLevel: DEFAULT_FLOOR_VIEW.minLevel,
-      },
+      
+label: {
+  enabled: true,
+  styleKey: 'bubble-dark-13',
+  placement: 'center',
+  // 类 STA：中心点（dot）+ 右侧文字（candidates:['E']）
+  withDot: true,
+  textFrom: (r) => {
+    const name = String((r.featureInfo as any)?.staBFloorName ?? (r.featureInfo as any)?.FloorName ?? '').trim();
+    if (name) return name;
+    return fmtFloorLabel((r.featureInfo as any)?.[DEFAULT_FLOOR_VIEW.floorSelectorField]);
+  },
+  minLevel: DEFAULT_FLOOR_VIEW.minLevel,
+  declutter: {
+    // 楼层页面强制显示：
+    // - allowHide=false => 放不下也不隐藏（将回退为 anchor 位置显示，可能发生重叠）
+    // - priority 提高 => 尽量优先放置
+    // - minSpacingPx=0 => 尽量“挤开”而不是因为间距而放不下
+    priority: 999,
+    minSpacingPx: 0,
+    candidates: ['E'],
+    allowHide: false,
+    allowAbbrev: true,
+    abbrev: (s) => (s.length > 10 ? s.slice(0, 10) + '…' : s),
+  },
+},
+labelClick: {
+  enabled: true,
+  mode: 'normal',
+  labelStyleKey: 'bubble-dark-13',
+  highlightStyleKey: 'dash',
+  openCard: true,
+},
     },
   },
 
@@ -681,16 +712,37 @@ label: {
           fillOpacity: 0.28,
         };
       },
-      label: {
-        enabled: true,
-        placement: 'center',
-        textFrom: (r) => {
-          const name = String((r.featureInfo as any)?.FloorName ?? '').trim();
-          if (name) return name;
-          return fmtFloorLabel((r.featureInfo as any)?.[DEFAULT_FLOOR_VIEW.floorSelectorField]);
-        },
-        minLevel: DEFAULT_FLOOR_VIEW.minLevel,
-      },
+      
+label: {
+  enabled: true,
+  styleKey: 'bubble-dark-13',
+  placement: 'center',
+  // 类 STA：中心点（dot）+ 右侧文字（candidates:['E']）
+  withDot: true,
+  textFrom: (r) => {
+    const name = String((r.featureInfo as any)?.staBFloorName ?? (r.featureInfo as any)?.FloorName ?? '').trim();
+    if (name) return name;
+    return fmtFloorLabel((r.featureInfo as any)?.[DEFAULT_FLOOR_VIEW.floorSelectorField]);
+  },
+  minLevel: DEFAULT_FLOOR_VIEW.minLevel,
+  declutter: {
+    // 楼层页面强制显示（同 STF）：
+    // - allowHide=false => 放不下也不隐藏（可能发生重叠）
+    priority: 999,
+    minSpacingPx: 0,
+    candidates: ['E'],
+    allowHide: false,
+    allowAbbrev: true,
+    abbrev: (s) => (s.length > 10 ? s.slice(0, 10) + '…' : s),
+  },
+},
+labelClick: {
+  enabled: true,
+  mode: 'normal',
+  labelStyleKey: 'bubble-dark-13',
+  highlightStyleKey: 'dash',
+  openCard: true,
+},
     },
   },
 
@@ -812,6 +864,7 @@ label: {
       const zoom = Number(ctx.zoomLevel ?? 0);
       const isNGF_LAD = kind === 'NGF' && skind === 'LAD';
       const isNGF_WTB = kind === 'NGF' && skind === 'WTB';
+      const isNGF_LIS = kind === 'NGF' && skind === 'LIS';
       const isADM_DBZ = kind === 'ADM' && skind === 'DBZ';
       const isADM_PLZ = kind === 'ADM' && skind === 'PLZ';
 
@@ -827,6 +880,10 @@ label: {
         return zoom > 4;
       }
 
+      if (isNGF_LIS) {
+        return zoom > 4;
+      }
+
       if (isADM_DBZ || isADM_PLZ) {
         if (sk2 === 'L1') return zoom > 3 && zoom < 5;
         if (sk2 === 'L2') return zoom > 5 && zoom < 7;
@@ -837,7 +894,20 @@ label: {
       return true;
     },
     symbol: {
-      pathStyle: { color: '#111827', opacity: 0.65, weight: 1, fillColor: '#60a5fa', fillOpacity: 0.10 },
+      pathStyle: (r) => {
+  const fi: any = r.featureInfo ?? {};
+  const tags: any = fi.tags ?? fi.Tags ?? {};
+  const kind = String(fi.PGonKind ?? fi.Kind ?? tags.PGonKind ?? tags.Kind ?? '').trim();
+  const skind = String(fi.PGonSKind ?? fi.SKind ?? tags.PGonSKind ?? tags.SKind ?? '').trim();
+
+  // 字段解析接口：NGF-LIS —— 常态不显示边界，仅保留 label（点击 label 高亮显示边界并弹信息卡）
+  if (kind === 'NGF' && skind === 'LIS') {
+    return { opacity: 0, fillOpacity: 0, weight: 0 };
+  }
+
+  return { color: '#111827', opacity: 0.65, weight: 1, fillColor: '#60a5fa', fillOpacity: 0.10 };
+},
+
       // label 允许动态返回 styleKey / minLevel（避免因 findFirstRule 的“单规则”机制导致无法细分子类样式）
       label: (r) => {
         const fi: any = r.featureInfo ?? {};
@@ -847,11 +917,12 @@ label: {
 
         const isNGF_LAD = kind === 'NGF' && skind === 'LAD';
         const isNGF_WTB = kind === 'NGF' && skind === 'WTB';
+        const isNGF_LIS = kind === 'NGF' && skind === 'LIS';
         const isADM_DBZ = kind === 'ADM' && skind === 'DBZ';
         const isADM_PLZ = kind === 'ADM' && skind === 'PLZ';
 
-        const styleKey = isNGF_LAD ? 'gm-bw-15' : isNGF_WTB ? 'gm-wtb-15' : (isADM_DBZ || isADM_PLZ) ? 'gm-bw-9' : 'gm-outline';
-        const minLevel = (isADM_DBZ || isADM_PLZ) ? 0 : (isNGF_LAD || isNGF_WTB) ? 0 : 2;
+        const styleKey = isNGF_LAD ? 'gm-bw-15' : isNGF_WTB ? 'gm-wtb-15' : isNGF_LIS ? 'gm-bw-15' : (isADM_DBZ || isADM_PLZ) ? 'gm-bw-9' : 'gm-outline';
+        const minLevel = (isADM_DBZ || isADM_PLZ) ? 0 : (isNGF_LAD || isNGF_WTB || isNGF_LIS) ? 0 : 2;
 
         return {
           enabled: true,
@@ -877,10 +948,11 @@ label: {
 
         const isNGF_LAD = kind === 'NGF' && skind === 'LAD';
         const isNGF_WTB = kind === 'NGF' && skind === 'WTB';
+        const isNGF_LIS = kind === 'NGF' && skind === 'LIS';
         const isADM_DBZ = kind === 'ADM' && skind === 'DBZ';
         const isADM_PLZ = kind === 'ADM' && skind === 'PLZ';
 
-        const labelStyleKey = isNGF_LAD ? 'gm-bw-15' : isNGF_WTB ? 'gm-wtb-15' : (isADM_DBZ || isADM_PLZ) ? 'gm-bw-9' : 'gm-outline';
+        const labelStyleKey = isNGF_LAD ? 'gm-bw-15' : isNGF_WTB ? 'gm-wtb-15' : isNGF_LIS ? 'gm-bw-15' : (isADM_DBZ || isADM_PLZ) ? 'gm-bw-9' : 'gm-outline';
         return { enabled: true, mode: 'labelOnly', labelStyleKey: labelStyleKey as any, highlightStyleKey: 'dash', openCard: true };
       },
     },

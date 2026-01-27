@@ -10,6 +10,7 @@ import * as L from 'leaflet';
 
 export type LabelStyleKey =
   | 'bubble-dark'
+  | 'bubble-dark-13'
   | 'gm-outline'
   | 'gm-outline-bold'
   // —— 规则细分样式（保持 Google Map “描边字”大格式不变，仅调整字号/描边/颜色） ——
@@ -41,11 +42,11 @@ function dotHtml(): string {
   return `
     <span style="
       display:inline-block;
-      width:8px;height:8px;
+      width:6px;height:6px;
       border-radius:999px;
       background:#fff;
       margin-right:6px;
-      box-shadow:0 0 0 2px rgba(0,0,0,0.35);
+      box-shadow:0 0 0 3px rgba(0,0,0,0.85);
       flex:0 0 auto;
     "></span>
   `;
@@ -120,23 +121,33 @@ export function renderLabelHtml(styleKey: LabelStyleKey, text: string, opts: Lab
     `;
   }
 
-  // bubble-dark：现有默认黑底气泡
-  return `
-    <div style="
+  // bubble-dark / bubble-dark-13：黑底半透明圆角气泡（参考 STA 的现有风格）
+  // 需求：dot（若启用）应独立在气泡外部，气泡仅包裹文字。
+  const bubbleFontSize = styleKey === 'bubble-dark-13' ? 13 : 12;
+  const bubbleSpan = `
+    <span style="
       background: rgba(0,0,0,0.65);
       color: #fff;
       padding: 2px 6px;
       border-radius: 6px;
-      font-size: 12px;
+      font-size: ${bubbleFontSize}px;
       white-space: nowrap;
+      line-height: 1;
+    ">${safe}</span>
+  `;
+
+  return `
+    <div style="
       transform: ${transform};
       margin-top: ${extraMarginTop}px;
       pointer-events: ${pe};
       cursor: ${cursor};
       display: inline-flex;
       align-items: center;
-      line-height: 1;
-    ">${dot}${safe}</div>
+      white-space: nowrap;
+      background: transparent;
+      padding: 0;
+    ">${dot}${bubbleSpan}</div>
   `;
 }
 

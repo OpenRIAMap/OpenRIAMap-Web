@@ -90,6 +90,147 @@ function pointInPolygonXZ(p: { x: number; z: number }, poly: Array<{ x: number; 
   return inside;
 }
 
+
+// ===============================
+// Label Anchor: Visible-Center (B1)
+// 字段解析接口：此处为“标签锚点推导”接口，专门处理 Polyline / Polygon 在“视野未包含全局中心”时的可见性问题。
+// 核心思路：优先使用【当前视野与要素 bbox 的交集区域中心】作为锚点候选；若候选点不在多边形内（或不在折线附近），则投影到边界/线段的最近点。
+// ===============================
+
+type WorldRectXZ = { minX: number; maxX: number; minZ: number; maxZ: number };
+
+function rectCenterXZ(r: WorldRectXZ): { x: number; z: number } {
+  return { x: (r.minX + r.maxX) / 2, z: (r.minZ + r.maxZ) / 2 };
+}
+
+function intersectWorldRectXZ(a: WorldRectXZ, b: WorldRectXZ): WorldRectXZ | null {
+  const minX = Math.max(a.minX, b.minX);
+  const maxX = Math.min(a.maxX, b.maxX);
+  const minZ = Math.max(a.minZ, b.minZ);
+  const maxZ = Math.min(a.maxZ, b.maxZ);
+  if (minX > maxX || minZ > maxZ) return null;
+  return { minX, maxX, minZ, maxZ };
+}
+
+function bboxFromCoordsXZ(coords3: Array<{ x: number; z: number }>): WorldRectXZ {
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const p of coords3) {
+    minX = Math.min(minX, p.x);
+    maxX = Math.max(maxX, p.x);
+    minZ = Math.min(minZ, p.z);
+    maxZ = Math.max(maxZ, p.z);
+  }
+  return { minX, maxX, minZ, maxZ };
+}
+
+function viewportWorldRectXZFromBounds(bounds: L.LatLngBounds, projection: DynmapProjection): WorldRectXZ | null {
+  try {
+    const nw = bounds.getNorthWest();
+    const ne = bounds.getNorthEast();
+    const sw = bounds.getSouthWest();
+    const se = bounds.getSouthEast();
+
+    const pts = [nw, ne, sw, se].map(ll => projection.latLngToLocation(ll, Y_FOR_DISPLAY));
+    const xs = pts.map(p => p.x);
+    const zs = pts.map(p => p.z);
+
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minZ = Math.min(...zs);
+    const maxZ = Math.max(...zs);
+
+    if (![minX, maxX, minZ, maxZ].every(Number.isFinite)) return null;
+    return { minX, maxX, minZ, maxZ };
+  } catch {
+    return null;
+  }
+}
+
+function closestPointOnSegmentXZ(
+  a: { x: number; z: number },
+  b: { x: number; z: number },
+  p: { x: number; z: number },
+): { x: number; z: number } {
+  const abx = b.x - a.x;
+  const abz = b.z - a.z;
+  const apx = p.x - a.x;
+  const apz = p.z - a.z;
+  const denom = abx * abx + abz * abz;
+  if (denom <= 1e-9) return { x: a.x, z: a.z };
+  let t = (apx * abx + apz * abz) / denom;
+  t = Math.max(0, Math.min(1, t));
+  return { x: a.x + abx * t, z: a.z + abz * t };
+}
+
+function closestPointOnPolylineXZ(
+  coords3: Array<{ x: number; z: number }>,
+  p: { x: number; z: number },
+): { x: number; z: number } | null {
+  if (coords3.length < 2) return null;
+  let best: { x: number; z: number } | null = null;
+  let bestD2 = Infinity;
+  for (let i = 1; i < coords3.length; i++) {
+    const a = coords3[i - 1];
+    const b = coords3[i];
+    const q = closestPointOnSegmentXZ(a, b, p);
+    const dx = q.x - p.x;
+    const dz = q.z - p.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      best = q;
+    }
+  }
+  return best;
+}
+
+function closestPointOnPolygonEdgesXZ(
+  poly: Array<{ x: number; z: number }>,
+  p: { x: number; z: number },
+): { x: number; z: number } | null {
+  if (poly.length < 2) return null;
+  let best: { x: number; z: number } | null = null;
+  let bestD2 = Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % poly.length];
+    const q = closestPointOnSegmentXZ(a, b, p);
+    const dx = q.x - p.x;
+    const dz = q.z - p.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      best = q;
+    }
+  }
+  return best;
+}
+
+function computeVisibleAnchorXZForPolyline(
+  coords3: Array<{ x: number; z: number }>,
+  viewportRect: WorldRectXZ | null | undefined,
+): { x: number; z: number } | null {
+  if (!coords3 || coords3.length < 2) return null;
+  const bbox = bboxFromCoordsXZ(coords3);
+  const inter = viewportRect ? intersectWorldRectXZ(bbox, viewportRect) : null;
+  const target = inter ? rectCenterXZ(inter) : rectCenterXZ(bbox);
+  return closestPointOnPolylineXZ(coords3, target) ?? null;
+}
+
+function computeVisibleAnchorXZForPolygon(
+  poly: Array<{ x: number; z: number }>,
+  viewportRect: WorldRectXZ | null | undefined,
+): { x: number; z: number } | null {
+  if (!poly || poly.length < 3) return null;
+  const bbox = bboxFromCoordsXZ(poly);
+  const inter = viewportRect ? intersectWorldRectXZ(bbox, viewportRect) : null;
+  const target = inter ? rectCenterXZ(inter) : rectCenterXZ(bbox);
+
+  if (pointInPolygonXZ(target, poly)) return target;
+  return closestPointOnPolygonEdgesXZ(poly, target) ?? null;
+}
+
+
 function polygonCentroidXZ(poly: Array<{ x: number; z: number }>): { x: number; z: number } | null {
   if (poly.length < 3) return null;
   let area = 0;
@@ -863,6 +1004,7 @@ const refresh = () => {
   };
 
   const bounds = map.getBounds();
+  const viewportWorldRectXZ = viewportWorldRectXZFromBounds(bounds, projection);
   const records = recordsRef.current;
 
   // declutter labels：先收集 request，后统一跑布局，再回写到各个 bundle.label
@@ -972,14 +1114,14 @@ if (r.type === 'Points' && pointLatLng && !labelOnly) {
     // 确保 layer 存在
     const existing = cacheRef.current.get(r.uid);
     if (!existing) {
-      const bundle = createLayerBundle(r, hiddenSymbol, context, store, projection, handleLabelClick);
+      const bundle = createLayerBundle(r, hiddenSymbol, context, store, projection, handleLabelClick, viewportWorldRectXZ);
       if (!bundle) continue;
       cacheRef.current.set(r.uid, bundle);
       root.addLayer(bundle.main);
       if (bundle.label) root.addLayer(bundle.label);
     } else {
       // 更新样式（动态色/透明度/楼层淡化）
-      updateLayerBundle(existing, r, hiddenSymbol, context, store, projection, root, handleLabelClick);
+      updateLayerBundle(existing, r, hiddenSymbol, context, store, projection, root, handleLabelClick, viewportWorldRectXZ);
       if (!root.hasLayer(existing.main)) root.addLayer(existing.main);
       if (existing.label && !root.hasLayer(existing.label)) root.addLayer(existing.label);
     }
@@ -988,7 +1130,7 @@ if (r.type === 'Points' && pointLatLng && !labelOnly) {
     const rawLabelPlan = rule.symbol?.label;
     const labelPlan = typeof rawLabelPlan === 'function' ? rawLabelPlan(r, context, store) : rawLabelPlan;
     if (labelPlan?.enabled && labelPlan.declutter) {
-      const req = buildLabelRequest(r, labelPlan, context, store, projection, pointLatLng, clickPlan);
+      const req = buildLabelRequest(r, labelPlan, context, store, projection, pointLatLng, clickPlan, viewportWorldRectXZ);
       if (req) {
         declutterLabelRequests.push(req);
         const styleKey = (labelPlan as any)?.styleKey ?? (clickPlan as any)?.labelStyleKey ?? 'bubble-dark';
@@ -1149,6 +1291,7 @@ function createLayerBundle(
   store: FeatureStore,
   projection: DynmapProjection,
   onLabelClick?: (r: FeatureRecord, plan: LabelClickPlan) => void,
+  viewportWorldRectXZ?: WorldRectXZ | null,
 ): LayerBundle | null {
 
   const resolvedLabelPlan = (typeof (symbol as any)?.label === 'function') ? (symbol as any).label(r, ctx, store) : (symbol as any)?.label;
@@ -1227,7 +1370,7 @@ function createLayerBundle(
     }
 
     // label
-    const labelLayer = buildLabelLayer(r, resolvedLabelPlan, ctx, store, projection, latlng, labelStyleKey, clickEnabled ? (clickPlan as any) : null, onClick);
+    const labelLayer = buildLabelLayer(r, resolvedLabelPlan, ctx, store, projection, latlng, labelStyleKey, clickEnabled ? (clickPlan as any) : null, onClick, viewportWorldRectXZ);
     return { main, label: labelLayer ?? undefined, kind, iconUrl, pane: mainPane };
   }
 
@@ -1255,7 +1398,7 @@ function createLayerBundle(
       });
     }
 
-    const labelLayer = buildLabelLayer(r, resolvedLabelPlan, ctx, store, projection, undefined, labelStyleKey, clickEnabled ? (clickPlan as any) : null, onClick);
+    const labelLayer = buildLabelLayer(r, resolvedLabelPlan, ctx, store, projection, undefined, labelStyleKey, clickEnabled ? (clickPlan as any) : null, onClick, viewportWorldRectXZ);
     return { main, label: labelLayer ?? undefined, kind: 'path', pane: mainPane };
   }
 
@@ -1272,6 +1415,7 @@ function updateLayerBundle(
   projection: DynmapProjection,
   root: L.LayerGroup,
   onLabelClick?: (r: FeatureRecord, plan: LabelClickPlan) => void,
+  viewportWorldRectXZ?: WorldRectXZ | null,
 ) {
   const resolvedLabelPlan = (typeof (symbol as any)?.label === 'function') ? (symbol as any).label(r, ctx, store) : (symbol as any)?.label;
 
@@ -1310,7 +1454,7 @@ function updateLayerBundle(
       if (root.hasLayer(bundle.main)) root.removeLayer(bundle.main);
       if (bundle.label && root.hasLayer(bundle.label)) root.removeLayer(bundle.label);
 
-      const newBundle = createLayerBundle(r, symbol, ctx, store, projection, onLabelClick);
+      const newBundle = createLayerBundle(r, symbol, ctx, store, projection, onLabelClick, viewportWorldRectXZ);
       if (!newBundle) return;
       bundle.main = newBundle.main;
       bundle.label = newBundle.label;
@@ -1347,7 +1491,7 @@ function updateLayerBundle(
       bundle.label = undefined;
       bundle.labelKey = undefined;
     }
-    const labelLayer = buildLabelLayer(r, resolvedLabelPlan, ctx, store, projection, latlng, labelStyleKey, clickEnabled ? (clickPlan as any) : null, onClick);
+    const labelLayer = buildLabelLayer(r, resolvedLabelPlan, ctx, store, projection, latlng, labelStyleKey, clickEnabled ? (clickPlan as any) : null, onClick, viewportWorldRectXZ);
     if (labelLayer) bundle.label = labelLayer;
     return;
   }
@@ -1375,7 +1519,7 @@ function updateLayerBundle(
       bundle.label = undefined;
       bundle.labelKey = undefined;
     }
-    const labelLayer = buildLabelLayer(r, resolvedLabelPlan, ctx, store, projection, undefined, labelStyleKey, clickEnabled ? (clickPlan as any) : null, onClick);
+    const labelLayer = buildLabelLayer(r, resolvedLabelPlan, ctx, store, projection, undefined, labelStyleKey, clickEnabled ? (clickPlan as any) : null, onClick, viewportWorldRectXZ);
     if (labelLayer) bundle.label = labelLayer;
   }
 }
@@ -1389,6 +1533,7 @@ function buildLabelRequest(
   projection: DynmapProjection,
   pointLatLng?: L.LatLng,
   clickPlan?: LabelClickPlan | null,
+  viewportWorldRectXZ?: WorldRectXZ | null,
 ): LabelRequest | null {
   if (!labelPlan || !labelPlan.enabled) return null;
   if (!labelPlan.declutter) return null;
@@ -1421,8 +1566,22 @@ function buildLabelRequest(
 
   if (!r.coords3 || r.coords3.length < 2) return null;
 
-  // Polyline：取“累计长度的中点”（更像沿线附着）
+  // Polyline：优先使用“可见中心锚点”（B1），兜底再用累计长度中点
   if (r.type === 'Polyline') {
+    const vis = computeVisibleAnchorXZForPolyline((r.coords3 as any), viewportWorldRectXZ);
+    if (vis) {
+      const ll = projection.locationToLatLng(vis.x, Y_FOR_DISPLAY, vis.z);
+      return {
+        id: `${r.uid}#label`,
+        featureUid: r.uid,
+        anchorLatLng: ll,
+        text,
+        placement: 'center',
+        withDot: !!labelPlan.withDot,
+        offsetY: Number(labelPlan.offsetY ?? 0),
+        declutter: labelPlan.declutter,
+      };
+    }
     let total = 0;
     for (let i = 1; i < r.coords3.length; i++) {
       const a = r.coords3[i - 1];
@@ -1464,11 +1623,12 @@ function buildLabelRequest(
     };
   }
 
-  // Polygon：几何中心 / bbox 中心兜底
+  // Polygon：优先使用“可见中心锚点”（B1），兜底再用几何中心 / bbox 中心
   if (r.coords3.length < 3) return null;
   const polyXZ = r.coords3.map(p => ({ x: p.x, z: p.z }));
+  const vis = computeVisibleAnchorXZForPolygon(polyXZ, viewportWorldRectXZ);
   const c =
-    polygonCentroidXZ(polyXZ) ?? {
+    vis ?? polygonCentroidXZ(polyXZ) ?? {
       x: (Math.min(...polyXZ.map(p => p.x)) + Math.max(...polyXZ.map(p => p.x))) / 2,
       z: (Math.min(...polyXZ.map(p => p.z)) + Math.max(...polyXZ.map(p => p.z))) / 2,
     };
@@ -1496,6 +1656,7 @@ function buildLabelLayer(
   styleKey?: any,
   clickPlan?: LabelClickPlan | null,
   onClick?: (() => void) | null,
+  viewportWorldRectXZ?: WorldRectXZ | null,
 ): L.Layer | null {
   if (!labelPlan || !labelPlan.enabled) return null;
 
@@ -1535,8 +1696,16 @@ function buildLabelLayer(
 
   if (!r.coords3 || r.coords3.length < 2) return null;
 
-  // Polyline：取“累计长度的中点”（更像沿线附着）
+  // Polyline：优先使用“可见中心锚点”（B1），兜底再用累计长度中点
   if (r.type === 'Polyline') {
+    const vis = computeVisibleAnchorXZForPolyline((r.coords3 as any), viewportWorldRectXZ);
+    if (vis) {
+      const ll = projection.locationToLatLng(vis.x, Y_FOR_DISPLAY, vis.z);
+      if (clickPlan && (clickPlan as any).enabled && onClick) {
+        return makeClickableLabelMarker({ latlng: ll, text, placement: 'center', withDot, styleKey: ((styleKey ?? (clickPlan as any).labelStyleKey ?? 'bubble-dark') as any), onClick });
+      }
+      return makeLabelMarker(ll, text, 'center', withDot, undefined, styleKey);
+    }
     let total = 0;
     for (let i = 1; i < r.coords3.length; i++) {
       const a = r.coords3[i - 1];
@@ -1579,10 +1748,11 @@ function buildLabelLayer(
     return makeLabelMarker(ll, text, 'center', withDot, undefined, styleKey);
   }
 
-  // Polygon：几何中心 / bbox 中心兜底
+  // Polygon：优先使用“可见中心锚点”（B1），兜底再用几何中心 / bbox 中心
   if (r.coords3.length < 3) return null;
   const polyXZ = r.coords3.map(p => ({ x: p.x, z: p.z }));
-  const c = polygonCentroidXZ(polyXZ) ?? {
+  const vis = computeVisibleAnchorXZForPolygon(polyXZ, viewportWorldRectXZ);
+  const c = vis ?? polygonCentroidXZ(polyXZ) ?? {
     x: (Math.min(...polyXZ.map(p => p.x)) + Math.max(...polyXZ.map(p => p.x))) / 2,
     z: (Math.min(...polyXZ.map(p => p.z)) + Math.max(...polyXZ.map(p => p.z))) / 2,
   };
