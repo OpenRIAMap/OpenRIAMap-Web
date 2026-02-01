@@ -46,6 +46,8 @@ import { findTeleportPath, extractToriiList } from '@/lib/toriiTeleport';
 
 import { computeRailPlanFromCoords, type NavRailNewIntegratedPlan, type TransferType } from './Navigation_RailNewIntegrated';
 import { listRailNewStaBuildingsForSearch, type RailNewStaBuildingSearchItem } from './Navigation_RailNewIntegrated';
+import { computeTeleportNewPlanFromCoords, type NavTeleportNewIntegratedPlan } from './Navigation_TeleportNewIntegrated';
+import { listHubReturnPoints } from './teleportHubReturnPoints';
 import type { RouteHighlightData, RouteStyledSegment, RouteStationMarker } from '@/components/Map/RouteHighlightLayer';
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
@@ -99,7 +101,7 @@ interface SearchItem {
 
 
 // UI：在 TravelMode 的基础上增加 rail_new
-type TravelModePanel = TravelMode | 'rail_new';
+type TravelModePanel = TravelMode | 'rail_new' | 'teleport_new';
 
 // 新铁路：最小化依赖的显示结构
 type RailNewLegKind = 'access' | 'walk' | 'rail' | 'transfer';
@@ -160,6 +162,7 @@ export type RoutePathV2 = Array<{ coord: Coordinate }> & {
 
 const TRAVEL_MODES: Array<{ mode: TravelModePanel; label: string; icon: typeof Train }> = [
   { mode: 'rail_new', label: '铁路(新)', icon: Train },
+  { mode: 'teleport_new', label: '传送(新)', icon: Zap },
   { mode: 'rail', label: '铁路', icon: Train },
   { mode: 'teleport', label: '传送', icon: Zap },
   { mode: 'walk', label: '步行', icon: Footprints },
@@ -500,7 +503,24 @@ export function NavigationPanel({
 
   const [resultLegacy, setResultLegacy] = useState<MultiModePathResult | null>(null);
   const [resultRailNew, setResultRailNew] = useState<RailNewPlan | null>(null);
+  const [resultTeleportNew, setResultTeleportNew] = useState<NavTeleportNewIntegratedPlan | null>(null);
   const [searching, setSearching] = useState(false);
+
+  // teleport_new：返回主城
+  const hubReturnPoints = useMemo(() => listHubReturnPoints(worldId), [worldId]);
+  const [returnToHubEnabled, setReturnToHubEnabled] = useState(false);
+  const [returnPointId, setReturnPointId] = useState<string>('');
+
+  useEffect(() => {
+    if (!hubReturnPoints.length) {
+      setReturnPointId('');
+      return;
+    }
+    // 若未设置或选项已失效，则默认选第一个
+    if (!returnPointId || !hubReturnPoints.some((p) => p.id === returnPointId)) {
+      setReturnPointId(hubReturnPoints[0].id);
+    }
+  }, [hubReturnPoints, returnPointId]);
 
   const [railNewStaBuildingItems, setRailNewStaBuildingItems] = useState<SearchItem[]>([]);
 
@@ -598,6 +618,7 @@ useEffect(() => {
     setEndPoint(temp);
     setResultLegacy(null);
     setResultRailNew(null);
+    setResultTeleportNew(null);
   };
 
   // 新铁路：展开/收起途经站
@@ -622,6 +643,7 @@ useEffect(() => {
         reverseTeleportCount: 0,
       });
       setResultRailNew({ found: false, totalTimeSeconds: 0, totalDistance: 0, totalTransfers: 0, legs: [] });
+      setResultTeleportNew(null);
       return;
     }
 
@@ -650,11 +672,36 @@ if (travelMode === 'rail_new') {
 
   setResultRailNew(plan);
   setResultLegacy(null);
+  setResultTeleportNew(null);
 
   // 通知地图高亮：务必传 RouteHighlightData（不要再传 Array，否则 MapContainer 会归一化为 generic）
   if (onRouteFound && raw.ok) {
     const rh = buildRouteHighlightFromIntegrated(raw, startPoint.coord, endPoint.coord, useElytra);
     if (rh) onRouteFound(rh);
+  }
+
+  return;
+}
+
+// teleport_new：直接调用增强版传送图寻路
+if (travelMode === 'teleport_new') {
+  const raw = await computeTeleportNewPlanFromCoords({
+    worldId,
+    startCoord: startPoint.coord,
+    endCoord: endPoint.coord,
+    useElytra,
+    returnToHub: {
+      enabled: returnToHubEnabled,
+      returnPointId: returnToHubEnabled ? returnPointId : undefined,
+    },
+  });
+
+  setResultTeleportNew(raw);
+  setResultLegacy(null);
+  setResultRailNew(null);
+
+  if (onRouteFound && raw.ok) {
+    onRouteFound(raw.routeHighlight);
   }
 
   return;
@@ -714,6 +761,7 @@ if (travelMode === 'rail_new') {
 
       setResultLegacy(pathResult);
       setResultRailNew(null);
+      setResultTeleportNew(null);
 
       if (onRouteFound && pathResult.found) {
         const path: Array<{ coord: Coordinate }> = [];
@@ -739,7 +787,7 @@ if (travelMode === 'rail_new') {
   // Render
   // ---------------------------
 
-  const hasResult = !!(resultLegacy || resultRailNew);
+  const hasResult = !!(resultLegacy || resultRailNew || resultTeleportNew);
 
   return (
     <AppCard className="w-full sm:w-72 max-h-[60vh] sm:max-h-[70vh] flex flex-col">
@@ -765,6 +813,7 @@ if (travelMode === 'rail_new') {
               setTravelMode(mode);
               setResultLegacy(null);
               setResultRailNew(null);
+              setResultTeleportNew(null);
             }}
           >
             <Icon className="w-4 h-4" />
@@ -783,6 +832,7 @@ if (travelMode === 'rail_new') {
                 setStartPoint(v);
                 setResultLegacy(null);
                 setResultRailNew(null);
+                setResultTeleportNew(null);
               }}
               items={searchItems}
               placeholder="输入起点（站点/地标）..."
@@ -805,6 +855,7 @@ if (travelMode === 'rail_new') {
               setEndPoint(v);
               setResultLegacy(null);
               setResultRailNew(null);
+              setResultTeleportNew(null);
             }}
             items={searchItems}
             placeholder="输入终点（站点/地标）..."
@@ -823,6 +874,7 @@ if (travelMode === 'rail_new') {
                     setPreferLessTransfer(e.target.checked);
                     setResultLegacy(null);
                     setResultRailNew(null);
+                    setResultTeleportNew(null);
                   }}
                   className="w-3 h-3"
                 />
@@ -838,6 +890,7 @@ if (travelMode === 'rail_new') {
                   setUseElytra(e.target.checked);
                   setResultLegacy(null);
                   setResultRailNew(null);
+                  setResultTeleportNew(null);
                 }}
                 className="w-3 h-3"
               />
@@ -853,6 +906,45 @@ if (travelMode === 'rail_new') {
             {searching ? '搜索中...' : '搜索'}
           </AppButton>
         </div>
+
+        {/* teleport_new：返回主城 */}
+        {travelMode === 'teleport_new' && (
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
+            <label className="flex items-center gap-1.5 cursor-pointer text-xs">
+              <input
+                type="checkbox"
+                checked={returnToHubEnabled}
+                onChange={(e) => {
+                  setReturnToHubEnabled(e.target.checked);
+                  setResultTeleportNew(null);
+                  setResultLegacy(null);
+                  setResultRailNew(null);
+                }}
+                className="w-3 h-3"
+              />
+              <span className="text-gray-600">返回主城</span>
+            </label>
+
+            {returnToHubEnabled && (
+              hubReturnPoints.length ? (
+                <select
+                  className="text-xs border rounded px-2 py-1 bg-white"
+                  value={returnPointId}
+                  onChange={(e) => {
+                    setReturnPointId(e.target.value);
+                    setResultTeleportNew(null);
+                  }}
+                >
+                  {hubReturnPoints.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-xs text-gray-500">（当前世界未配置回城点）</span>
+              )
+            )}
+          </div>
+        )}
       </div>
 
       {/* 结果区域 */}
@@ -1031,8 +1123,124 @@ if (travelMode === 'rail_new') {
             </>
           )}
 
+          {/* 新传送结果 */}
+          {travelMode === 'teleport_new' && resultTeleportNew && (
+            <>
+              {resultTeleportNew.ok ? (
+                <>
+                  <div className="bg-gray-50 rounded-lg p-3 mb-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-semibold text-gray-800">传送（新）</div>
+                      <div className="text-xs text-gray-500">
+                        到达时间 <span className="font-medium text-gray-800">{formatArrivalTime(resultTeleportNew.totalTimeSeconds)}</span>
+                      </div>
+                    </div>
+
+                    <div className="mt-2 text-xs text-gray-600">
+                      全程约 <span className="font-medium text-gray-800">{formatTime(resultTeleportNew.totalTimeSeconds)}</span>
+                      <span className="ml-3">
+                        传送 <span className="font-medium text-purple-600">{resultTeleportNew.teleportCount}</span> 次
+                      </span>
+                      {resultTeleportNew.usedHub && (
+                        <span className="ml-3">hub <span className="font-medium text-gray-800">{resultTeleportNew.usedHub}</span></span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {resultTeleportNew.segments.map((seg, idx) => {
+                      if (seg.kind === 'fly') {
+                        const Icon = useElytra ? Rocket : Footprints;
+                        return (
+                          <div key={`tpnew-fly-${idx}`} className="relative pl-5">
+                            {idx < resultTeleportNew.segments.length - 1 && (
+                              <div className="absolute left-[7px] top-5 bottom-0 w-0.5" style={{ borderLeft: '2px dashed #cbd5e1' }} />
+                            )}
+                            <div className="absolute left-0 top-0.5 w-4 h-4 rounded-full text-white flex items-center justify-center bg-green-500">
+                              <Icon className="w-2.5 h-2.5" />
+                            </div>
+                            <div className="bg-green-50 rounded p-2">
+                              <div className="text-[10px] text-green-600 font-medium mb-0.5">
+                                {useElytra ? '鞘翅飞行' : '步行'} {Math.round(seg.distance)}m
+                                <span className="text-gray-400 ml-1">({formatTime(seg.timeSeconds)})</span>
+                              </div>
+                              <div className="text-xs text-gray-800">
+                                <AppButton className="hover:underline" onClick={() => onPointClick?.(seg.from)}>
+                                  ({Math.round(seg.from.x)}, {Math.round(seg.from.z)})
+                                </AppButton>
+                                <span className="text-gray-400 mx-1">→</span>
+                                <AppButton className="hover:underline" onClick={() => onPointClick?.(seg.to)}>
+                                  ({Math.round(seg.to.x)}, {Math.round(seg.to.z)})
+                                </AppButton>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (seg.kind === 'personal_return') {
+                        return (
+                          <div key={`tpnew-ret-${idx}`} className="relative pl-5">
+                            {idx < resultTeleportNew.segments.length - 1 && (
+                              <div className="absolute left-[7px] top-5 bottom-0 w-0.5" style={{ borderLeft: '2px dashed #cbd5e1' }} />
+                            )}
+                            <div className="absolute left-0 top-0.5 w-4 h-4 rounded-full text-white flex items-center justify-center bg-orange-500">
+                              <Home className="w-2.5 h-2.5" />
+                            </div>
+                            <div className="bg-orange-50 rounded p-2">
+                              <div className="text-[10px] text-orange-600 font-medium mb-0.5">
+                                返回主城：{seg.returnPointName}
+                                <span className="text-gray-400 ml-1">({formatTime(seg.timeSeconds)})</span>
+                              </div>
+                              <div className="text-xs text-gray-800">
+                                <AppButton className="hover:underline" onClick={() => onPointClick?.(seg.to)}>
+                                  ({Math.round(seg.to.x)}, {Math.round(seg.to.z)})
+                                </AppButton>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // teleport
+                      return (
+                        <div key={`tpnew-tp-${idx}`} className="relative pl-5">
+                          {idx < resultTeleportNew.segments.length - 1 && (
+                            <div className="absolute left-[7px] top-5 bottom-0 w-0.5" style={{ borderLeft: '2px dashed #cbd5e1' }} />
+                          )}
+                          <div className="absolute left-0 top-0.5 w-4 h-4 rounded-full text-white flex items-center justify-center bg-purple-500">
+                            <Zap className="w-2.5 h-2.5" />
+                          </div>
+                          <div className="bg-purple-50 rounded p-2">
+                            <div className="text-[10px] text-purple-600 font-medium mb-0.5">
+                              传送：{seg.tpName || '传送点'}
+                              <span className="text-gray-400 ml-1">({formatTime(seg.timeSeconds)})</span>
+                            </div>
+                            <div className="text-xs text-gray-800">
+                              <AppButton className="hover:underline" onClick={() => onPointClick?.(seg.from)}>
+                                ({Math.round(seg.from.x)}, {Math.round(seg.from.z)})
+                              </AppButton>
+                              <span className="text-gray-400 mx-1">⇒</span>
+                              <AppButton className="hover:underline" onClick={() => onPointClick?.(seg.to)}>
+                                ({Math.round(seg.to.x)}, {Math.round(seg.to.z)})
+                              </AppButton>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div className="text-center text-gray-500 py-4 text-sm">
+                  {resultTeleportNew.reason || '未找到可用传送路线'}
+                </div>
+              )}
+            </>
+          )}
+
           {/* 旧模式结果 */}
-          {travelMode !== 'rail_new' && resultLegacy && (
+          {travelMode !== 'rail_new' && travelMode !== 'teleport_new' && resultLegacy && (
             <>
               {resultLegacy.found ? (
                 <>

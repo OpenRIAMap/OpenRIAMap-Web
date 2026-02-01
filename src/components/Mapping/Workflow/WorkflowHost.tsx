@@ -22,7 +22,8 @@ export type WorkflowKey =
   | 'adm_line_settlement'
   | 'adm_point_special'
   | 'bud_building'
-  | 'flr_unit';
+  | 'flr_unit'
+  | 'tpp_point';
 
 export type WorkflowPreviewKind = 'point' | 'polyline' | 'polygon';
 

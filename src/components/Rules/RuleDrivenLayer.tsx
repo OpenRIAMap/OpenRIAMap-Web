@@ -18,6 +18,8 @@ import FeatureInteractionCard from './FeatureInteractionCard';
 import { makeLabelDivIcon } from './labelStyles';
 import { createHighlightLayerForFeature, makeClickableLabelMarker, type LabelClickPlan } from './labelClickInteraction';
 
+import { filterRecordsByRuleButtons } from './ButtonRule/buttonRuleFilter';
+
 
 const FLOOR_VIEW_MIN_LEVEL = Math.max(0, DEFAULT_FLOOR_VIEW.minLevel);
 
@@ -29,6 +31,12 @@ type Props = {
   projection: DynmapProjection;
   worldId: string;
   visible: boolean;
+  /**
+   * 规则图层“分组开关”激活列表：
+   * - 由外部 UI（Rules/ButtonRule）控制
+   * - 用于从预加载池中挑选需要进入渲染/索引的要素子集
+   */
+  activeButtonIds?: string[];
 };
 
 const Y_FOR_DISPLAY = 64;
@@ -464,7 +472,7 @@ function buildRecordsFromJson(items: any[], sourceFile: string): FeatureRecord[]
 }
 
 export default function RuleDrivenLayer(props: Props) {
-  const { mapReady, map, projection, worldId, visible } = props;
+  const { mapReady, map, projection, worldId, visible, activeButtonIds = [] } = props;
 
   const rootRef = useRef<L.LayerGroup | null>(null);
   const highlightGroupRef = useRef<L.LayerGroup | null>(null);
@@ -473,6 +481,7 @@ export default function RuleDrivenLayer(props: Props) {
   const [featureCardOpen, setFeatureCardOpen] = useState(false);
 
   const cacheRef = useRef<Map<string, LayerBundle>>(new Map());
+  const allRecordsRef = useRef<FeatureRecord[]>([]);
   const recordsRef = useRef<FeatureRecord[]>([]);
   const storeRef = useRef<FeatureStore | null>(null);
 
@@ -486,6 +495,9 @@ export default function RuleDrivenLayer(props: Props) {
   // 让 React 能感知 Leaflet 的 zoom/move（否则 ctx/showFloorUI 可能停留在旧值）
 const [leafletZoomState, setLeafletZoomState] = useState<number>(() => map.getZoom());
 
+// rawDataVersion：仅代表“预加载池(allRecordsRef)更新完成”，不直接驱动渲染。
+const [rawDataVersion, setRawDataVersion] = useState(0);
+// dataVersion：代表“进入渲染/索引的数据集(recordsRef/storeRef)更新完成”，驱动后续渲染/楼层逻辑。
 const [dataVersion, setDataVersion] = useState(0);
 
 // ======== 临时挂载数据源（来自 MeasuringModule，本地存储） ========
@@ -598,38 +610,11 @@ useEffect(() => {
 
     if (cancelled) return;
 
-    // 若固定源 + 临时源均为空：保持空 store，但仍要做一次 UI 复位
-    recordsRef.current = all;
-    const store = new FeatureStore(all);
-    storeRef.current = store;
+    // 预加载池：固定源 + 临时源（用于后续按“分组开关”筛选）
+    allRecordsRef.current = all;
 
-    // (2) 重复 key 排查：Class|idField=idValue
-    const dups = store.buildDuplicateKeyReport();
-    if (dups.length) {
-      console.warn('[RuleDrivenLayer] duplicate Class+ID keys detected:', dups.map(d => d.dupKey));
-      for (const d of dups) console.warn('[RuleDrivenLayer] dupKey detail:', d);
-    }
-
-    // 新数据 → 清空缓存，让渲染逻辑重新建 layer（避免旧 layer 残留）
-    cacheRef.current.clear();
-    rootRef.current?.clearLayers();
-
-    // ✅ 保持高亮图层组始终挂载（clearLayers 会移除它）
-    if (rootRef.current) {
-      if (!highlightGroupRef.current) highlightGroupRef.current = L.layerGroup();
-      rootRef.current.addLayer(highlightGroupRef.current);
-    }
-
-    // 重置楼层态
-    setFloorOptions([]);
-    setActiveBuildingUid(null);
-    setActiveBuildingFloorRefSet(null);
-    setActiveBuildingName('');
-    setActiveFloorIndex(0);
-
-    // ✅ 关键：用 state 告诉 React “数据已就绪”
-    // ref 写入不会触发 (4)/(5) 重新跑；重启服务后常出现“数据读到但楼层/图层不刷新”
-    setDataVersion(v => v + 1);
+    // ✅ 关键：通知“预加载池已更新”（实际进入渲染/索引的数据会在后续 effect 中由开关筛选决定）
+    setRawDataVersion((v) => v + 1);
   }
 
   load();
@@ -637,6 +622,57 @@ useEffect(() => {
     cancelled = true;
   };
 }, [mapReady, worldId, tempSourceVersion]);
+
+
+// (2) “分组开关”筛选：将预加载池(allRecordsRef) → 渲染池(recordsRef/storeRef)
+// - 支持多个开关并集
+// - 交叉命中不会重复加载（最终只是一次 filter 得到的唯一 record 列表）
+// - 关闭某一开关时，仅移除其独占贡献，交叉区域若仍被其它开关覆盖则保留
+useEffect(() => {
+  if (!mapReady) return;
+
+  const all = allRecordsRef.current;
+  const filtered = filterRecordsByRuleButtons(all, activeButtonIds);
+
+  recordsRef.current = filtered;
+  const store = new FeatureStore(filtered);
+  storeRef.current = store;
+
+  // 重复 key 排查：Class|idField=idValue（仅对“进入渲染池”的集合做报告）
+  const dups = store.buildDuplicateKeyReport();
+  if (dups.length) {
+    console.warn('[RuleDrivenLayer] duplicate Class+ID keys detected:', dups.map(d => d.dupKey));
+    for (const d of dups) console.warn('[RuleDrivenLayer] dupKey detail:', d);
+  }
+
+  // 新的筛选结果 → 清空缓存，让渲染逻辑重新建 layer（避免旧 layer 残留）
+  cacheRef.current.clear();
+  rootRef.current?.clearLayers();
+
+  // ✅ 保持高亮图层组始终挂载（clearLayers 会移除它）
+  if (rootRef.current) {
+    if (!highlightGroupRef.current) highlightGroupRef.current = L.layerGroup();
+    rootRef.current.addLayer(highlightGroupRef.current);
+  }
+
+  // 选中项若被筛掉，主动清空（避免信息卡指向不存在的要素）
+  if (selectedFeature && !filtered.some((r) => r.uid === selectedFeature.uid)) {
+    highlightGroupRef.current?.clearLayers();
+    setFeatureCardOpen(false);
+    setSelectedFeature(null);
+  }
+
+  // 重置楼层态（筛选变化可能影响可用楼层/建筑）
+  setFloorOptions([]);
+  setActiveBuildingUid(null);
+  setActiveBuildingFloorRefSet(null);
+  setActiveBuildingName('');
+  setActiveFloorIndex(0);
+
+  // ✅ 关键：告诉 React “进入渲染池的数据已更新”
+  setDataVersion((v) => v + 1);
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, [mapReady, worldId, rawDataVersion, JSON.stringify(activeButtonIds)]);
 
 
   // (3) 总开关：挂载/卸载 root layerGroup

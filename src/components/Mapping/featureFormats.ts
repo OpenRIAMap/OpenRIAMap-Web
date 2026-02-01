@@ -17,9 +17,9 @@ export type WorkflowCatalogGeom = '点' | '线' | '面';
 
 export type WorkflowFeatureCatalogEntry = {
   /** 对应现有 FeatureKey（地物点/线/面） */
-  classKey: '地物点' | '地物线' | '地物面' | '建筑' | '建筑楼层';
+  classKey: '地物点' | '地物线' | '地物面' | '建筑' | '建筑楼层' | '传送点';
   /** 对应 JSON Class（三字码） */
-  classCode: 'ISP' | 'ISL' | 'ISG' | 'BUD' | 'FLR';
+  classCode: 'ISP' | 'ISL' | 'ISG' | 'BUD' | 'FLR' | 'TPP';
   /** 对应绘制模式 */
   drawMode: 'point' | 'polyline' | 'polygon';
 
@@ -72,6 +72,11 @@ export const WORKFLOW_FEATURE_CATALOG: WorkflowFeatureCatalogEntry[] = [
   { classKey: '建筑', classCode: 'BUD', drawMode: 'polygon', kind: 'SPE', skind: 'SPE', skind2: '', name: '特殊', geom: '面' },
   { classKey: '建筑楼层', classCode: 'FLR', drawMode: 'polygon', kind: 'NOM', skind: 'NOM', skind2: '', name: '默认', geom: '面' },
   { classKey: '建筑楼层', classCode: 'FLR', drawMode: 'polygon', kind: 'SPE', skind: 'SPE', skind2: '', name: '特殊', geom: '面' },
+
+
+  // ===== 传送点 Teleport Point（TPP）=====
+  { classKey: '传送点', classCode: 'TPP', drawMode: 'point', kind: 'NOM', skind: 'NOM', skind2: '', name: '默认', geom: '点' },
+  { classKey: '传送点', classCode: 'TPP', drawMode: 'point', kind: 'SPE', skind: 'SPE', skind2: '', name: '特殊', geom: '点' },
 
 ];
 
@@ -189,6 +194,7 @@ export type FeatureKey =
   | '车站建筑'
   | '车站建筑点'
   | '车站建筑楼层'
+  | '传送点'
   | '地物点'
   | '地物线'
   | '地物面'
@@ -208,6 +214,7 @@ export type ImportFormat =
   | '车站建筑'
   | '车站建筑点'
   | '车站建筑楼层'
+  | '传送点'
   | '地物点'
   | '地物线'
   | '地物面'
@@ -584,6 +591,7 @@ const CLASS_CODE_BY_FEATURE: Partial<Record<FeatureKey, string>> = {
   车站建筑楼层: 'STF',
   站台轮廓:'PFB',
   车站建筑点: 'SBP',
+  传送点: 'TPP',
   地物点: 'ISP',
   地物线: 'ISL',
   地物面: 'ISG',
@@ -1597,6 +1605,108 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       // 兼容旧 STF：允许缺省 staBuildingID（新建/编辑会在必填校验中要求）
       if (!Array.isArray((item as any).Flrpoints) || (item as any).Flrpoints.length < 3) return 'Flrpoints 必须是数组且至少 3 点';
       return;
+    },
+  },
+
+  // ===== 传送点 Teleport Point (TPP) =====
+  传送点: {
+    key: '传送点',
+    label: '传送点',
+    modes: ['point'],
+    hideTempOutput: true,
+    classCode: CLASS_CODE_BY_FEATURE['传送点'], // TPP
+    fields: [
+      { key: 'TPPointID', label: '传送点ID(TPPointID)', type: 'text' },
+      { key: 'TPPointName', label: '传送点名(TPPointName)', type: 'text' },
+      { key: 'TPPointKind', label: '类型(TPPointKind)', type: 'text' },
+      { key: 'TPPointSKind', label: '子类型(TPPointSKind)', type: 'text' },
+      { key: 'TPPointSKind2', label: '三级子类型(TPPointSKind2)', type: 'text', optional: true },
+
+      { key: 'hub', label: '枢纽(hub)', type: 'text', optional: true },
+
+      // 目标坐标：用表单两个字段录入，buildFeatureInfo 组装为 TGTcoordinate
+      { key: 'TGT_x', label: '目标点X(TGT_x)', type: 'number' },
+      { key: 'TGT_z', label: '目标点Z(TGT_z)', type: 'number' },
+
+      { key: 'elevation', label: '传送点高度(y)', type: 'number', optional: true },
+      { key: 'TGTelevation', label: '目标点高度(TGTelevation)', type: 'number', optional: true },
+    ],
+    groups: [],
+    buildFeatureInfo: ({ op, mode, coords, values, groups, worldId, editorId, prevFeatureInfo, now }) => {
+      const base = pickByFields(values, FORMAT_REGISTRY['传送点'].fields);
+      const p0 = coords[0];
+
+      const tags = buildTagsFromGroupItems(groups?.tags);
+      const extensions = buildExtensionsFromGroupItems(groups?.extensions);
+
+      const TGT_x = Number((values as any).TGT_x);
+      const TGT_z = Number((values as any).TGT_z);
+
+      const out: any = {
+        ...base,
+        // 坐标
+        coordinate: { x: p0?.x ?? 0, z: p0?.z ?? 0 },
+        // 目标坐标
+        TGTcoordinate: { x: TGT_x, z: TGT_z },
+        // 可选字段
+        elevation: isFiniteNum((values as any).elevation) ? Number((values as any).elevation) : undefined,
+        TGTelevation: isFiniteNum((values as any).TGTelevation) ? Number((values as any).TGTelevation) : undefined,
+        hub: String((values as any).hub ?? '').trim() || undefined,
+        tags,
+        extensions,
+      };
+
+      // 清理表单临时字段
+      delete out.TGT_x;
+      delete out.TGT_z;
+
+      return withSystemFields(FORMAT_REGISTRY['传送点'], out, { op, mode, worldId, editorId, prevFeatureInfo, now });
+    },
+    hydrate: (featureInfo) => {
+      const tgt = featureInfo?.TGTcoordinate ?? featureInfo?.tgtCoordinate ?? featureInfo?.targetCoordinate;
+      const hub = featureInfo?.hub ?? featureInfo?.tags?.hub ?? '';
+      return {
+        values: {
+          TPPointID: featureInfo?.TPPointID ?? featureInfo?.tpPointID ?? featureInfo?.id ?? '',
+          TPPointName: featureInfo?.TPPointName ?? featureInfo?.tpPointName ?? featureInfo?.name ?? '',
+          TPPointKind: featureInfo?.TPPointKind ?? featureInfo?.tpPointKind ?? '',
+          TPPointSKind: featureInfo?.TPPointSKind ?? featureInfo?.tpPointSKind ?? '',
+          TPPointSKind2: featureInfo?.TPPointSKind2 ?? featureInfo?.tpPointSKind2 ?? '',
+          hub: hub ?? '',
+          TGT_x: isFiniteNum(tgt?.x) ? Number(tgt.x) : '',
+          TGT_z: isFiniteNum(tgt?.z) ? Number(tgt.z) : '',
+          elevation: featureInfo?.elevation ?? '',
+          TGTelevation: featureInfo?.TGTelevation ?? '',
+        },
+        groups: {
+          tags: flattenTagsToGroupItems(featureInfo?.tags),
+          extensions: flattenExtensionsToGroupItems(featureInfo?.extensions),
+        },
+      };
+    },
+    coordsFromFeatureInfo: (featureInfo) => {
+      const c = featureInfo?.coordinate;
+      if (!c) return [];
+      const x = Number(c.x);
+      const z = Number(c.z);
+      if (!isFiniteNum(x) || !isFiniteNum(z)) return [];
+      return [{ x, z }];
+    },
+    validateImportItem: (item) => {
+      if (!item || typeof item !== 'object') return '不是对象';
+      const id = String((item as any).TPPointID ?? (item as any).tpPointID ?? '').trim();
+      if (!id) return '缺少 TPPointID';
+      const name = String((item as any).TPPointName ?? (item as any).tpPointName ?? '').trim();
+      if (!name) return '缺少 TPPointName';
+      if (!String((item as any).TPPointKind ?? '').trim()) return '缺少 TPPointKind';
+      if (!String((item as any).TPPointSKind ?? '').trim()) return '缺少 TPPointSKind';
+      if (!(item as any).coordinate || !isFiniteNum((item as any).coordinate.x) || !isFiniteNum((item as any).coordinate.z)) {
+        return '缺少合法 coordinate.x / coordinate.z';
+      }
+      if (!(item as any).TGTcoordinate || !isFiniteNum((item as any).TGTcoordinate.x) || !isFiniteNum((item as any).TGTcoordinate.z)) {
+        return '缺少合法 TGTcoordinate.x / TGTcoordinate.z';
+      }
+      return validateOptionalTagExtSoft(item);
     },
   },
 

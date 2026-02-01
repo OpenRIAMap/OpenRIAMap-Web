@@ -74,6 +74,7 @@ import SettlementBoundaryLineWorkflow from '@/components/Mapping/Workflow/Settle
 import SpecialCulturalPointWorkflow from '@/components/Mapping/Workflow/SpecialCulturalPointWorkflow';
 import BuildingWorkflow from '@/components/Mapping/Workflow/BuildingWorkflow';
 import FloorUnitWorkflow from '@/components/Mapping/Workflow/FloorUnitWorkflow';
+import TeleportPointWorkflow from '@/components/Mapping/Workflow/TeleportPointWorkflow';
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
 
@@ -2669,6 +2670,7 @@ const workflowRegistry: WorkflowRegistry = {
   adm_point_special: SpecialCulturalPointWorkflow,
   bud_building: BuildingWorkflow,
   flr_unit: FloorUnitWorkflow,
+  tpp_point: TeleportPointWorkflow,
 };
 
 const stopWorkflowToSelector = () => {
@@ -3357,6 +3359,7 @@ const rightDockNode = (
       <option value="adm_point_special">特殊人文点要素</option>
       <option value="bud_building">建筑</option>
       <option value="flr_unit">楼内单元</option>
+      <option value="tpp_point">传送点</option>
     </select>
 
     <AppButton

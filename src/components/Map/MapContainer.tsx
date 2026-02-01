@@ -32,6 +32,8 @@ import MeasuringModule, { type MeasuringModuleHandle } from '@/components/Mappin
 import MeasurementToolsModule from '@/components/Mapping/Mtools';
 
 import RuleDrivenLayer from '@/components/Rules/RuleDrivenLayer';
+import RuleButtonPanel from '@/components/Rules/ButtonRule/RuleButtonPanel';
+import { useRuleButtonState } from '@/components/Rules/ButtonRule/ruleButtonState';
 
 import { formatGridNumber, snapWorldPointByMode } from '@/components/Mapping/GridSnapModeSwitch';
 import AppButton from '@/components/ui/AppButton';
@@ -90,7 +92,9 @@ function MapContainer() {
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [measuringCloseSignal, setMeasuringCloseSignal] = useState(0);
   const [measureToolsCloseSignal, setMeasureToolsCloseSignal] = useState(0);
-  const [showRuleLayers, setShowRuleLayers] = useState(true);
+
+  // 规则图层“分组开关”（按 world 维度持久化）
+  const { activeButtonIds: activeRuleButtonIds, toggle: toggleRuleButton } = useRuleButtonState(currentWorld);
 
   // 面板 z-index 管理（用于置顶）
 const [panelZIndexes, setPanelZIndexes] = useState<Record<string, number>>({
@@ -577,7 +581,8 @@ map.on('mousemove', handleMouseMove);
           map={leafletMapRef.current}
           projection={projectionRef.current}
           worldId={currentWorld}
-          visible={showRuleLayers}
+          visible={true}
+          activeButtonIds={activeRuleButtonIds}
         />
       )}
 
@@ -910,20 +915,25 @@ map.on('mousemove', handleMouseMove);
 
       {/* 右侧图层控制 - 手机端右下角版权上方，桌面端右上角 */}
       <div className="absolute bottom-8 right-2 sm:top-4 sm:bottom-auto sm:right-4 z-[1000]">
-        <LayerControl
-          showRailway={showRailway}
-          showLandmark={showLandmark}
-          showPlayers={showPlayers}
-          showRuleLayers={showRuleLayers}
-          dimBackground={dimBackground}
-          mapStyle={mapStyle}
-          onToggleRailway={setShowRailway}
-          onToggleLandmark={setShowLandmark}
-          onTogglePlayers={setShowPlayers}
-          onToggleRuleLayers={(show) => setShowRuleLayers(show)}
-          onToggleDimBackground={setDimBackground}
-          onToggleMapStyle={setMapStyle}
-        >
+        <div className="flex items-start gap-2">
+          {/* 规则图层分组开关（放在原八个按键组左侧） */}
+          <RuleButtonPanel
+            activeButtonIds={activeRuleButtonIds}
+            onToggle={toggleRuleButton}
+          />
+
+          <LayerControl
+            showRailway={showRailway}
+            showLandmark={showLandmark}
+            showPlayers={showPlayers}
+            dimBackground={dimBackground}
+            mapStyle={mapStyle}
+            onToggleRailway={setShowRailway}
+            onToggleLandmark={setShowLandmark}
+            onTogglePlayers={setShowPlayers}
+            onToggleDimBackground={setDimBackground}
+            onToggleMapStyle={setMapStyle}
+          >
           <MeasurementToolsModule
             mapReady={mapReady}
             leafletMapRef={leafletMapRef}
@@ -942,7 +952,8 @@ map.on('mousemove', handleMouseMove);
             onBecameActive={() => setMeasureToolsCloseSignal(v => v + 1)}
             launcherSlot={(launcher) => <div className="hidden sm:block">{launcher}</div>}
           />
-        </LayerControl>
+          </LayerControl>
+        </div>
       </div>
 
       {/* 路径高亮图层 */}
