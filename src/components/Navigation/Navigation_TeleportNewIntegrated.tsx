@@ -216,7 +216,9 @@ async function loadTeleportPoints(worldId: string, opt: {
     return [];
   }
 
-  const out: TeleportPoint[] = [];
+  // 先收集所有 WRP（用于 TGTWarp 解析），再解析 TPP
+  const wrpMap = new Map<string, { coord: Coordinate; elevation?: number }>();
+  const tppRaw: any[] = [];
 
   for (const f of files) {
     const url = `${ds.baseUrl}/${f}`;
@@ -231,25 +233,65 @@ async function loadTeleportPoints(worldId: string, opt: {
     for (const item of arr) {
       if (!item || typeof item !== 'object') continue;
       const cls = String((item as any).Class ?? (item as any).class ?? '').trim();
-      if (cls !== 'TPP') continue;
 
-      const id = String((item as any).TPPointID ?? (item as any).tpPointID ?? '').trim();
-      const name = String((item as any).TPPointName ?? (item as any).tpPointName ?? id).trim();
-      const hub = String((item as any).hub ?? (item as any).tags?.hub ?? '').trim() || undefined;
+      if (cls === 'WRP') {
+        const i2d = String((item as any).WRPointI2D ?? (item as any).wrPointI2D ?? '').trim();
+        const c = (item as any).coordinate;
+        if (!i2d || !c) continue;
+        if (!isFiniteNum(c.x) || !isFiniteNum(c.z)) continue;
 
-      const c = (item as any).coordinate;
-      const t = (item as any).TGTcoordinate ?? (item as any).tgtCoordinate ?? (item as any).targetCoordinate;
-      if (!c || !t) continue;
-      if (!isFiniteNum(c.x) || !isFiniteNum(c.z) || !isFiniteNum(t.x) || !isFiniteNum(t.z)) continue;
+        const elev = (item as any).elevation;
+        const y = isFiniteNum(elev) ? Number(elev) : DEFAULT_Y;
+        // Coordinate 类型要求 y 为 number；当未提供时用 DEFAULT_Y
+        wrpMap.set(i2d, { coord: normCoord({ x: c.x, z: c.z, y }), elevation: y });
+        continue;
+      }
 
-      out.push({
-        id,
-        name,
-        hub,
-        src: normCoord({ x: Number(c.x), z: Number(c.z), y: (item as any).elevation }),
-        tgt: normCoord({ x: Number(t.x), z: Number(t.z), y: (item as any).TGTelevation }),
-      });
+      if (cls === 'TPP') {
+        tppRaw.push(item);
+      }
     }
+  }
+
+  const out: TeleportPoint[] = [];
+
+  for (const item of tppRaw) {
+    const id = String((item as any).TPPointID ?? (item as any).tpPointID ?? '').trim();
+    const name = String((item as any).TPPointName ?? (item as any).tpPointName ?? id).trim();
+    const hub = String((item as any).hub ?? (item as any).tags?.hub ?? '').trim() || undefined;
+
+    const c = (item as any).coordinate;
+    if (!c || !isFiniteNum(c.x) || !isFiniteNum(c.z)) continue;
+
+    // 目标解析优先级：
+    // 1) TGTWarp -> WRP.WRPointI2D
+    // 2) TGTcoordinate (+ TGTelevation)
+    const warp = String((item as any).TGTWarp ?? (item as any).tgtWarp ?? '').trim();
+    let tgt: Coordinate | null = null;
+
+    if (warp && wrpMap.has(warp)) {
+      tgt = wrpMap.get(warp)!.coord;
+    } else {
+      const t = (item as any).TGTcoordinate ?? (item as any).tgtCoordinate ?? (item as any).targetCoordinate;
+      if (t && isFiniteNum(t.x) && isFiniteNum(t.z)) {
+        const te = (item as any).TGTelevation;
+        const ty = isFiniteNum(te) ? Number(te) : DEFAULT_Y;
+        tgt = normCoord({ x: t.x, z: t.z, y: ty });
+      }
+    }
+
+    if (!tgt) continue;
+
+    const srcElev = (item as any).elevation;
+    const srcY = isFiniteNum(srcElev) ? Number(srcElev) : DEFAULT_Y;
+
+    out.push({
+      id,
+      name,
+      hub,
+      src: normCoord({ x: c.x, z: c.z, y: srcY }),
+      tgt,
+    });
   }
 
   TPP_CACHE[worldId] = { points: out, loadedAt: Date.now(), key: cacheKey };

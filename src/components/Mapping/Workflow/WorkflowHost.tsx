@@ -12,6 +12,8 @@ export type WorldPoint = { x: number; z: number; y?: number };
 export type WorkflowKey =
   | 'railway'
   | 'station'
+  | 'tpp_point'
+  | 'wrp_point'
   | 'ngf_land'
   | 'ngf_lis'
   | 'ngf_wtb'
@@ -22,8 +24,7 @@ export type WorkflowKey =
   | 'adm_line_settlement'
   | 'adm_point_special'
   | 'bud_building'
-  | 'flr_unit'
-  | 'tpp_point';
+  | 'flr_unit';
 
 export type WorkflowPreviewKind = 'point' | 'polyline' | 'polygon';
 

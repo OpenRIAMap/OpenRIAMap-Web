@@ -75,6 +75,7 @@ import SpecialCulturalPointWorkflow from '@/components/Mapping/Workflow/SpecialC
 import BuildingWorkflow from '@/components/Mapping/Workflow/BuildingWorkflow';
 import FloorUnitWorkflow from '@/components/Mapping/Workflow/FloorUnitWorkflow';
 import TeleportPointWorkflow from '@/components/Mapping/Workflow/TeleportPointWorkflow';
+import WarpPointWorkflow from '@/components/Mapping/Workflow/WarpPointWorkflow';
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
 
@@ -2659,6 +2660,8 @@ const handleDrawModeButtonClick = (m: 'point' | 'polyline' | 'polygon') => {
 const workflowRegistry: WorkflowRegistry = {
   railway: RailwayWorkflow,
   station: StationWorkflow,
+  tpp_point: TeleportPointWorkflow,
+  wrp_point: WarpPointWorkflow,
   ngf_land: NaturalLandWorkflow,
   ngf_lis: NaturalLandSurfaceWorkflow,
   ngf_wtb: NaturalWaterbodyWorkflow,
@@ -2670,7 +2673,6 @@ const workflowRegistry: WorkflowRegistry = {
   adm_point_special: SpecialCulturalPointWorkflow,
   bud_building: BuildingWorkflow,
   flr_unit: FloorUnitWorkflow,
-  tpp_point: TeleportPointWorkflow,
 };
 
 const stopWorkflowToSelector = () => {
@@ -3348,6 +3350,8 @@ const rightDockNode = (
     >
       <option value="railway">铁路</option>
       <option value="station">车站和站台</option>
+      <option value="tpp_point">传送点</option>
+      <option value="wrp_point">Warp点</option>
       <option value="ngf_land">自然要素-陆地</option>
       <option value="ngf_lis">自然要素-陆面要素</option>
       <option value="ngf_wtb">自然要素-水域</option>
@@ -3359,7 +3363,6 @@ const rightDockNode = (
       <option value="adm_point_special">特殊人文点要素</option>
       <option value="bud_building">建筑</option>
       <option value="flr_unit">楼内单元</option>
-      <option value="tpp_point">传送点</option>
     </select>
 
     <AppButton

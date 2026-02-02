@@ -2,8 +2,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkflowComponentProps, WorldPoint } from './WorkflowHost';
 import AppButton from '@/components/ui/AppButton';
-import { EXT_VALUE_TYPE_TEXT, listCatalogClassOptions } from '@/components/Mapping/featureFormats';
+import { EXT_VALUE_TYPE_TEXT, listCatalogClassOptions, type FeatureKey } from '@/components/Mapping/featureFormats';
 import { listHubReturnPoints, type HubReturnPoint } from '@/components/Navigation/teleportHubReturnPoints';
+import { RULE_DATA_SOURCES } from '@/components/Rules/ruleDataSources';
 
 /**
  * TeleportPointWorkflow（工作流：传送点）
@@ -35,6 +36,11 @@ type InfoForm = {
   uadm?: string; // 所属聚落(地标点)
   uadmg?: string; // 所属聚落(区划)
   wiki?: string; // wiki链接
+
+  // NEW: 目标 Warp 点（可选）
+  tgtWarpText?: string; // 输入文本
+  tgtWarpI2D?: string; // 选中的 WRPointI2D（写入 TGTWarp）
+  tgtWarpName?: string; // 仅用于显示
 };
 
 const WORLD_ID_TO_CODE: Record<string, number> = {
@@ -69,7 +75,7 @@ function resolveWorldPrefix(worldIdRaw: string): string {
   return 'Z';
 }
 
-function nonEmpty(s: string) {
+function nonEmpty(s: string | undefined | null) {
   return String(s ?? '').trim().length > 0;
 }
 
@@ -93,6 +99,67 @@ function toNumOrUndefined(raw: string) {
   return Number.isFinite(n) ? n : undefined;
 }
 
+
+
+// =====================
+// WRP pool loader (for typeahead)
+// =====================
+
+type WarpOption = { i2d: string; name: string };
+
+const WRP_POOL_CACHE: Record<string, WarpOption[]> = {};
+
+async function fetchJsonArray(url: string): Promise<any[]> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`fetch failed: ${res.status} ${url}`);
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
+async function loadWarpPool(worldId: string): Promise<WarpOption[]> {
+  const cached = WRP_POOL_CACHE[worldId];
+  if (cached) return cached;
+
+  const ds = (RULE_DATA_SOURCES as any)?.[worldId];
+  if (!ds || !ds.baseUrl || !Array.isArray(ds.files)) {
+    WRP_POOL_CACHE[worldId] = [];
+    return [];
+  }
+
+  const out: WarpOption[] = [];
+  for (const f of ds.files as string[]) {
+    const url = `${ds.baseUrl}/${f}`;
+    let arr: any[] = [];
+    try {
+      arr = await fetchJsonArray(url);
+    } catch {
+      continue;
+    }
+    for (const item of arr) {
+      if (!item || typeof item !== 'object') continue;
+      const cls = String((item as any).Class ?? (item as any).class ?? '').trim();
+      if (cls !== 'WRP') continue;
+
+      const i2d = String((item as any).WRPointI2D ?? (item as any).wrPointI2D ?? '').trim();
+      const name = String((item as any).WRPointName ?? (item as any).wrPointName ?? i2d).trim();
+      if (!i2d || !name) continue;
+      out.push({ i2d, name });
+    }
+  }
+
+  // 去重（以 i2d 为主键）
+  const map = new Map<string, WarpOption>();
+  for (const o of out) map.set(o.i2d, o);
+  const list = Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'));
+
+  WRP_POOL_CACHE[worldId] = list;
+  return list;
+}
+
+function matchWarp(o: WarpOption, q: string) {
+  const s = q.toLowerCase();
+  return o.i2d.toLowerCase().includes(s) || o.name.toLowerCase().includes(s);
+}
 type TopNavProps = {
   title: string;
   showPrev?: boolean;
@@ -188,6 +255,9 @@ export default function TeleportPointWorkflow(props: WorkflowComponentProps) {
     uadm: '',
     uadmg: '',
     wiki: '',
+    tgtWarpText: '',
+    tgtWarpI2D: '',
+    tgtWarpName: '',
   });
 
   // Page 3/4 points
@@ -223,6 +293,41 @@ export default function TeleportPointWorkflow(props: WorkflowComponentProps) {
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
   }, [worldId]);
+
+  // warp 点检索池（当前世界预挂载的 WRP 要素）
+  const [warpPool, setWarpPool] = useState<WarpOption[]>([]);
+  const [warpPoolError, setWarpPoolError] = useState<string>('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setWarpPool([]);
+    setWarpPoolError('');
+
+    loadWarpPool(worldId)
+      .then((list) => {
+        if (cancelled) return;
+        setWarpPool(list);
+      })
+      .catch((e: any) => {
+        if (cancelled) return;
+        setWarpPoolError(String(e?.message ?? e ?? '加载失败'));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [worldId]);
+
+  const useWarpTarget = useMemo(() => nonEmpty(info.tgtWarpI2D), [info.tgtWarpI2D]);
+
+  const warpQuery = useMemo(() => String(info.tgtWarpText ?? '').trim(), [info.tgtWarpText]);
+
+  const warpSuggestions = useMemo(() => {
+    const q = warpQuery.trim();
+    if (!q) return [];
+    return warpPool.filter((p) => matchWarp(p, q)).slice(0, 20);
+  }, [warpQuery, warpPool]);
+
 
   // ----- step enter effects -----
   useEffect(() => {
@@ -273,10 +378,81 @@ export default function TeleportPointWorkflow(props: WorkflowComponentProps) {
     if (!p0) return;
     setSrcPoint(p0);
     bridgeRef.current.clearTempPoints();
+
+    // 若选择了 Warp 目标，则直接保存（跳过目标坐标页）
+    if (useWarpTarget) {
+      commitFromSrcWithWarp(p0);
+      return;
+    }
+
     setStep('tgt');
   };
 
-  const commit = () => {
+  
+  const commitFromSrcWithWarp = (p0: WorldPoint) => {
+    setSaving(true);
+    setSaveError('');
+
+    try {
+      const kind = String(selected?.kind ?? '').trim();
+      const skind = String(selected?.skind ?? '').trim();
+
+      const abbr = abbrNormalized;
+      const tpId = `${worldPrefix}TPP${kind}${skind}_${abbr}`;
+
+      const srcY = Number.isFinite(p0.y as any) ? Number(p0.y) : undefined;
+      const elevation = srcY ?? toNumOrUndefined(srcElevInput);
+
+      const tags: Array<{ tagKey: string; tagValue: string }> = [];
+      const land = String(info.land ?? '').trim();
+      const uadm = String(info.uadm ?? '').trim();
+      const uadmg = String(info.uadmg ?? '').trim();
+      if (land) tags.push({ tagKey: 'Land', tagValue: land });
+      if (uadm) tags.push({ tagKey: 'UAdm', tagValue: uadm });
+      if (uadmg) tags.push({ tagKey: 'UAdmG', tagValue: uadmg });
+
+      const wiki = String(info.wiki ?? '').trim();
+      const extensions: Array<{ extGroup: string; extKey: string; extType: any; extValue: string }> = [];
+      if (wiki) extensions.push({ extGroup: 'link', extKey: 'wiki', extType: EXT_VALUE_TYPE_TEXT, extValue: wiki });
+
+      const tgtWarpI2D = String(info.tgtWarpI2D ?? '').trim();
+      if (!tgtWarpI2D) {
+        setSaveError('未选择目标 Warp 点');
+        return;
+      }
+
+      const res = bridgeRef.current.commitFeature({
+        subType: '传送点' as FeatureKey,
+        mode: 'point',
+        coords: [{ x: p0.x, z: p0.z, y: p0.y }],
+        editorId: creatorId.trim(),
+        values: {
+          TPPointID: tpId,
+          TPPointName: String(info.name ?? '').trim(),
+          TPPointKind: kind,
+          TPPointSKind: skind,
+          hub: String(info.hub ?? '').trim() || '',
+          elevation: elevation ?? '',
+          TGTWarp: tgtWarpI2D,
+        },
+        groupInfo: { tags, extensions },
+      });
+
+      if (!res.ok) {
+        setSaveError(res.error || '保存失败');
+        return;
+      }
+
+      bridgeRef.current.clearTempPoints();
+      bridgeRef.current.exitWorkflowToSelector();
+    } catch (e: any) {
+      setSaveError(String(e?.message ?? e ?? '保存失败'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+const commit = () => {
     if (!srcPoint) return;
 
     const pTgt = firstPointOnly(draftPoint)[0];
@@ -455,6 +631,60 @@ export default function TeleportPointWorkflow(props: WorkflowComponentProps) {
             placeholder="https://..."
             onChange={(v) => setInfo((prev) => ({ ...prev, wiki: v }))}
           />
+
+          {/* NEW: 目标 Warp 点（可选） */}
+          <div className="space-y-1">
+            <div className="text-xs opacity-80">目标Warp点(若有)（可选，将写入 TGTWarp；填写后将跳过“目标点坐标”页面）</div>
+            <input
+              className="w-full border p-1 rounded text-sm"
+              value={String(info.tgtWarpText ?? '')}
+              placeholder="输入关键词检索：可匹配 WRPointName 或 WRPointI2D"
+              onChange={(e) => {
+                const v = e.target.value;
+                setInfo((prev) => ({
+                  ...prev,
+                  tgtWarpText: v,
+                  // 只要用户手动改动，就清空选中值，避免“假选中”
+                  tgtWarpI2D: '',
+                  tgtWarpName: '',
+                }));
+              }}
+              onMouseDownCapture={(e) => e.stopPropagation()}
+              onPointerDownCapture={(e) => e.stopPropagation()}
+              onTouchStartCapture={(e) => e.stopPropagation()}
+            />
+
+            {warpPoolError ? <div className="text-xs text-rose-600">Warp点列表加载失败：{warpPoolError}</div> : null}
+
+            {warpSuggestions.length ? (
+              <div className="border rounded bg-white max-h-40 overflow-auto">
+                {warpSuggestions.map((p) => (
+                  <button
+                    key={p.i2d}
+                    type="button"
+                    className="w-full text-left px-2 py-1 text-sm hover:bg-gray-50"
+                    onClick={() => {
+                      setInfo((prev) => ({
+                        ...prev,
+                        tgtWarpText: `${p.name}(${p.i2d})`,
+                        tgtWarpI2D: p.i2d,
+                        tgtWarpName: p.name,
+                      }));
+                    }}
+                  >
+                    {p.name}(<span className="font-mono">{p.i2d}</span>)
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            {useWarpTarget ? (
+              <div className="text-xs text-gray-600">
+                已选择：<span className="font-mono">{String(info.tgtWarpI2D)}</span>（之后将优先以该 Warp 点坐标作为目标点）
+              </div>
+            ) : null}
+          </div>
+
 
           <div className="text-xs text-gray-600">
             生成 ID 规则：<span className="font-mono">{worldPrefix}TPP{selected?.kind ?? '??'}{selected?.skind ?? '??'}_{abbrNormalized || '??'}</span>

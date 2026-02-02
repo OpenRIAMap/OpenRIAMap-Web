@@ -17,9 +17,9 @@ export type WorkflowCatalogGeom = '点' | '线' | '面';
 
 export type WorkflowFeatureCatalogEntry = {
   /** 对应现有 FeatureKey（地物点/线/面） */
-  classKey: '地物点' | '地物线' | '地物面' | '建筑' | '建筑楼层' | '传送点';
+  classKey: '地物点' | '地物线' | '地物面' | '建筑' | '建筑楼层' | '传送点' | 'Warp点';
   /** 对应 JSON Class（三字码） */
-  classCode: 'ISP' | 'ISL' | 'ISG' | 'BUD' | 'FLR' | 'TPP';
+  classCode: 'ISP' | 'ISL' | 'ISG' | 'BUD' | 'FLR' | 'TPP' | 'WRP';
   /** 对应绘制模式 */
   drawMode: 'point' | 'polyline' | 'polygon';
 
@@ -77,6 +77,10 @@ export const WORKFLOW_FEATURE_CATALOG: WorkflowFeatureCatalogEntry[] = [
   // ===== 传送点 Teleport Point（TPP）=====
   { classKey: '传送点', classCode: 'TPP', drawMode: 'point', kind: 'NOM', skind: 'NOM', skind2: '', name: '默认', geom: '点' },
   { classKey: '传送点', classCode: 'TPP', drawMode: 'point', kind: 'SPE', skind: 'SPE', skind2: '', name: '特殊', geom: '点' },
+
+  // ===== Warp点 Warp Point（WRP）=====
+  { classKey: 'Warp点', classCode: 'WRP', drawMode: 'point', kind: 'NOM', skind: 'NOM', skind2: '', name: '默认', geom: '点' },
+  { classKey: 'Warp点', classCode: 'WRP', drawMode: 'point', kind: 'SPE', skind: 'SPE', skind2: '', name: '特殊', geom: '点' },
 
 ];
 
@@ -195,6 +199,7 @@ export type FeatureKey =
   | '车站建筑点'
   | '车站建筑楼层'
   | '传送点'
+  | 'Warp点'
   | '地物点'
   | '地物线'
   | '地物面'
@@ -215,6 +220,7 @@ export type ImportFormat =
   | '车站建筑点'
   | '车站建筑楼层'
   | '传送点'
+  | 'Warp点'
   | '地物点'
   | '地物线'
   | '地物面'
@@ -592,6 +598,7 @@ const CLASS_CODE_BY_FEATURE: Partial<Record<FeatureKey, string>> = {
   站台轮廓:'PFB',
   车站建筑点: 'SBP',
   传送点: 'TPP',
+  Warp点: 'WRP',
   地物点: 'ISP',
   地物线: 'ISL',
   地物面: 'ISG',
@@ -1625,8 +1632,11 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       { key: 'hub', label: '枢纽(hub)', type: 'text', optional: true },
 
       // 目标坐标：用表单两个字段录入，buildFeatureInfo 组装为 TGTcoordinate
-      { key: 'TGT_x', label: '目标点X(TGT_x)', type: 'number' },
-      { key: 'TGT_z', label: '目标点Z(TGT_z)', type: 'number' },
+      { key: 'TGTWarp', label: '目标Warp(TGTWarp)', type: 'text', optional: true },
+
+      // 目标坐标：用表单两个字段录入，buildFeatureInfo 组装为 TGTcoordinate
+      { key: 'TGT_x', label: '目标点X(TGT_x)', type: 'number', optional: true },
+      { key: 'TGT_z', label: '目标点Z(TGT_z)', type: 'number', optional: true },
 
       { key: 'elevation', label: '传送点高度(y)', type: 'number', optional: true },
       { key: 'TGTelevation', label: '目标点高度(TGTelevation)', type: 'number', optional: true },
@@ -1639,15 +1649,22 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       const tags = buildTagsFromGroupItems(groups?.tags);
       const extensions = buildExtensionsFromGroupItems(groups?.extensions);
 
-      const TGT_x = Number((values as any).TGT_x);
-      const TGT_z = Number((values as any).TGT_z);
+      const TGTWarp = String((values as any).TGTWarp ?? '').trim();
+      const TGT_x = isFiniteNum((values as any).TGT_x) ? Number((values as any).TGT_x) : undefined;
+      const TGT_z = isFiniteNum((values as any).TGT_z) ? Number((values as any).TGT_z) : undefined;
+
+      if (!TGTWarp && !(Number.isFinite(TGT_x as any) && Number.isFinite(TGT_z as any))) {
+        throw new Error('缺少目标Warp或目标点坐标');
+      }
 
       const out: any = {
         ...base,
         // 坐标
         coordinate: { x: p0?.x ?? 0, z: p0?.z ?? 0 },
-        // 目标坐标
-        TGTcoordinate: { x: TGT_x, z: TGT_z },
+        // 目标：优先 Warp（仅记录 ID；实际坐标可在导航层解析）
+        ...(TGTWarp ? { TGTWarp } : {}),
+        // 目标坐标（可选；当未填写 Warp 时必须提供）
+        ...(Number.isFinite(TGT_x as any) && Number.isFinite(TGT_z as any) ? { TGTcoordinate: { x: TGT_x, z: TGT_z } } : {}),
         // 可选字段
         elevation: isFiniteNum((values as any).elevation) ? Number((values as any).elevation) : undefined,
         TGTelevation: isFiniteNum((values as any).TGTelevation) ? Number((values as any).TGTelevation) : undefined,
@@ -1659,6 +1676,7 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       // 清理表单临时字段
       delete out.TGT_x;
       delete out.TGT_z;
+      if (!String((out as any).TGTWarp ?? '').trim()) delete (out as any).TGTWarp;
 
       return withSystemFields(FORMAT_REGISTRY['传送点'], out, { op, mode, worldId, editorId, prevFeatureInfo, now });
     },
@@ -1673,6 +1691,7 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
           TPPointSKind: featureInfo?.TPPointSKind ?? featureInfo?.tpPointSKind ?? '',
           TPPointSKind2: featureInfo?.TPPointSKind2 ?? featureInfo?.tpPointSKind2 ?? '',
           hub: hub ?? '',
+          TGTWarp: featureInfo?.TGTWarp ?? featureInfo?.tgtWarp ?? '',
           TGT_x: isFiniteNum(tgt?.x) ? Number(tgt.x) : '',
           TGT_z: isFiniteNum(tgt?.z) ? Number(tgt.z) : '',
           elevation: featureInfo?.elevation ?? '',
@@ -1703,8 +1722,92 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       if (!(item as any).coordinate || !isFiniteNum((item as any).coordinate.x) || !isFiniteNum((item as any).coordinate.z)) {
         return '缺少合法 coordinate.x / coordinate.z';
       }
-      if (!(item as any).TGTcoordinate || !isFiniteNum((item as any).TGTcoordinate.x) || !isFiniteNum((item as any).TGTcoordinate.z)) {
-        return '缺少合法 TGTcoordinate.x / TGTcoordinate.z';
+      const warp = String((item as any).TGTWarp ?? (item as any).tgtWarp ?? '').trim();
+      const tgt = (item as any).TGTcoordinate ?? (item as any).tgtCoordinate ?? (item as any).targetCoordinate;
+      const hasTgtCoord = !!tgt && isFiniteNum(tgt.x) && isFiniteNum(tgt.z);
+      if (!warp && !hasTgtCoord) {
+        return '缺少 TGTWarp 或合法 TGTcoordinate.x / TGTcoordinate.z';
+      }
+      return validateOptionalTagExtSoft(item);
+    },
+  },
+
+
+  // ===== Warp点 Warp Point (WRP) =====
+  Warp点: {
+    key: 'Warp点',
+    label: 'Warp点',
+    modes: ['point'],
+    hideTempOutput: true,
+    classCode: CLASS_CODE_BY_FEATURE['Warp点'], // WRP
+    fields: [
+      { key: 'WRPointID', label: 'Warp点ID(WRPointID)', type: 'text' },
+      { key: 'WRPointI2D', label: 'Warp点游戏内ID(WRPointI2D)', type: 'text' },
+      { key: 'WRPointName', label: 'Warp点名(WRPointName)', type: 'text' },
+      { key: 'WRPointKind', label: '类型(WRPointKind)', type: 'text' },
+      { key: 'WRPointSKind', label: '子类型(WRPointSKind)', type: 'text' },
+      { key: 'WRPointSKind2', label: '三级子类型(WRPointSKind2)', type: 'text', optional: true },
+      { key: 'hub', label: '枢纽(hub)', type: 'text', optional: true },
+      { key: 'elevation', label: '高度(y)', type: 'number', optional: true },
+    ],
+    groups: [],
+    buildFeatureInfo: ({ op, mode, coords, values, groups, worldId, editorId, prevFeatureInfo, now }) => {
+      const base = pickByFields(values, FORMAT_REGISTRY['Warp点'].fields);
+      const p0 = coords[0];
+
+      const tags = buildTagsFromGroupItems(groups?.tags);
+      const extensions = buildExtensionsFromGroupItems(groups?.extensions);
+
+      const out: any = {
+        ...base,
+        coordinate: { x: p0?.x ?? 0, z: p0?.z ?? 0 },
+        elevation: isFiniteNum((values as any).elevation) ? Number((values as any).elevation) : undefined,
+        hub: String((values as any).hub ?? '').trim() || undefined,
+        tags,
+        extensions,
+      };
+
+      return withSystemFields(FORMAT_REGISTRY['Warp点'], out, { op, mode, worldId, editorId, prevFeatureInfo, now });
+    },
+    hydrate: (featureInfo) => {
+      const hub = featureInfo?.hub ?? featureInfo?.tags?.hub ?? '';
+      return {
+        values: {
+          WRPointID: featureInfo?.WRPointID ?? featureInfo?.wrPointID ?? featureInfo?.id ?? '',
+          WRPointI2D: featureInfo?.WRPointI2D ?? featureInfo?.wrPointI2D ?? '',
+          WRPointName: featureInfo?.WRPointName ?? featureInfo?.wrPointName ?? featureInfo?.name ?? '',
+          WRPointKind: featureInfo?.WRPointKind ?? featureInfo?.wrPointKind ?? '',
+          WRPointSKind: featureInfo?.WRPointSKind ?? featureInfo?.wrPointSKind ?? '',
+          WRPointSKind2: featureInfo?.WRPointSKind2 ?? featureInfo?.wrPointSKind2 ?? '',
+          hub: hub ?? '',
+          elevation: featureInfo?.elevation ?? '',
+        },
+        groups: {
+          tags: flattenTagsToGroupItems(featureInfo?.tags),
+          extensions: flattenExtensionsToGroupItems(featureInfo?.extensions),
+        },
+      };
+    },
+    coordsFromFeatureInfo: (featureInfo) => {
+      const c = featureInfo?.coordinate;
+      if (!c) return [];
+      const x = Number(c.x);
+      const z = Number(c.z);
+      if (!isFiniteNum(x) || !isFiniteNum(z)) return [];
+      return [{ x, z }];
+    },
+    validateImportItem: (item) => {
+      if (!item || typeof item !== 'object') return '不是对象';
+      const id = String((item as any).WRPointID ?? (item as any).wrPointID ?? '').trim();
+      if (!id) return '缺少 WRPointID';
+      const i2d = String((item as any).WRPointI2D ?? (item as any).wrPointI2D ?? '').trim();
+      if (!i2d) return '缺少 WRPointI2D';
+      const name = String((item as any).WRPointName ?? (item as any).wrPointName ?? '').trim();
+      if (!name) return '缺少 WRPointName';
+      if (!String((item as any).WRPointKind ?? '').trim()) return '缺少 WRPointKind';
+      if (!String((item as any).WRPointSKind ?? '').trim()) return '缺少 WRPointSKind';
+      if (!(item as any).coordinate || !isFiniteNum((item as any).coordinate.x) || !isFiniteNum((item as any).coordinate.z)) {
+        return '缺少合法 coordinate.x / coordinate.z';
       }
       return validateOptionalTagExtSoft(item);
     },
