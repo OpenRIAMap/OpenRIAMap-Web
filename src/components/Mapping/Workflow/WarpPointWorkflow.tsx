@@ -182,6 +182,9 @@ export default function WarpPointWorkflow(props: WorkflowComponentProps) {
   // draw state
   const draftPoint: WorldPoint[] = step === 'src' ? (bridge.getTempPoints?.() ?? []) : [];
   const [srcPoint, setSrcPoint] = useState<WorldPoint | null>(null);
+  void onExit;
+  void srcPoint;
+
 
   const worldId = useMemo(() => String(bridge.getCurrentWorldId?.() ?? '').trim(), [bridge]);
   const worldPrefix = useMemo(() => worldPrefixFromWorldId(worldId), [worldId]);
