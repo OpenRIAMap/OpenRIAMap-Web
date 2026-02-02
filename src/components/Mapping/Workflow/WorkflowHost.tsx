@@ -84,6 +84,12 @@ export type WorkflowBridge = {
   /** 写入固定测绘图层 */
   commitFeature: (args: WorkflowCommitArgs) => WorkflowCommitResult;
 
+  /**
+   * 读取固定测绘图层的 jsonInfo 列表（可选）。
+   * 用途：工作流内的检索池扩展（例如：目标 Warp 点检索不仅看预挂载数据，也看当前已绘制但未挂载的图层）。
+   */
+  getCommittedLayerJsonInfos?: () => Array<{ subType: FeatureKey; featureInfo: any }>;
+
   /** 退出到“工作流选择页”（由 MeasuringModule 侧实现） */
   exitWorkflowToSelector: () => void;
 };

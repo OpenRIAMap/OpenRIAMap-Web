@@ -2886,6 +2886,10 @@ const workflowBridge: WorkflowBridge = {
 
   commitFeature: commitFeatureFromWorkflow,
 
+  getCommittedLayerJsonInfos: () => {
+    return (layers ?? []).map((l: any) => l?.jsonInfo).filter(Boolean) as any;
+  },
+
   exitWorkflowToSelector: () => stopWorkflowToSelector(),
 };
 

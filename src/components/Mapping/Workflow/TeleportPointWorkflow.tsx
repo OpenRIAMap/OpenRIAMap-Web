@@ -317,6 +317,75 @@ export default function TeleportPointWorkflow(props: WorkflowComponentProps) {
       cancelled = true;
     };
   }, [worldId]);
+  // Warp 点检索池扩展：除预挂载 WRP 外，也纳入当前已绘制的图层列表中的 WRP（即使未挂载）
+  const warpPoolFromLayers = useMemo((): WarpOption[] => {
+    const fn = (bridge as any)?.getCommittedLayerJsonInfos as
+      | undefined
+      | (() => Array<{ subType: any; featureInfo: any }>);
+    if (!fn) return [];
+
+    let rawList: any[] = [];
+    try {
+      rawList = (fn() as any[]) ?? [];
+    } catch {
+      rawList = [];
+    }
+
+    const targetPrefix = resolveWorldPrefix(worldId);
+    const targetCode: any = Number.isFinite(Number(worldId)) ? Number(worldId) : (WORLD_ID_TO_CODE as any)[worldId];
+
+    const out: WarpOption[] = [];
+    for (const ji of rawList) {
+      const fi = (ji as any)?.featureInfo ?? (ji as any)?.jsonInfo?.featureInfo ?? ji;
+      if (!fi || typeof fi !== 'object') continue;
+
+      const cls = String((fi as any).Class ?? (fi as any).class ?? '').trim();
+      if (cls && cls !== 'WRP') continue;
+      if (!cls) {
+        const st = String((ji as any)?.subType ?? '').trim();
+        if (st && st !== 'Warp点') continue;
+      }
+
+      // world filter（best-effort）：优先按数值 World 匹配，其次按字母前缀匹配；无法判定则放行
+      const wRaw = (fi as any).World ?? (fi as any).world;
+      const wStr = wRaw === undefined || wRaw === null ? '' : String(wRaw).trim();
+      if (wStr) {
+        const wNum = Number(wStr);
+        if (Number.isFinite(targetCode as any) && Number.isFinite(wNum)) {
+          if (wNum !== (targetCode as any)) continue;
+        } else if (/^[ZNHELY]$/i.test(wStr)) {
+          if (wStr.toUpperCase() !== targetPrefix) continue;
+        } else {
+          // 其他格式：尽量用 resolveWorldPrefix 做一次判定（不强制）
+          const wPrefix = resolveWorldPrefix(wStr);
+          if (wPrefix && wPrefix !== targetPrefix) {
+            // 若能解析出 prefix 且不匹配，则过滤
+            continue;
+          }
+        }
+      }
+
+      const i2d = String((fi as any).WRPointI2D ?? (fi as any).wrPointI2D ?? '').trim();
+      const name = String(
+        (fi as any).WRPointName ?? (fi as any).wrPointName ?? (fi as any).Name ?? (fi as any).name ?? i2d
+      ).trim();
+      if (!i2d) continue;
+      out.push({ i2d, name: name || i2d });
+    }
+
+    // 去重（以 i2d 为主键）
+    const map = new Map<string, WarpOption>();
+    for (const o of out) map.set(o.i2d, o);
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'));
+  }, [bridge, worldId]);
+
+  const mergedWarpPool = useMemo(() => {
+    const map = new Map<string, WarpOption>();
+    // 先放预挂载，再用图层内的覆盖（图层通常更新更及时）
+    for (const o of warpPool) map.set(o.i2d, o);
+    for (const o of warpPoolFromLayers) map.set(o.i2d, o);
+    return Array.from(map.values());
+  }, [warpPool, warpPoolFromLayers]);
 
   const useWarpTarget = useMemo(() => nonEmpty(info.tgtWarpI2D), [info.tgtWarpI2D]);
 
@@ -325,8 +394,8 @@ export default function TeleportPointWorkflow(props: WorkflowComponentProps) {
   const warpSuggestions = useMemo(() => {
     const q = warpQuery.trim();
     if (!q) return [];
-    return warpPool.filter((p) => matchWarp(p, q)).slice(0, 20);
-  }, [warpQuery, warpPool]);
+    return mergedWarpPool.filter((p) => matchWarp(p, q)).slice(0, 20);
+  }, [warpQuery, mergedWarpPool]);
 
 
   // ----- step enter effects -----

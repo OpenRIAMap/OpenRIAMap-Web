@@ -77,7 +77,7 @@ export const RULE_BUTTON_DEFS: RuleButtonDef[] = [
     label: '传送点',
     tone: 'cyan',
     icon: <Zap className="w-5 h-5" />,
-    criteria: { Class: ['TPP'] },
+    criteria: { Class: ['TPP','WRP'] },
   },
   {
     id: 'building',
