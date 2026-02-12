@@ -14,11 +14,12 @@ import { layoutLabelsOnMap, type LabelRequest, type AvoidRectPx } from './labelL
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
 
-import FeatureInteractionCard from './FeatureInteractionCard';
+import { resolveFeatureCardComponent } from './cardrules/featureCardRegistry';
 import { makeLabelDivIcon } from './labelStyles';
 import { createHighlightLayerForFeature, makeClickableLabelMarker, type LabelClickPlan } from './labelClickInteraction';
 
 import { filterRecordsByRuleButtons } from './ButtonRule/buttonRuleFilter';
+import { setRuleSearchPool } from './ruleSearchRegistry';
 
 
 const FLOOR_VIEW_MIN_LEVEL = Math.max(0, DEFAULT_FLOOR_VIEW.minLevel);
@@ -431,7 +432,11 @@ function detectGeoType(featureInfo: any): GeoType | null {
   return null;
 }
 
-function buildRecordsFromJson(items: any[], sourceFile: string): FeatureRecord[] {
+function buildRecordsFromJson(
+  items: any[],
+  sourceFile: string,
+  opts?: { excludeIds?: Set<string> },
+): FeatureRecord[] {
   const out: FeatureRecord[] = [];
   let uidSeq = 1;
 
@@ -443,6 +448,11 @@ function buildRecordsFromJson(items: any[], sourceFile: string): FeatureRecord[]
 
     const uid = `${sourceFile}#${uidSeq++}`;
     const meta = buildFeatureMeta(item, cls, type, sourceFile);
+
+    // 若指定了 “excludeIds”，则屏蔽固定数据源中被覆盖的同 ID 要素
+    if (opts?.excludeIds && opts.excludeIds.has(String(meta.idValue ?? '').trim())) {
+      continue;
+    }
 
     const r: FeatureRecord = {
       uid,
@@ -504,6 +514,7 @@ const [dataVersion, setDataVersion] = useState(0);
 const [tempSourceVersion, setTempSourceVersion] = useState(0);
 
 const TEMP_RULE_SOURCES_KEY = 'ria_temp_rule_sources_v1';
+const TEMP_RULE_OVERRIDE_IDS_KEY = 'ria_temp_rule_override_ids_v1';
 
 type TempRuleSource = {
   uid: string;
@@ -535,6 +546,19 @@ function readTempSources(worldId: string): TempRuleSource[] {
   }
 }
 
+function readTempOverrideIds(worldId: string): Set<string> {
+  try {
+    const raw = localStorage.getItem(TEMP_RULE_OVERRIDE_IDS_KEY);
+    if (!raw) return new Set();
+    const obj = JSON.parse(raw);
+    const list = (obj?.[worldId] ?? []) as any[];
+    if (!Array.isArray(list)) return new Set();
+    return new Set(list.map((x) => String(x ?? '').trim()).filter((s) => s));
+  } catch {
+    return new Set();
+  }
+}
+
 
 useEffect(() => {
   if (!mapReady) return;
@@ -550,7 +574,7 @@ useEffect(() => {
   };
 }, [mapReady, map]);
 
-// 监听 MeasuringModule 写入的“临时挂载源”变化
+// 监听 MeasuringModule 写入的“临时挂载源/覆盖屏蔽列表”变化
 useEffect(() => {
   if (!mapReady) return;
   const handler = (e: any) => {
@@ -564,7 +588,11 @@ useEffect(() => {
     }
   };
   window.addEventListener('ria-temp-rule-sources-changed', handler);
-  return () => window.removeEventListener('ria-temp-rule-sources-changed', handler);
+  window.addEventListener('ria-temp-rule-overrides-changed', handler as any);
+  return () => {
+    window.removeEventListener('ria-temp-rule-sources-changed', handler);
+    window.removeEventListener('ria-temp-rule-overrides-changed', handler as any);
+  };
 }, [mapReady, worldId]);
 
 
@@ -577,6 +605,9 @@ useEffect(() => {
     const ds = RULE_DATA_SOURCES[worldId];
     const all: FeatureRecord[] = [];
 
+    // 覆盖屏蔽列表：在“临时挂载-更新挂载”期间，固定数据源同 ID 要素暂时不可读
+    const overrideIds = readTempOverrideIds(worldId);
+
     // (A) 固定数据源（public 下文件）
     // 注意：即使该 world 没有配置 files，也不应直接 return。
     // “临时挂载”应当仍然可以在该 world 中生效（用于测试显示/去重/关联）。
@@ -585,7 +616,7 @@ useEffect(() => {
         const url = `${ds.baseUrl.replace(/\/$/, '')}/${file}`;
         try {
           const items = await fetchJsonArray(url);
-          all.push(...buildRecordsFromJson(items, file));
+          all.push(...buildRecordsFromJson(items, file, { excludeIds: overrideIds }));
         } catch (e) {
           // 单文件失败不阻塞其余文件
           console.warn(`[RuleDrivenLayer] failed to load ${url}`, e);
@@ -613,6 +644,10 @@ useEffect(() => {
     // 预加载池：固定源 + 临时源（用于后续按“分组开关”筛选）
     allRecordsRef.current = all;
 
+    // ✅ 供 SearchBar 使用的“规则搜索池”：包含当前世界 Rules 源预加载 + 临时挂载启用的数据。
+    // - 仅写入模块变量，不触发 React 状态更新，避免造成循环渲染/白屏。
+    setRuleSearchPool(worldId, all);
+
     // ✅ 关键：通知“预加载池已更新”（实际进入渲染/索引的数据会在后续 effect 中由开关筛选决定）
     setRawDataVersion((v) => v + 1);
   }
@@ -622,6 +657,61 @@ useEffect(() => {
     cancelled = true;
   };
 }, [mapReady, worldId, tempSourceVersion]);
+
+
+// =========================
+// SearchBar -> RuleDrivenLayer：按 uid 打开信息卡
+// - SearchBar/MapContainer 负责：聚焦/缩放/（必要时）打开对应分组开关
+// - RuleDrivenLayer 负责：在渲染池内找到目标 record 并打开/高亮
+// =========================
+const pendingOpenUidRef = useRef<string | null>(null);
+const ctxRef = useRef<RenderContext | null>(null);
+
+const tryOpenByUid = (uid: string) => {
+  const key = String(uid ?? '').trim();
+  if (!key) return false;
+  const store = storeRef.current;
+  if (!store) return false;
+  const rr = store.all.find((r) => r.uid === key);
+  if (!rr) return false;
+
+  // 尽量复用“label click”规则（如果有），保证交互一致；否则仅打开信息卡。
+  const curCtx = ctxRef.current;
+  const rule = findFirstRule(rr);
+  const rawClick = (rule as any)?.symbol?.labelClick;
+  if (rawClick) {
+    // 若尚未拿到 RenderContext（例如按钮刚被打开、effect 还未同步），则跳过 labelClick 复用逻辑。
+    if (curCtx) {
+      const clickPlan: any = typeof rawClick === 'function' ? rawClick(rr, curCtx, store) : rawClick;
+      if (clickPlan && clickPlan.enabled) {
+        handleLabelClick(rr, clickPlan as any);
+        return true;
+      }
+    }
+  }
+
+  // fallback：仅打开信息卡（高亮逻辑保持为空）
+  setSelectedFeature(rr);
+  setFeatureCardOpen(true);
+  return true;
+};
+
+useEffect(() => {
+  const handler = (ev: Event) => {
+    const detail = (ev as CustomEvent<any>)?.detail;
+    const uid = String(detail?.uid ?? '').trim();
+    if (!uid) return;
+
+    // 先尝试立即打开；若当前未在渲染池（可能因为分组开关尚未打开），记录为 pending。
+    if (!tryOpenByUid(uid)) {
+      pendingOpenUidRef.current = uid;
+    }
+  };
+
+  window.addEventListener('ria:ruleFeatureSelect', handler as any);
+  return () => window.removeEventListener('ria:ruleFeatureSelect', handler as any);
+  // worldId 切换时会卸载/重挂载 listener，避免跨世界误开。
+}, [worldId]);
 
 
 // (2) “分组开关”筛选：将预加载池(allRecordsRef) → 渲染池(recordsRef/storeRef)
@@ -669,6 +759,13 @@ useEffect(() => {
   setActiveBuildingName('');
   setActiveFloorIndex(0);
 
+  // 若 SearchBar 触发“打开某个 uid”的事件，但当时未在渲染池（分组开关尚未开启），
+  // 则在筛选结果更新后再尝试一次。
+  if (pendingOpenUidRef.current) {
+    const uid = pendingOpenUidRef.current;
+    if (tryOpenByUid(uid)) pendingOpenUidRef.current = null;
+  }
+
   // ✅ 关键：告诉 React “进入渲染池的数据已更新”
   setDataVersion((v) => v + 1);
 // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -710,6 +807,12 @@ useEffect(() => {
   };
 }, [worldId, leafletZoomState, activeBuildingUid, activeBuildingFloorRefSet, floorOptions, activeFloorIndex]);
 
+	// 供 SearchBar/MapContainer 的“外部打开信息卡”事件复用 labelClick 逻辑使用。
+	// 注意：必须放在 ctx 声明之后，避免出现 “ctx used before declaration”。
+	useEffect(() => {
+	  ctxRef.current = ctx;
+	}, [ctx]);
+
   const handleLabelClick = (r: FeatureRecord, plan: LabelClickPlan) => {
     if (!highlightGroupRef.current) highlightGroupRef.current = L.layerGroup();
     highlightGroupRef.current.clearLayers();
@@ -744,6 +847,7 @@ useEffect(() => {
   // - resolveFeatureById：用于在信息卡中将 id 映射为目标要素（显示 Name）
   // - onTryTriggerLabelClickById：点击时尝试触发目标要素的 labelClick（若无则静默无反应）
   // =========================
+  // NOTE: FeatureInteractionCard expects `undefined` for “not found”.
   const resolveFeatureById = (id: string): FeatureRecord | undefined => {
     const key = String(id ?? '').trim();
     if (!key) return undefined;
@@ -1309,13 +1413,19 @@ if (r.type === 'Points' && pointLatLng && !labelOnly) {
           </div>
         </AppCard>
       )}
-      <FeatureInteractionCard
-        open={featureCardOpen}
-        feature={selectedFeature}
-        onClose={clearSelection}
-        resolveFeatureById={resolveFeatureById}
-        onTryTriggerLabelClickById={onTryTriggerLabelClickById}
-      />
+      {(() => {
+        const cls = selectedFeature?.meta?.Class ?? selectedFeature?.featureInfo?.Class;
+        const Card = resolveFeatureCardComponent(cls);
+        return (
+          <Card
+            open={featureCardOpen}
+            feature={selectedFeature}
+            onClose={clearSelection}
+            resolveFeatureById={resolveFeatureById}
+            onTryTriggerLabelClickById={onTryTriggerLabelClickById}
+          />
+        );
+      })()}
     </>
   );
 }

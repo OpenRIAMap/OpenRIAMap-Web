@@ -4,6 +4,7 @@ import type { WorkflowComponentProps, WorldPoint } from './WorkflowHost';
 import AppButton from '@/components/ui/AppButton';
 import { EXT_VALUE_TYPE_TEXT, listCatalogClassOptions, type FeatureKey } from '@/components/Mapping/featureFormats';
 import { HUB_RETURN_POINTS } from '@/components/Navigation/teleportHubReturnPoints';
+import WorkflowFeatureSearchSelect, { type SearchSelectConfig } from './WorkflowFeatureSearchSelect';
 
 /**
  * WarpPointWorkflow（工作流：Warp点）
@@ -187,6 +188,59 @@ export default function WarpPointWorkflow(props: WorkflowComponentProps) {
 
 
   const worldId = useMemo(() => String(bridge.getCurrentWorldId?.() ?? '').trim(), [bridge]);
+
+  // ===== 复用检索组件：所属地理单元 / 所属聚落 =====
+  const landUnitSearchCfg: SearchSelectConfig = useMemo(
+    () => ({
+      cacheKey: 'ISG_NGF_LAD_WTB',
+      filter: (fi: any) => {
+        const cls = String(fi.Class ?? fi.class ?? '').trim();
+        if (cls !== 'ISG') return false;
+        const kind = String(fi.PGonKind ?? fi.Kind ?? fi?.tags?.PGonKind ?? fi?.tags?.Kind ?? '').trim();
+        const skind = String(fi.PGonSKind ?? fi.SKind ?? fi?.tags?.PGonSKind ?? fi?.tags?.SKind ?? '').trim();
+        return kind === 'NGF' && (skind === 'LAD' || skind === 'WTB');
+      },
+      getId: (fi: any) => String(fi.PGonID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
+      getName: (fi: any) => String(fi.PGonName ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
+      formatOption: (name, id) => `${name}(${id})`,
+    }),
+    []
+  );
+
+  const uadmLandmarkSearchCfg: SearchSelectConfig = useMemo(
+    () => ({
+      cacheKey: 'ISP_ADM_DBP_SHR',
+      filter: (fi: any) => {
+        const cls = String(fi.Class ?? fi.class ?? '').trim();
+        if (cls !== 'ISP') return false;
+        const kind = String(fi.PointKind ?? fi.Kind ?? fi?.tags?.PointKind ?? fi?.tags?.Kind ?? '').trim();
+        const skind = String(fi.PointSKind ?? fi.SKind ?? fi?.tags?.PointSKind ?? fi?.tags?.SKind ?? '').trim();
+        const sk2 = String(fi.PointSKind2 ?? fi.SKind2 ?? fi?.tags?.PointSKind2 ?? fi?.tags?.SKind2 ?? '').trim();
+        return kind === 'ADM' && skind === 'DBP' && sk2 === 'SHR';
+      },
+      getId: (fi: any) => String(fi.PointID ?? fi.pointID ?? '').trim(),
+      getName: (fi: any) => String(fi.PointName ?? fi.pointName ?? '').trim(),
+      formatOption: (name, id) => `${name}(${id})`,
+    }),
+    []
+  );
+
+  const uadmGSearchCfg: SearchSelectConfig = useMemo(
+    () => ({
+      cacheKey: 'ISG_ADM_DBP_PLZ',
+      filter: (fi: any) => {
+        const cls = String(fi.Class ?? fi.class ?? '').trim();
+        if (cls !== 'ISG') return false;
+        const kind = String(fi.PGonKind ?? fi.Kind ?? fi?.tags?.PGonKind ?? fi?.tags?.Kind ?? '').trim();
+        const skind = String(fi.PGonSKind ?? fi.SKind ?? fi?.tags?.PGonSKind ?? fi?.tags?.SKind ?? '').trim();
+        return kind === 'ADM' && (skind === 'DBP' || skind === 'PLZ');
+      },
+      getId: (fi: any) => String(fi.PGonID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
+      getName: (fi: any) => String(fi.PGonName ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
+      formatOption: (name, id) => `${name}(${id})`,
+    }),
+    []
+  );
   const worldPrefix = useMemo(() => worldPrefixFromWorldId(worldId), [worldId]);
 
   const kind = useMemo(() => String(info.typeKey.split('|')[0] ?? '').trim(), [info.typeKey]);
@@ -376,9 +430,30 @@ export default function WarpPointWorkflow(props: WorkflowComponentProps) {
             </select>
           </label>
 
-          <LabeledInput label="所属大陆(一级)（可选，写入 tags.Land）" value={String(info.land ?? '')} placeholder="例如：主大陆" onChange={(v) => setInfo((s) => ({ ...s, land: v }))} />
-          <LabeledInput label="所属聚落(地标点)（可选，写入 tags.UAdm）" value={String(info.uadm ?? '')} placeholder="例如：主城" onChange={(v) => setInfo((s) => ({ ...s, uadm: v }))} />
-          <LabeledInput label="所属聚落(区划)（可选，写入 tags.UAdmG）" value={String(info.uadmg ?? '')} placeholder="例如：主城行政区" onChange={(v) => setInfo((s) => ({ ...s, uadmg: v }))} />
+          <WorkflowFeatureSearchSelect
+            bridge={bridge}
+            label="所属地理单元（可选，写入 tags.Land）"
+            value={String(info.land ?? '')}
+            placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+            config={landUnitSearchCfg}
+            onChange={(v) => setInfo((s) => ({ ...s, land: v }))}
+          />
+          <WorkflowFeatureSearchSelect
+            bridge={bridge}
+            label="所属聚落(地标点)（可选，写入 tags.UAdm）"
+            value={String(info.uadm ?? '')}
+            placeholder="输入关键词检索：可匹配 PointName / PointID"
+            config={uadmLandmarkSearchCfg}
+            onChange={(v) => setInfo((s) => ({ ...s, uadm: v }))}
+          />
+          <WorkflowFeatureSearchSelect
+            bridge={bridge}
+            label="所属聚落(区划)（可选，写入 tags.UAdmG）"
+            value={String(info.uadmg ?? '')}
+            placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+            config={uadmGSearchCfg}
+            onChange={(v) => setInfo((s) => ({ ...s, uadmg: v }))}
+          />
           <LabeledInput label="wiki链接（可选，写入 extensions.link.wiki）" value={String(info.wiki ?? '')} placeholder="例如：wiki.ria.red/xxx" onChange={(v) => setInfo((s) => ({ ...s, wiki: v }))} />
         </div>
       </div>

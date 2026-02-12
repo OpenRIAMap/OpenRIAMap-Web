@@ -8,6 +8,7 @@ import {
   type ExtValueType,
   listCatalogKindOptions,
 } from '@/components/Mapping/featureFormats';
+import WorkflowFeatureSearchSelect, { type SearchSelectConfig } from './WorkflowFeatureSearchSelect';
 
 /**
  * SpecialCulturalPointWorkflow（工作流：特殊人文点要素）
@@ -215,6 +216,38 @@ export default function SpecialCulturalPointWorkflow(props: WorkflowComponentPro
   const [saveError, setSaveError] = useState<string>('');
 
   const worldPrefix = useMemo(() => resolveWorldPrefix(bridge.getCurrentWorldId?.() ?? ''), [bridge]);
+
+  // ===== 复用检索组件：所属上级要素（ADM）/ 所属地理单元 =====
+  const uadmAdmAnySearchCfg: SearchSelectConfig = useMemo(
+    () => ({
+      cacheKey: 'ADM_ANY',
+      filter: (fi: any) => {
+        const kind = String(fi.PGonKind ?? fi.PLineKind ?? fi.PointKind ?? fi.Kind ?? fi?.tags?.Kind ?? '').trim();
+        return kind === 'ADM';
+      },
+      getId: (fi: any) => String(fi.PGonID ?? fi.PLineID ?? fi.PointID ?? '').trim(),
+      getName: (fi: any) => String(fi.PGonName ?? fi.PLineName ?? fi.PointName ?? '').trim(),
+      formatOption: (name, id) => `${name}(${id})`,
+    }),
+    []
+  );
+
+  const landUnitSearchCfg: SearchSelectConfig = useMemo(
+    () => ({
+      cacheKey: 'ISG_NGF_LAD_WTB',
+      filter: (fi: any) => {
+        const cls = String(fi.Class ?? fi.class ?? '').trim();
+        if (cls !== 'ISG') return false;
+        const kind = String(fi.PGonKind ?? fi.Kind ?? fi?.tags?.PGonKind ?? fi?.tags?.Kind ?? '').trim();
+        const skind = String(fi.PGonSKind ?? fi.SKind ?? fi?.tags?.PGonSKind ?? fi?.tags?.SKind ?? '').trim();
+        return kind === 'NGF' && (skind === 'LAD' || skind === 'WTB');
+      },
+      getId: (fi: any) => String(fi.PGonID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
+      getName: (fi: any) => String(fi.PGonName ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
+      formatOption: (name, id) => `${name}(${id})`,
+    }),
+    []
+  );
   const kind = 'ADM';
 
   const typeOptions = useMemo(() => {
@@ -437,17 +470,21 @@ export default function SpecialCulturalPointWorkflow(props: WorkflowComponentPro
             onChange={(v) => setInfo((prev) => ({ ...prev, nomenclator: v }))}
           />
 
-          <LabeledInput
-            label="所属大陆(一级)（可选，将写入 tags.Land）"
-            value={info.land ?? ''}
-            placeholder="例如：亚欧大陆"
+          <WorkflowFeatureSearchSelect
+            bridge={bridge}
+            label="所属地理单元（可选，将写入 tags.Land）"
+            value={String(info.land ?? '')}
+            placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+            config={landUnitSearchCfg}
             onChange={(v) => setInfo((prev) => ({ ...prev, land: v }))}
           />
 
-          <LabeledInput
+          <WorkflowFeatureSearchSelect
+            bridge={bridge}
             label="所属上级要素（可选，将写入 tags.UAdm）"
-            value={info.uadm ?? ''}
-            placeholder="例如：ZADMDBZL1_xxx"
+            value={String(info.uadm ?? '')}
+            placeholder="输入关键词检索：可匹配 xxxName / xxxID"
+            config={uadmAdmAnySearchCfg}
             onChange={(v) => setInfo((prev) => ({ ...prev, uadm: v }))}
           />
 

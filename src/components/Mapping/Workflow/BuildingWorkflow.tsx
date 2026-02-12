@@ -8,6 +8,7 @@ import {
   EXT_VALUE_TYPE_OPTIONS,
   listCatalogClassOptions,
 } from '@/components/Mapping/featureFormats';
+import WorkflowFeatureSearchSelect, { type SearchSelectConfig } from './WorkflowFeatureSearchSelect';
 
 /**
  * BuildingWorkflow（工作流：建筑 / BUD）
@@ -209,6 +210,59 @@ export default function BuildingWorkflow(props: WorkflowComponentProps) {
   const [saveError, setSaveError] = useState<string>('');
 
   const worldPrefix = useMemo(() => resolveWorldPrefix(bridge.getCurrentWorldId?.() ?? ''), [bridge]);
+
+  // ===== 复用检索组件：所属地理单元 / 所属聚落 =====
+  const landUnitSearchCfg: SearchSelectConfig = useMemo(
+    () => ({
+      cacheKey: 'ISG_NGF_LAD_WTB',
+      filter: (fi: any) => {
+        const cls = String(fi.Class ?? fi.class ?? '').trim();
+        if (cls !== 'ISG') return false;
+        const kind = String(fi.PGonKind ?? fi.Kind ?? fi?.tags?.PGonKind ?? fi?.tags?.Kind ?? '').trim();
+        const skind = String(fi.PGonSKind ?? fi.SKind ?? fi?.tags?.PGonSKind ?? fi?.tags?.SKind ?? '').trim();
+        return kind === 'NGF' && (skind === 'LAD' || skind === 'WTB');
+      },
+      getId: (fi: any) => String(fi.PGonID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
+      getName: (fi: any) => String(fi.PGonName ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
+      formatOption: (name, id) => `${name}(${id})`,
+    }),
+    []
+  );
+
+  const uadmLandmarkSearchCfg: SearchSelectConfig = useMemo(
+    () => ({
+      cacheKey: 'ISP_ADM_DBP_SHR',
+      filter: (fi: any) => {
+        const cls = String(fi.Class ?? fi.class ?? '').trim();
+        if (cls !== 'ISP') return false;
+        const kind = String(fi.PointKind ?? fi.Kind ?? fi?.tags?.PointKind ?? fi?.tags?.Kind ?? '').trim();
+        const skind = String(fi.PointSKind ?? fi.SKind ?? fi?.tags?.PointSKind ?? fi?.tags?.SKind ?? '').trim();
+        const sk2 = String(fi.PointSKind2 ?? fi.SKind2 ?? fi?.tags?.PointSKind2 ?? fi?.tags?.SKind2 ?? '').trim();
+        return kind === 'ADM' && skind === 'DBP' && sk2 === 'SHR';
+      },
+      getId: (fi: any) => String(fi.PointID ?? fi.pointID ?? '').trim(),
+      getName: (fi: any) => String(fi.PointName ?? fi.pointName ?? '').trim(),
+      formatOption: (name, id) => `${name}(${id})`,
+    }),
+    []
+  );
+
+  const uadmGSearchCfg: SearchSelectConfig = useMemo(
+    () => ({
+      cacheKey: 'ISG_ADM_DBP_PLZ',
+      filter: (fi: any) => {
+        const cls = String(fi.Class ?? fi.class ?? '').trim();
+        if (cls !== 'ISG') return false;
+        const kind = String(fi.PGonKind ?? fi.Kind ?? fi?.tags?.PGonKind ?? fi?.tags?.Kind ?? '').trim();
+        const skind = String(fi.PGonSKind ?? fi.SKind ?? fi?.tags?.PGonSKind ?? fi?.tags?.SKind ?? '').trim();
+        return kind === 'ADM' && (skind === 'DBP' || skind === 'PLZ');
+      },
+      getId: (fi: any) => String(fi.PGonID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
+      getName: (fi: any) => String(fi.PGonName ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
+      formatOption: (name, id) => `${name}(${id})`,
+    }),
+    []
+  );
   const classCode = 'BUD';
 
   const typeOptions = useMemo(() => {
@@ -401,9 +455,30 @@ export default function BuildingWorkflow(props: WorkflowComponentProps) {
           <LabeledInput label="命名者（nomenclator）" value={info.nomenclator} placeholder="例如：YZ" onChange={(v) => setInfo((p) => ({ ...p, nomenclator: v }))} />
 
           <div className="grid grid-cols-2 gap-2">
-            <LabeledInput label="所属大陆(一级)（可选）" value={info.land ?? ''} onChange={(v) => setInfo((p) => ({ ...p, land: v }))} />
-            <LabeledInput label="所属聚落(地标点)（可选）" value={info.uadm ?? ''} onChange={(v) => setInfo((p) => ({ ...p, uadm: v }))} />
-            <LabeledInput label="所属聚落(区划)（可选）" value={info.uadmg ?? ''} onChange={(v) => setInfo((p) => ({ ...p, uadmg: v }))} />
+            <WorkflowFeatureSearchSelect
+              bridge={bridge}
+              label="所属地理单元（可选，将写入 tags.Land）"
+              value={String(info.land ?? '')}
+              placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+              config={landUnitSearchCfg}
+              onChange={(v) => setInfo((p) => ({ ...p, land: v }))}
+            />
+            <WorkflowFeatureSearchSelect
+              bridge={bridge}
+              label="所属聚落(地标点)（可选，将写入 tags.UAdm）"
+              value={String(info.uadm ?? '')}
+              placeholder="输入关键词检索：可匹配 PointName / PointID"
+              config={uadmLandmarkSearchCfg}
+              onChange={(v) => setInfo((p) => ({ ...p, uadm: v }))}
+            />
+            <WorkflowFeatureSearchSelect
+              bridge={bridge}
+              label="所属聚落(区划)（可选，将写入 tags.UAdmG）"
+              value={String(info.uadmg ?? '')}
+              placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+              config={uadmGSearchCfg}
+              onChange={(v) => setInfo((p) => ({ ...p, uadmg: v }))}
+            />
             <LabeledInput label="相关成员（可选）" value={info.pop ?? ''} onChange={(v) => setInfo((p) => ({ ...p, pop: v }))} />
           </div>
 

@@ -8,6 +8,7 @@ import {
   type ExtValueType,
   listCatalogSKind2Options,
 } from '@/components/Mapping/featureFormats';
+import WorkflowFeatureSearchSelect, { type SearchSelectConfig } from './WorkflowFeatureSearchSelect';
 
 /**
  * NaturalLandSurfaceWorkflow（工作流：自然要素-陆面要素）
@@ -210,6 +211,23 @@ export default function NaturalLandSurfaceWorkflow(props: WorkflowComponentProps
 
   // constants
   const worldPrefix = useMemo(() => resolveWorldPrefix(bridge.getCurrentWorldId?.() ?? ''), [bridge]);
+
+  const landUnitSearchCfg: SearchSelectConfig = useMemo(
+    () => ({
+      cacheKey: 'ISG_NGF_LAD_WTB',
+      filter: (fi: any) => {
+        const cls = String(fi.Class ?? fi.class ?? '').trim();
+        if (cls !== 'ISG') return false;
+        const kind = String(fi.PGonKind ?? fi.Kind ?? fi?.tags?.PGonKind ?? fi?.tags?.Kind ?? '').trim();
+        const skind = String(fi.PGonSKind ?? fi.SKind ?? fi?.tags?.PGonSKind ?? fi?.tags?.SKind ?? '').trim();
+        return kind === 'NGF' && (skind === 'LAD' || skind === 'WTB');
+      },
+      getId: (fi: any) => String(fi.PGonID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
+      getName: (fi: any) => String(fi.PGonName ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
+      formatOption: (name, id) => `${name}(${id})`,
+    }),
+    []
+  );
   const kind = 'NGF';
   const skind = 'LIS';
 
@@ -418,10 +436,12 @@ export default function NaturalLandSurfaceWorkflow(props: WorkflowComponentProps
             onChange={(v) => setInfo((prev) => ({ ...prev, nomenclator: v }))}
           />
 
-          <LabeledInput
-            label="所属大陆(一级)（可选，将写入 tags.Land）"
-            value={info.landLevel1 ?? ''}
-            placeholder="例如：亚欧大陆"
+          <WorkflowFeatureSearchSelect
+            bridge={bridge}
+            label="所属地理单元（可选，将写入 tags.Land）"
+            value={String(info.landLevel1 ?? '')}
+            placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+            config={landUnitSearchCfg}
             onChange={(v) => setInfo((prev) => ({ ...prev, landLevel1: v }))}
           />
 

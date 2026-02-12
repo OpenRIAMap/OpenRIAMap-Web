@@ -812,7 +812,15 @@ labelClick: {
           abbrev: (s) => (s.length > 10 ? s.slice(0, 10) + '…' : s),
         },
       },
-      labelClick: { enabled: true, mode: 'labelOnly', labelStyleKey: 'gm-outline', pointPinStyleKey: 'pin-red', openCard: true },
+      // 允许点本体点击打开信息卡（与 STA 一致：label 点击 + 几何点击）
+      labelClick: {
+        enabled: true,
+        mode: 'labelOnly',
+        labelStyleKey: 'gm-outline',
+        pointPinStyleKey: 'pin-red',
+        openCard: true,
+        geom: { point: true },
+      },
     },
   },
 
@@ -840,7 +848,15 @@ labelClick: {
           abbrev: (s) => (s.length > 10 ? s.slice(0, 10) + '…' : s),
         },
       },
-      labelClick: { enabled: true, mode: 'labelOnly', labelStyleKey: 'gm-outline', highlightStyleKey: 'dash', openCard: true },
+      // 允许线本体点击打开信息卡
+      labelClick: {
+        enabled: true,
+        mode: 'labelOnly',
+        labelStyleKey: 'gm-outline',
+        highlightStyleKey: 'dash',
+        openCard: true,
+        geom: { path: true },
+      },
     },
   },
 
@@ -940,6 +956,7 @@ labelClick: {
           },
         };
       },
+      // label 点击 + 面本体点击：打开信息卡
       labelClick: (r) => {
         const fi: any = r.featureInfo ?? {};
         const tags: any = fi.tags ?? fi.Tags ?? {};
@@ -952,8 +969,155 @@ labelClick: {
         const isADM_DBZ = kind === 'ADM' && skind === 'DBZ';
         const isADM_PLZ = kind === 'ADM' && skind === 'PLZ';
 
-        const labelStyleKey = isNGF_LAD ? 'gm-bw-15' : isNGF_WTB ? 'gm-wtb-15' : isNGF_LIS ? 'gm-bw-15' : (isADM_DBZ || isADM_PLZ) ? 'gm-bw-9' : 'gm-outline';
-        return { enabled: true, mode: 'labelOnly', labelStyleKey: labelStyleKey as any, highlightStyleKey: 'dash', openCard: true };
+        const labelStyleKey =
+          isNGF_LAD ? 'gm-bw-15' : isNGF_WTB ? 'gm-wtb-15' : isNGF_LIS ? 'gm-bw-15' : (isADM_DBZ || isADM_PLZ) ? 'gm-bw-9' : 'gm-outline';
+
+        return {
+          enabled: true,
+          mode: 'labelOnly',
+          labelStyleKey: labelStyleKey as any,
+          highlightStyleKey: 'dash',
+          openCard: true,
+          //geom: { polygon: true },
+        };
+      },
+    },
+  },
+
+  // ------------------------------
+  // 交易点 TRP（Point）
+  // - STA 风格：圆心 + label，支持避让与点击交互
+  // - zoom > 4 才显示
+  // ------------------------------
+  {
+    name: '交易点 TRP：STA 风格（绿色圆心，zoom>4）',
+    match: { Class: 'TRP', Type: 'Points' },
+    zoom: [5, 99],
+    symbol: {
+      pane: 'ria-point-top',
+      point: {
+        kind: 'circle',
+        radius: 4,
+        style: {
+          color: '#111827',
+          opacity: 0.9,
+          weight: 2,
+          fillColor: '#22c55e',
+          fillOpacity: 0.85,
+        },
+      },
+      label: {
+        enabled: true,
+        minLevel: 5,
+        placement: 'center',
+        textFrom: (r) => String((r.featureInfo as any)?.TRPointName ?? (r.featureInfo as any)?.Name ?? '').trim(),
+        declutter: {
+          priority: 10,
+          minSpacingPx: 6,
+          candidates: ['N', 'NE', 'NW', 'E', 'W', 'SE', 'SW', 'S'],
+          allowHide: true,
+          allowAbbrev: true,
+          abbrev: (s) => (s.length > 6 ? s.slice(0, 6) + '…' : s),
+        },
+      },
+      labelClick: {
+        enabled: true,
+        mode: 'normal',
+        openCard: true,
+        highlightStyleKey: 'dash',
+        geom: { point: true },
+      },
+    },
+  },
+
+  // ------------------------------
+  // 传送点 TPP（Point）
+  // - STA 风格：圆心 + label，支持避让与点击交互
+  // - zoom > 4 才显示
+  // ------------------------------
+  {
+    name: '传送点 TPP：STA 风格（橙色圆心，zoom>4）',
+    match: { Class: 'TPP', Type: 'Points' },
+    zoom: [5, 99],
+    symbol: {
+      pane: 'ria-point-top',
+      point: {
+        kind: 'circle',
+        radius: 4,
+        style: {
+          color: '#111827',
+          opacity: 0.9,
+          weight: 2,
+          fillColor: '#f97316',
+          fillOpacity: 0.85,
+        },
+      },
+      label: {
+        enabled: true,
+        minLevel: 5,
+        placement: 'center',
+        textFrom: (r) => String((r.featureInfo as any)?.TPPointName ?? (r.featureInfo as any)?.Name ?? '').trim(),
+        declutter: {
+          priority: 10,
+          minSpacingPx: 6,
+          candidates: ['N', 'NE', 'NW', 'E', 'W', 'SE', 'SW', 'S'],
+          allowHide: true,
+          allowAbbrev: true,
+          abbrev: (s) => (s.length > 6 ? s.slice(0, 6) + '…' : s),
+        },
+      },
+      labelClick: {
+        enabled: true,
+        mode: 'normal',
+        openCard: true,
+        highlightStyleKey: 'dash',
+        geom: { point: true },
+      },
+    },
+  },
+
+  // ------------------------------
+  // 传送点 TPP（Point）
+  // - STA 风格：圆心 + label，支持避让与点击交互
+  // - zoom > 4 才显示
+  // ------------------------------
+  {
+    name: '传送点 WRP：STA 风格（橙色圆心，zoom>4）',
+    match: { Class: 'WRP', Type: 'Points' },
+    zoom: [5, 99],
+    symbol: {
+      pane: 'ria-point-top',
+      point: {
+        kind: 'circle',
+        radius: 4,
+        style: {
+          color: '#111827',
+          opacity: 0.9,
+          weight: 2,
+          fillColor: '#f97316',
+          fillOpacity: 0.85,
+        },
+      },
+      label: {
+        enabled: true,
+        minLevel: 5,
+        placement: 'center',
+        textFrom: (r) => String((r.featureInfo as any)?.TPPointName ?? (r.featureInfo as any)?.Name ?? '').trim(),
+        declutter: {
+          priority: 10,
+          minSpacingPx: 6,
+          candidates: ['N', 'NE', 'NW', 'E', 'W', 'SE', 'SW', 'S'],
+          allowHide: true,
+          allowAbbrev: true,
+          abbrev: (s) => (s.length > 6 ? s.slice(0, 6) + '…' : s),
+        },
+      },
+      labelClick: {
+        enabled: true,
+        mode: 'normal',
+        openCard: true,
+        highlightStyleKey: 'dash',
+        geom: { point: true },
       },
     },
   },

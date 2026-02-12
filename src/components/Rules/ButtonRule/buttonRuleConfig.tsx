@@ -1,5 +1,5 @@
 import type React from 'react';
-import { Building2, Leaf, Map, Home, Train, Zap } from 'lucide-react';
+import { Building2, Leaf, Map, Home, Train, Zap, ShoppingCart } from 'lucide-react';
 
 /**
  * 规则图层“分组开关”配置
@@ -78,6 +78,13 @@ export const RULE_BUTTON_DEFS: RuleButtonDef[] = [
     tone: 'cyan',
     icon: <Zap className="w-5 h-5" />,
     criteria: { Class: ['TPP','WRP'] },
+  },
+  {
+    id: 'trade_point',
+    label: '交易点',
+    tone: 'green',
+    icon: <ShoppingCart className="w-5 h-5" />,
+    criteria: { Class: ['TRP'] },
   },
   {
     id: 'building',

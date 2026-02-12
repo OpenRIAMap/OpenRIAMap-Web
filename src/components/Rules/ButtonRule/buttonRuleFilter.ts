@@ -110,3 +110,14 @@ export function filterRecordsByRuleButtons(all: FeatureRecord[], activeButtonIds
     return false;
   });
 }
+
+/**
+ * 反查：给定一个 record，返回它会命中的按钮 id（用于 SearchBar 选择后自动打开对应图层按钮）。
+ */
+export function getMatchingRuleButtonIds(r: FeatureRecord): string[] {
+  const out: string[] = [];
+  for (const d of RULE_BUTTON_DEFS) {
+    if (matchCriteria(r, d.criteria)) out.push(d.id);
+  }
+  return out;
+}

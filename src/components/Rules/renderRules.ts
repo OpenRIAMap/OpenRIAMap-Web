@@ -249,6 +249,44 @@ export function pickIdFieldValue(featureInfo: any, cls: string): { idField: stri
     return s ? s : null;
   };
 
+  // 兜底：扫描任意“以 ID/Id/id 结尾”的字段，兼容 TRPointID / TPPointID / WRPointID / PGonID 等。
+  // - 排除 WorldID/worldId 等明显不是主键的字段
+  // - 不依赖 cls（因为部分源 JSON 不含 Class）
+  const scanIdLikeFields = (): { idField: string; idValue: string } | null => {
+    if (!featureInfo || typeof featureInfo !== 'object') return null;
+    const keys = Object.keys(featureInfo);
+    const idKeys = keys.filter((k) => {
+      if (!k) return false;
+      const low = k.toLowerCase();
+      if (low === 'worldid' || low === 'world_id' || low === 'world') return false;
+      return /id$/i.test(k);
+    });
+    if (idKeys.length === 0) return null;
+
+    // 优先级：ID -> (包含 cls) -> 常见命名 PointID/PGonID/PLineID/LineID/StationID/BuildingID/FloorID/PlatformID -> 其余按字典序
+    const clsNorm = String(cls ?? '').trim();
+    const scored = idKeys
+      .map((k) => {
+        let score = 0;
+        const low = k.toLowerCase();
+        if (low === 'id') score += 100;
+        if (clsNorm) {
+          const clsLow = clsNorm.toLowerCase();
+          if (low === `${clsLow}id`) score += 90;
+          if (low.includes(clsLow) && low.endsWith('id')) score += 60;
+        }
+        if (/(pointid|pgonid|plineid|lineid|stationid|buildingid|floorid|platformid)$/i.test(k)) score += 50;
+        return { k, score };
+      })
+      .sort((a, b) => (b.score - a.score) || a.k.localeCompare(b.k));
+
+    for (const it of scored) {
+      const v = tryField(it.k);
+      if (v) return { idField: it.k, idValue: v };
+    }
+    return null;
+  };
+
   const candidates: string[] = [];
 
   // 常见约定优先
@@ -264,14 +302,20 @@ export function pickIdFieldValue(featureInfo: any, cls: string): { idField: stri
   if (cls === 'PFB') candidates.push('plfRoundID', 'platformID');
   if (cls === 'STA') candidates.push('stationID');
   if (cls === 'RLE') candidates.push('LineID', 'lineID');
+  if (cls === 'TRP') candidates.push('TRPointID');
+  if (cls === 'TPP') candidates.push('TPPointID');
+  if (cls === 'WRP') candidates.push('WRPointID');
 
-  // 再兜底
-  candidates.push('ID', `${cls}ID`, `${cls.toLowerCase()}ID`, 'name', 'staName');
+  // 再兜底（仅 ID 类字段；不要用 name 充当 ID）
+  candidates.push('ID', `${cls}ID`, `${cls.toLowerCase()}ID`);
 
   for (const f of candidates) {
     const v = tryField(f);
     if (v) return { idField: f, idValue: v };
   }
+
+  const scanned = scanIdLikeFields();
+  if (scanned) return scanned;
   return { idField: 'UNKNOWN', idValue: '' };
 }
 

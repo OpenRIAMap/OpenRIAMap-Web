@@ -17,9 +17,9 @@ export type WorkflowCatalogGeom = '点' | '线' | '面';
 
 export type WorkflowFeatureCatalogEntry = {
   /** 对应现有 FeatureKey（地物点/线/面） */
-  classKey: '地物点' | '地物线' | '地物面' | '建筑' | '建筑楼层' | '传送点' | 'Warp点';
+  classKey: '地物点' | '地物线' | '地物面' | '建筑' | '建筑楼层' | '传送点' | 'Warp点' | '交易点';
   /** 对应 JSON Class（三字码） */
-  classCode: 'ISP' | 'ISL' | 'ISG' | 'BUD' | 'FLR' | 'TPP' | 'WRP';
+  classCode: 'ISP' | 'ISL' | 'ISG' | 'BUD' | 'FLR' | 'TPP' | 'WRP' | 'TRP';
   /** 对应绘制模式 */
   drawMode: 'point' | 'polyline' | 'polygon';
 
@@ -81,6 +81,10 @@ export const WORKFLOW_FEATURE_CATALOG: WorkflowFeatureCatalogEntry[] = [
   // ===== Warp点 Warp Point（WRP）=====
   { classKey: 'Warp点', classCode: 'WRP', drawMode: 'point', kind: 'NOM', skind: 'NOM', skind2: '', name: '默认', geom: '点' },
   { classKey: 'Warp点', classCode: 'WRP', drawMode: 'point', kind: 'SPE', skind: 'SPE', skind2: '', name: '特殊', geom: '点' },
+
+  // ===== 交易点 Trade Point（TRP）=====
+  { classKey: '交易点', classCode: 'TRP', drawMode: 'point', kind: 'NOM', skind: 'NOM', skind2: '', name: '默认', geom: '点' },
+  { classKey: '交易点', classCode: 'TRP', drawMode: 'point', kind: 'SPE', skind: 'SPE', skind2: '', name: '特殊', geom: '点' },
 
 ];
 
@@ -200,6 +204,7 @@ export type FeatureKey =
   | '车站建筑楼层'
   | '传送点'
   | 'Warp点'
+  | '交易点'
   | '地物点'
   | '地物线'
   | '地物面'
@@ -221,6 +226,7 @@ export type ImportFormat =
   | '车站建筑楼层'
   | '传送点'
   | 'Warp点'
+  | '交易点'
   | '地物点'
   | '地物线'
   | '地物面'
@@ -599,6 +605,7 @@ const CLASS_CODE_BY_FEATURE: Partial<Record<FeatureKey, string>> = {
   车站建筑点: 'SBP',
   传送点: 'TPP',
   Warp点: 'WRP',
+  交易点: 'TRP',
   地物点: 'ISP',
   地物线: 'ISL',
   地物面: 'ISG',
@@ -686,6 +693,33 @@ const withSystemFields = (def: FormatDef, base: any, args: {
 
 // ---------- 通用工具 ----------
 const isFiniteNum = (v: any) => Number.isFinite(Number(v));
+
+// 点要素坐标新规范：coordinate 允许携带 y（非必填），同时保留 elevation 兼容旧数据。
+// - build：优先使用点坐标 p0.y；否则回退到 values.elevation
+// - read：优先读取 featureInfo.coordinate.y；否则回退到 featureInfo.elevation
+const pickPointYFromCoordsOrElevation = (p0: any, values: any): number | undefined => {
+  const y0 = Number(p0?.y);
+  if (Number.isFinite(y0)) return y0;
+  const ev = values?.elevation;
+  const y1 = Number(ev);
+  if (Number.isFinite(y1)) return y1;
+  return undefined;
+};
+
+const buildPointCoordinateXYZ = (p0: any, values: any) => {
+  const out: any = { x: p0?.x ?? 0, z: p0?.z ?? 0 };
+  const y = pickPointYFromCoordsOrElevation(p0, values);
+  if (Number.isFinite(y as any)) out.y = y;
+  return out;
+};
+
+const readPointYFromFeatureInfo = (featureInfo: any): number | undefined => {
+  const cy = Number(featureInfo?.coordinate?.y);
+  if (Number.isFinite(cy)) return cy;
+  const ev = Number(featureInfo?.elevation);
+  if (Number.isFinite(ev)) return ev;
+  return undefined;
+};
 
 const pickByFields = (values: Record<string, any>, fields: FieldDef[]) => {
   const out: Record<string, any> = {};
@@ -1063,7 +1097,7 @@ export const FORMAT_REGISTRY: Record<FeatureKey, FormatDef> = {
 
       const out = {
         ...base,
-        coordinate: { x: p0?.x ?? 0, z: p0?.z ?? 0 },
+        coordinate: buildPointCoordinateXYZ(p0, values),
         platforms,
       };
 
@@ -1081,7 +1115,7 @@ export const FORMAT_REGISTRY: Record<FeatureKey, FormatDef> = {
           featureInfo?.stationBuilding ??
           featureInfo?.stationBuildingId ??
           '',
-        elevation: featureInfo?.elevation ?? '',
+        elevation: (featureInfo?.coordinate?.y ?? featureInfo?.elevation) ?? '',
       },
       groups: {
         platforms: Array.isArray(featureInfo?.platforms)
@@ -1092,7 +1126,11 @@ export const FORMAT_REGISTRY: Record<FeatureKey, FormatDef> = {
     coordsFromFeatureInfo: (featureInfo) => {
       const c = featureInfo?.coordinate;
       if (!c) return [];
-      return [{ x: Number(c.x), z: Number(c.z) }].filter(p => isFiniteNum(p.x) && isFiniteNum(p.z));
+      const x = Number(c.x);
+      const z = Number(c.z);
+      const y = readPointYFromFeatureInfo(featureInfo);
+      if (!isFiniteNum(x) || !isFiniteNum(z)) return [];
+      return [Number.isFinite(y as any) ? ({ x, z, y } as any) : ({ x, z } as any)];
     },
     validateImportItem: (item) => {
       if (!item || typeof item !== 'object') return '不是对象';
@@ -1159,7 +1197,7 @@ export const FORMAT_REGISTRY: Record<FeatureKey, FormatDef> = {
 
       const out = {
         ...base,
-        coordinate: { x: p0?.x ?? 0, z: p0?.z ?? 0 },
+        coordinate: buildPointCoordinateXYZ(p0, values),
         lines,
       };
 
@@ -1169,7 +1207,7 @@ export const FORMAT_REGISTRY: Record<FeatureKey, FormatDef> = {
       values: {
         platformID: featureInfo?.platformID ?? '',
         platformName: featureInfo?.platformName ?? '',
-        elevation: featureInfo?.elevation ?? '',
+        elevation: (featureInfo?.coordinate?.y ?? featureInfo?.elevation) ?? '',
 
         // === 新增：默认 true（保证新建时直接满足“必填 bool”）===
         Situation: featureInfo?.Situation ?? true,
@@ -1193,7 +1231,11 @@ export const FORMAT_REGISTRY: Record<FeatureKey, FormatDef> = {
     coordsFromFeatureInfo: (featureInfo) => {
       const c = featureInfo?.coordinate;
       if (!c) return [];
-      return [{ x: Number(c.x), z: Number(c.z) }].filter(p => isFiniteNum(p.x) && isFiniteNum(p.z));
+      const x = Number(c.x);
+      const z = Number(c.z);
+      const y = readPointYFromFeatureInfo(featureInfo);
+      if (!isFiniteNum(x) || !isFiniteNum(z)) return [];
+      return [Number.isFinite(y as any) ? ({ x, z, y } as any) : ({ x, z } as any)];
     },
     validateImportItem: (item) => {
       if (!item || typeof item !== 'object') return '不是对象';
@@ -1486,7 +1528,7 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
 
       const out: any = {
         ...base,
-        coordinate: { x: p0?.x ?? 0, z: p0?.z ?? 0 },
+        coordinate: buildPointCoordinateXYZ(p0, values),
         stations,
       };
 
@@ -1500,7 +1542,7 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
         // 兼容过渡期字段名：stationID/stationName（旧）→ staBuildingPointID/staBuildingPointName（新）
         staBuildingPointID: featureInfo?.staBuildingPointID ?? featureInfo?.staBuildingPointId ?? featureInfo?.stationID ?? featureInfo?.stationId ?? featureInfo?.staBuildingID ?? featureInfo?.staBuildingId ?? '',
         staBuildingPointName: featureInfo?.staBuildingPointName ?? featureInfo?.stationName ?? featureInfo?.staBuildingName ?? '',
-        elevation: featureInfo?.elevation ?? '',
+        elevation: (featureInfo?.coordinate?.y ?? featureInfo?.elevation) ?? '',
       },
       groups: {
         Floors: Array.isArray(featureInfo?.Floors)
@@ -1525,7 +1567,11 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
     coordsFromFeatureInfo: (featureInfo) => {
       const c = featureInfo?.coordinate;
       if (!c) return [];
-      return [{ x: Number(c.x), z: Number(c.z) }].filter(p => isFiniteNum(p.x) && isFiniteNum(p.z));
+      const x = Number(c.x);
+      const z = Number(c.z);
+      const y = readPointYFromFeatureInfo(featureInfo);
+      if (!isFiniteNum(x) || !isFiniteNum(z)) return [];
+      return [Number.isFinite(y as any) ? ({ x, z, y } as any) : ({ x, z } as any)];
     },
     validateImportItem: (item) => {
       if (!item || typeof item !== 'object') return '不是对象';
@@ -1652,6 +1698,7 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       const TGTWarp = String((values as any).TGTWarp ?? '').trim();
       const TGT_x = isFiniteNum((values as any).TGT_x) ? Number((values as any).TGT_x) : undefined;
       const TGT_z = isFiniteNum((values as any).TGT_z) ? Number((values as any).TGT_z) : undefined;
+      const TGT_y = isFiniteNum((values as any).TGTelevation) ? Number((values as any).TGTelevation) : undefined;
 
       if (!TGTWarp && !(Number.isFinite(TGT_x as any) && Number.isFinite(TGT_z as any))) {
         throw new Error('缺少目标Warp或目标点坐标');
@@ -1660,11 +1707,13 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       const out: any = {
         ...base,
         // 坐标
-        coordinate: { x: p0?.x ?? 0, z: p0?.z ?? 0 },
+        coordinate: buildPointCoordinateXYZ(p0, values),
         // 目标：优先 Warp（仅记录 ID；实际坐标可在导航层解析）
         ...(TGTWarp ? { TGTWarp } : {}),
         // 目标坐标（可选；当未填写 Warp 时必须提供）
-        ...(Number.isFinite(TGT_x as any) && Number.isFinite(TGT_z as any) ? { TGTcoordinate: { x: TGT_x, z: TGT_z } } : {}),
+        ...(Number.isFinite(TGT_x as any) && Number.isFinite(TGT_z as any)
+          ? { TGTcoordinate: Number.isFinite(TGT_y as any) ? { x: TGT_x, z: TGT_z, y: TGT_y } : { x: TGT_x, z: TGT_z } }
+          : {}),
         // 可选字段
         elevation: isFiniteNum((values as any).elevation) ? Number((values as any).elevation) : undefined,
         TGTelevation: isFiniteNum((values as any).TGTelevation) ? Number((values as any).TGTelevation) : undefined,
@@ -1694,8 +1743,8 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
           TGTWarp: featureInfo?.TGTWarp ?? featureInfo?.tgtWarp ?? '',
           TGT_x: isFiniteNum(tgt?.x) ? Number(tgt.x) : '',
           TGT_z: isFiniteNum(tgt?.z) ? Number(tgt.z) : '',
-          elevation: featureInfo?.elevation ?? '',
-          TGTelevation: featureInfo?.TGTelevation ?? '',
+          elevation: (featureInfo?.coordinate?.y ?? featureInfo?.elevation) ?? '',
+          TGTelevation: (featureInfo?.TGTelevation ?? (isFiniteNum(tgt?.y) ? Number(tgt?.y) : '')) ?? '',
         },
         groups: {
           tags: flattenTagsToGroupItems(featureInfo?.tags),
@@ -1708,8 +1757,9 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       if (!c) return [];
       const x = Number(c.x);
       const z = Number(c.z);
+      const y = readPointYFromFeatureInfo(featureInfo);
       if (!isFiniteNum(x) || !isFiniteNum(z)) return [];
-      return [{ x, z }];
+      return [Number.isFinite(y as any) ? ({ x, z, y } as any) : ({ x, z } as any)];
     },
     validateImportItem: (item) => {
       if (!item || typeof item !== 'object') return '不是对象';
@@ -1760,7 +1810,7 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
 
       const out: any = {
         ...base,
-        coordinate: { x: p0?.x ?? 0, z: p0?.z ?? 0 },
+        coordinate: buildPointCoordinateXYZ(p0, values),
         elevation: isFiniteNum((values as any).elevation) ? Number((values as any).elevation) : undefined,
         hub: String((values as any).hub ?? '').trim() || undefined,
         tags,
@@ -1780,7 +1830,7 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
           WRPointSKind: featureInfo?.WRPointSKind ?? featureInfo?.wrPointSKind ?? '',
           WRPointSKind2: featureInfo?.WRPointSKind2 ?? featureInfo?.wrPointSKind2 ?? '',
           hub: hub ?? '',
-          elevation: featureInfo?.elevation ?? '',
+          elevation: (featureInfo?.coordinate?.y ?? featureInfo?.elevation) ?? '',
         },
         groups: {
           tags: flattenTagsToGroupItems(featureInfo?.tags),
@@ -1793,8 +1843,9 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       if (!c) return [];
       const x = Number(c.x);
       const z = Number(c.z);
+      const y = readPointYFromFeatureInfo(featureInfo);
       if (!isFiniteNum(x) || !isFiniteNum(z)) return [];
-      return [{ x, z }];
+      return [Number.isFinite(y as any) ? ({ x, z, y } as any) : ({ x, z } as any)];
     },
     validateImportItem: (item) => {
       if (!item || typeof item !== 'object') return '不是对象';
@@ -1809,6 +1860,151 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       if (!(item as any).coordinate || !isFiniteNum((item as any).coordinate.x) || !isFiniteNum((item as any).coordinate.z)) {
         return '缺少合法 coordinate.x / coordinate.z';
       }
+      return validateOptionalTagExtSoft(item);
+    },
+  },
+
+
+  // ===== 交易点 Trade Point (TRP) =====
+  交易点: {
+    key: '交易点',
+    label: '交易点',
+    modes: ['point'],
+    hideTempOutput: true,
+    classCode: CLASS_CODE_BY_FEATURE['交易点'], // TRP
+    fields: [
+      { key: 'TRPointID', label: '交易点ID(TRPointID)', type: 'text' },
+      { key: 'TRPointName', label: '交易点名(TRPointName)', type: 'text' },
+      { key: 'TRPointKind', label: '类型(TRPointKind)', type: 'text' },
+      { key: 'TRPointSKind', label: '子类型(TRPointSKind)', type: 'text' },
+      { key: 'TRPointSKind2', label: '三级子类型(TRPointSKind2)', type: 'text', optional: true },
+
+      { key: 'Interaction', label: '交互模式(Interaction)', type: 'text', optional: true },
+      { key: 'Situation', label: '启用状况(Situation)', type: 'text', optional: true },
+
+      // 为避免引入复杂的嵌套编辑器，这里先用“整段 JSON 文本”承载交易表。
+      // - 运行时仍以 featureInfo.Trade（数组）解析显示。
+      // - 后续若你实现专用 Trade 编辑器，可替换此字段。
+      { key: 'TradeJSON', label: '交易列表(Trade) JSON', type: 'text', optional: true },
+
+      { key: 'elevation', label: '高度(y)', type: 'number', optional: true },
+    ],
+    groups: [
+      {
+        key: 'tags',
+        label: 'tags（可选：用于筛选/渲染差分）',
+        optional: true,
+        addButtonText: '添加 tag',
+        fields: [
+          { key: 'tagKey', label: '字段名', type: 'select', options: TAG_KEY_OPTIONS },
+          { key: 'tagKeyOther', label: '其他字段名（当字段名=其他时填写）', type: 'text', optional: true },
+          { key: 'tagValue', label: '值', type: 'text' },
+        ],
+      },
+      {
+        key: 'extensions',
+        label: 'extensions（可选：仅记录信息，不参与规则）',
+        optional: true,
+        addButtonText: '添加扩展',
+        fields: [
+          { key: 'extGroup', label: '组/命名空间(extGroup)', type: 'text' },
+          { key: 'extKey', label: '字段名(extKey)', type: 'text' },
+          { key: 'extType', label: '值类型', type: 'select', options: EXT_VALUE_TYPE_OPTIONS, defaultValue: EXT_VALUE_TYPE_TEXT },
+          { key: 'extValue', label: '值(extValue)', type: 'text' },
+        ],
+      },
+    ],
+    buildFeatureInfo: ({ op, mode, coords, values, groups, worldId, editorId, prevFeatureInfo, now }) => {
+      const base = pickByFields(values, FORMAT_REGISTRY['交易点'].fields);
+      const p0 = coords[0];
+
+      const tags = buildTagsFromGroupItems(groups?.tags);
+      const extensions = buildExtensionsFromGroupItems(groups?.extensions);
+
+      // Trade：
+      // 1) 工作流会直接提交 values.Trade（数组）
+      // 2) 通用编辑器场景仍允许填写 TradeJSON（文本）
+      // 3) 编辑兼容：若表单未提供则沿用 prevFeatureInfo.Trade
+      let Trade: any[] | undefined;
+      const tradeArr = (values as any).Trade;
+      if (Array.isArray(tradeArr)) {
+        Trade = tradeArr;
+      } else {
+        const tradeJsonText = String((values as any).TradeJSON ?? '').trim();
+        if (tradeJsonText) {
+          try {
+            const parsed = JSON.parse(tradeJsonText);
+            if (Array.isArray(parsed)) Trade = parsed;
+            else throw new Error('TradeJSON 必须是数组');
+          } catch (e: any) {
+            throw new Error(`TradeJSON 解析失败：${e?.message ?? '未知错误'}`);
+          }
+        } else if (Array.isArray(prevFeatureInfo?.Trade)) {
+          Trade = prevFeatureInfo.Trade;
+        }
+      }
+
+      if (op === 'create' && (!Trade || Trade.length === 0)) {
+        throw new Error('缺少交易列表 Trade（请填写交易列表或导入包含 Trade 的 JSON）');
+      }
+
+      const out: any = {
+        ...base,
+        coordinate: buildPointCoordinateXYZ(p0, values),
+        elevation: isFiniteNum((values as any).elevation) ? Number((values as any).elevation) : undefined,
+        ...(Trade ? { Trade } : {}),
+        tags,
+        extensions,
+      };
+
+      // 清理表单临时字段
+      delete out.TradeJSON;
+
+      return withSystemFields(FORMAT_REGISTRY['交易点'], out, { op, mode, worldId, editorId, prevFeatureInfo, now });
+    },
+    hydrate: (featureInfo) => {
+      const trade = featureInfo?.Trade ?? featureInfo?.trade;
+      return {
+        values: {
+          TRPointID: featureInfo?.TRPointID ?? featureInfo?.trPointID ?? featureInfo?.id ?? '',
+          TRPointName: featureInfo?.TRPointName ?? featureInfo?.trPointName ?? featureInfo?.name ?? '',
+          TRPointKind: featureInfo?.TRPointKind ?? featureInfo?.trPointKind ?? '',
+          TRPointSKind: featureInfo?.TRPointSKind ?? featureInfo?.trPointSKind ?? '',
+          TRPointSKind2: featureInfo?.TRPointSKind2 ?? featureInfo?.trPointSKind2 ?? '',
+          Interaction: featureInfo?.Interaction ?? featureInfo?.interaction ?? '',
+          Situation: featureInfo?.Situation ?? featureInfo?.situation ?? '',
+          Trade: Array.isArray(trade) ? trade : undefined,
+          TradeJSON: Array.isArray(trade) ? JSON.stringify(trade, null, 2) : '',
+          elevation: (featureInfo?.coordinate?.y ?? featureInfo?.elevation) ?? '',
+        },
+        groups: {
+          ...hydrateOptionalTagExtGroups(featureInfo),
+        },
+      };
+    },
+    coordsFromFeatureInfo: (featureInfo) => {
+      const c = featureInfo?.coordinate;
+      if (!c) return [];
+      const x = Number(c.x);
+      const z = Number(c.z);
+      const y = readPointYFromFeatureInfo(featureInfo);
+      if (!isFiniteNum(x) || !isFiniteNum(z)) return [];
+      return [Number.isFinite(y as any) ? ({ x, z, y } as any) : ({ x, z } as any)];
+    },
+    validateImportItem: (item) => {
+      if (!item || typeof item !== 'object') return '不是对象';
+      const id = String((item as any).TRPointID ?? (item as any).trPointID ?? '').trim();
+      if (!id) return '缺少 TRPointID';
+      const name = String((item as any).TRPointName ?? (item as any).trPointName ?? '').trim();
+      if (!name) return '缺少 TRPointName';
+      if (!String((item as any).TRPointKind ?? '').trim()) return '缺少 TRPointKind';
+      if (!String((item as any).TRPointSKind ?? '').trim()) return '缺少 TRPointSKind';
+      if (!(item as any).coordinate || !isFiniteNum((item as any).coordinate.x) || !isFiniteNum((item as any).coordinate.z)) {
+        return '缺少合法 coordinate.x / coordinate.z';
+      }
+      // 交易列表：允许不同历史结构，但至少应存在数组形式的 Trade。
+      const trade = (item as any).Trade ?? (item as any).trade;
+      if (!Array.isArray(trade)) return 'Trade 必须是数组';
       return validateOptionalTagExtSoft(item);
     },
   },
@@ -1869,7 +2065,7 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
 
     const out: any = {
       ...base,
-      coordinate: { x: p0?.x ?? 0, z: p0?.z ?? 0 },
+      coordinate: buildPointCoordinateXYZ(p0, values),
     };
     if (Object.keys(tags).length > 0) out.tags = tags;
     if (Object.keys(extensions).length > 0) out.extensions = extensions;
@@ -1884,7 +2080,7 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       PointSKind: featureInfo?.PointSKind ?? featureInfo?.tags?.PointSKind ?? '',
       PointSKind2: featureInfo?.PointSKind2 ?? featureInfo?.tags?.PointSKind2 ?? '',
       Situation: featureInfo?.Situation ?? featureInfo?.tags?.Situation ?? '',
-      elevation: featureInfo?.elevation ?? '',
+      elevation: (featureInfo?.coordinate?.y ?? featureInfo?.elevation) ?? '',
     },
     groups: {
       tags: flattenTagsToGroupItems(featureInfo?.tags),
@@ -1894,7 +2090,11 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
   coordsFromFeatureInfo: (featureInfo) => {
     const c = featureInfo?.coordinate;
     if (!c) return [];
-    return [{ x: Number(c.x), z: Number(c.z) }].filter(p => isFiniteNum(p.x) && isFiniteNum(p.z));
+    const x = Number(c.x);
+    const z = Number(c.z);
+    const y = readPointYFromFeatureInfo(featureInfo);
+    if (!isFiniteNum(x) || !isFiniteNum(z)) return [];
+    return [Number.isFinite(y as any) ? ({ x, z, y } as any) : ({ x, z } as any)];
   },
   validateImportItem: (item) => {
     if (!item || typeof item !== 'object') return '不是对象';

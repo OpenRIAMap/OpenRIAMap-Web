@@ -14,6 +14,7 @@ export type WorkflowKey =
   | 'station'
   | 'tpp_point'
   | 'wrp_point'
+  | 'trp_point'
   | 'ngf_land'
   | 'ngf_lis'
   | 'ngf_wtb'

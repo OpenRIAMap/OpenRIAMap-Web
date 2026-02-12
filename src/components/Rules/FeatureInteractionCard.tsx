@@ -1,4 +1,4 @@
-import { type WheelEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, type WheelEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 import DraggablePanel from '@/components/DraggablePanel/DraggablePanel';
 import AppCard from '@/components/ui/AppCard';
@@ -25,6 +25,18 @@ type Props = {
   resolveFeatureById?: ResolveFeatureById;
   /** 由上层（RuleDrivenLayer）提供：用于在“要素跳转”中尝试触发目标要素的 labelClick */
   onTryTriggerLabelClickById?: (id: string) => void;
+
+  /** 可选：在图片幕与主信息之间插入额外模块（例如 TRP 交易列表） */
+  midSection?: ReactNode;
+  /** 可选：覆盖卡片宽度（例如 TRP 需要更宽） */
+  cardClassName?: string;
+  /** 可选：覆盖图片幕每张图的尺寸 */
+  pictureItemSize?: { width: number; height: number };
+  /** 可选：不使用 FIELD_RULES（避免特殊卡被 fieldRules.ts 误定义影响） */
+  disableFieldRules?: boolean;
+
+  /** 可选：覆盖主信息/其他信息分区（用于特殊卡把大段信息挪到自定义模块中） */
+  infoSectionsOverride?: { mainRows: CardRow[]; otherRows: CardRow[] };
 };
 
 type CardRow = { label: string; value: any };
@@ -104,7 +116,18 @@ function renderRichValue(v: any) {
 }
 
 export default function FeatureInteractionCard(props: Props) {
-  const { open, feature, onClose, resolveFeatureById, onTryTriggerLabelClickById } = props;
+  const {
+    open,
+    feature,
+    onClose,
+    resolveFeatureById,
+    onTryTriggerLabelClickById,
+    midSection,
+    cardClassName,
+    pictureItemSize,
+    disableFieldRules,
+    infoSectionsOverride,
+  } = props;
   if (!open) return null;
 
   const title = useMemo(() => pickFeatureDisplayName(feature), [feature]);
@@ -163,10 +186,13 @@ export default function FeatureInteractionCard(props: Props) {
   }, [feature]);
 
   const { mainRows, otherRows } = useMemo(() => {
+    if (infoSectionsOverride) return infoSectionsOverride;
     if (!feature) return { mainRows: [] as CardRow[], otherRows: [] as CardRow[] };
-    const { mainRows, otherRows } = buildInfoSectionsForFeature(feature, railIndex);
+    const { mainRows, otherRows } = buildInfoSectionsForFeature(feature, railIndex, {
+      disableFieldRules: !!disableFieldRules,
+    });
     return { mainRows, otherRows };
-  }, [feature, railIndex]);
+  }, [feature, railIndex, disableFieldRules, infoSectionsOverride]);
 
   const [otherOpen, setOtherOpen] = useState(false);
   useEffect(() => {
@@ -182,16 +208,56 @@ export default function FeatureInteractionCard(props: Props) {
     el.scrollLeft += e.deltaY;
   };
 
+  // ======== 单要素 JSON 面板（用于复制/下载并再导入编辑） ========
+  const [jsonOpen, setJsonOpen] = useState(false);
+  useEffect(() => setJsonOpen(false), [feature]);
+
+  const featureJsonText = useMemo(() => {
+    if (!feature) return '[]';
+    // 以数组形式导出，便于直接作为“导入数据”的 JSON 内容
+    try {
+      return JSON.stringify([feature.featureInfo ?? {}], null, 2);
+    } catch {
+      return JSON.stringify([{}], null, 2);
+    }
+  }, [feature]);
+
+  const downloadTextFile = (filename: string, content: string) => {
+    try {
+      const blob = new Blob([content], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      // ignore
+    }
+  };
+
   return (
-    <DraggablePanel id="featureInteractionCard" defaultPosition={{ x: 16, y: 180 }}>
-      <AppCard className="w-[360px]" onWheel={(e) => e.stopPropagation()}>
+    <>
+      <DraggablePanel id="featureInteractionCard" defaultPosition={{ x: 16, y: 180 }}>
+        <AppCard className={cardClassName ?? 'w-[360px]'} onWheel={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-3 py-2 border-b border-black/10">
           <div className="text-sm font-semibold truncate" title={title}>
             {title || '（未命名要素）'}
           </div>
-          <AppButton className="px-2 py-1 text-xs bg-transparent hover:bg-black/5" onClick={onClose}>
-            关闭
-          </AppButton>
+          <div className="flex items-center gap-2">
+            <AppButton
+              className="px-2 py-1 text-xs bg-transparent hover:bg-black/5"
+              onClick={() => setJsonOpen(true)}
+              type="button"
+            >
+              JSON
+            </AppButton>
+            <AppButton className="px-2 py-1 text-xs bg-transparent hover:bg-black/5" onClick={onClose} type="button">
+              关闭
+            </AppButton>
+          </div>
         </div>
 
         <div className="px-3 pt-3">
@@ -205,7 +271,10 @@ export default function FeatureInteractionCard(props: Props) {
               <div
                 key={`${src}-${idx}`}
                 className="shrink-0 snap-start rounded-md border border-black/10 bg-black/5"
-                style={{ width: 324, height: 182 }}
+                style={{
+                  width: pictureItemSize?.width ?? 324,
+                  height: pictureItemSize?.height ?? 182,
+                }}
               >
                 <img
                   src={src}
@@ -225,7 +294,9 @@ export default function FeatureInteractionCard(props: Props) {
         </div>
 
         <div className="px-3 pb-3" onWheel={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
-          <div className="mt-1 rounded-md border border-black/10 bg-white max-h-[50vh] overflow-y-auto">
+          {/* 图片幕以下：统一纵向滚动（与常规信息卡一致），包含可插入的 midSection */}
+          <div className="mt-1 rounded-md border border-black/10 bg-white max-h-[60vh] overflow-y-auto">
+            {midSection ? <div className="px-3 pt-3 pb-2">{midSection}</div> : null}
             {mainRows.length > 0 ? (
               mainRows.map((r, i) => {
                 const v = r.value;
@@ -233,6 +304,21 @@ export default function FeatureInteractionCard(props: Props) {
                 // ===== 交互型 value：外部链接 / 要素跳转 =====
                 let rich = renderRichValue(v);
                 let textNode: any = null;
+
+                // ===== 自动识别纯字符串 URL（用于未定义规则时的 extensions.link.* 等） =====
+                const tryStringAsUrl = (raw: any) => {
+                  if (typeof raw !== 'string') return '';
+                  const s = raw.trim();
+                  if (!s) return '';
+                  // 仅对“看起来像链接”的字符串启用：
+                  // - 明确协议/双斜杠
+                  // - 或包含 '.' 且不含空格（避免误把普通文本当链接）
+                  if (/^(https?:\/\/|mailto:|tel:|ftp:\/\/|file:\/\/|\/\/)/i.test(s)) return s;
+                  if (s.includes(' ') || s.length > 2048) return '';
+                  if (s.includes('.') && !s.startsWith('#')) return s;
+                  return '';
+                };
+                const maybeUrl = !rich ? tryStringAsUrl(v) : '';
 
                 if (!rich && isExternalLinkValue(v)) {
                   const href = normalizeExternalHref(v.href);
@@ -278,6 +364,23 @@ export default function FeatureInteractionCard(props: Props) {
                   );
                 }
 
+                // 兜底：纯字符串 URL 也渲染为外链
+                if (!rich && !textNode && maybeUrl) {
+                  const href = normalizeExternalHref(maybeUrl);
+                  textNode = (
+                    <a
+                      className="text-blue-600 hover:underline"
+                      href={href}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={href}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {String(v)}
+                    </a>
+                  );
+                }
+
                 const text =
                   rich || textNode
                     ? null
@@ -300,7 +403,7 @@ export default function FeatureInteractionCard(props: Props) {
                   </div>
                 );
               })
-            ) : (
+            ) : midSection ? null : (
               <div className="px-2 py-2 text-xs text-black/60">暂无可显示的信息。</div>
             )}
 
@@ -395,7 +498,59 @@ export default function FeatureInteractionCard(props: Props) {
             )}
           </div>
         </div>
-      </AppCard>
-    </DraggablePanel>
+        </AppCard>
+      </DraggablePanel>
+
+      {jsonOpen && (
+        <DraggablePanel id="featureJsonPanel" defaultPosition={{ x: 400, y: 200 }}>
+          <AppCard className="w-[420px] max-h-[70vh] overflow-hidden" onWheel={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-3 py-2 border-b border-black/10">
+              <div className="text-sm font-semibold">当前要素 JSON</div>
+              <AppButton
+                className="px-2 py-1 text-xs bg-transparent hover:bg-black/5"
+                onClick={() => setJsonOpen(false)}
+                type="button"
+              >
+                关闭
+              </AppButton>
+            </div>
+
+            <div className="p-3 flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <AppButton
+                  type="button"
+                  className="px-2 py-1 text-xs border border-gray-300 bg-white hover:bg-gray-50"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(featureJsonText);
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                >
+                  复制
+                </AppButton>
+                <AppButton
+                  type="button"
+                  className="px-2 py-1 text-xs border border-gray-300 bg-white hover:bg-gray-50"
+                  onClick={() => {
+                    const id = String(feature?.meta?.idValue ?? 'feature').trim() || 'feature';
+                    downloadTextFile(`${id}.json`, featureJsonText);
+                  }}
+                >
+                  下载
+                </AppButton>
+                <div className="text-[11px] text-gray-500">可复制/下载后在“导入数据”中重新导入编辑</div>
+              </div>
+              <textarea
+                className="w-full flex-1 min-h-[360px] text-xs font-mono border border-gray-200 rounded p-2 bg-white"
+                value={featureJsonText}
+                readOnly
+              />
+            </div>
+          </AppCard>
+        </DraggablePanel>
+      )}
+    </>
   );
 }

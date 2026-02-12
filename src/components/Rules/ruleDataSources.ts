@@ -68,7 +68,9 @@ export const RULE_DATA_SOURCES: Record<string, WorldRuleDataSource> = {
     '社营风南线_海华北至风满楼.json',
     'ALL_20260128.json',
     'Warptest.json',
-    'TPPtest.json'
+    'TPPtest.json',
+    '传送.json',
+    'ZSGS.json'
     ],
   },
 

@@ -151,3 +151,42 @@ export async function checkTempMountIdConflicts(params: {
   }
   return messages;
 }
+
+export async function checkTempMountIdConflictsDetailed(params: {
+  worldId: string;
+  candidates: TempLayerIdCandidate[];
+}): Promise<{ messages: string[]; conflictIds: string[]; internalConflict: boolean }> {
+  const { worldId, candidates } = params;
+  const messages: string[] = [];
+  const conflictIds: string[] = [];
+
+  // 0) 先检查“当前测绘图层管理内部”的 ID 冲突（此类冲突无法通过“更新挂载”解决）
+  const seen = new Map<string, string>();
+  let internalConflict = false;
+  for (const c of candidates) {
+    const id = String(c.id ?? '').trim();
+    if (!id) continue;
+    const prevTitle = seen.get(id);
+    if (prevTitle) {
+      internalConflict = true;
+      messages.push(`当前临时图层中的${c.title}，与 当前临时图层中的${prevTitle} 的ID ${id} 重合`);
+      conflictIds.push(id);
+      continue;
+    }
+    seen.set(id, c.title);
+  }
+  if (messages.length > 0) {
+    return { messages, conflictIds: Array.from(new Set(conflictIds)), internalConflict };
+  }
+
+  const index = await buildGlobalDbIdIndex(worldId);
+  for (const c of candidates) {
+    const id = String(c.id ?? '').trim();
+    if (!id) continue;
+    const hit = index.get(id);
+    if (!hit) continue;
+    messages.push(`当前临时图层中的${c.title}，与 ${hit.file} ${hit.id} ${hit.name} 重合`);
+    conflictIds.push(id);
+  }
+  return { messages, conflictIds: Array.from(new Set(conflictIds)), internalConflict: false };
+}

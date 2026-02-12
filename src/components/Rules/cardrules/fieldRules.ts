@@ -504,16 +504,19 @@ function mergeRowsDedupByLabel(a: CardRow[], b: CardRow[]): CardRow[] {
 export function buildInfoSectionsForFeature(
   feature: FeatureRecord,
   railIndex?: RailNewIndex | null,
+  options?: { disableFieldRules?: boolean },
 ): InfoSections {
   const { Kind, SKind, SKind2 } = extractKindTriplet(feature);
 
   let chosen: FieldRule | null = null;
-  for (const r of FIELD_RULES) {
-    if (r.match.Kind && r.match.Kind !== Kind) continue;
-    if (r.match.SKind && r.match.SKind !== SKind) continue;
-    if (r.match.SKind2 && r.match.SKind2 !== SKind2) continue;
-    chosen = r;
-    if (r.match.SKind2) break;
+  if (!options?.disableFieldRules) {
+    for (const r of FIELD_RULES) {
+      if (r.match.Kind && r.match.Kind !== Kind) continue;
+      if (r.match.SKind && r.match.SKind !== SKind) continue;
+      if (r.match.SKind2 && r.match.SKind2 !== SKind2) continue;
+      chosen = r;
+      if (r.match.SKind2) break;
+    }
   }
 
   const primaryRowsFull = chosen ? chosen.rows(feature, railIndex) : [];

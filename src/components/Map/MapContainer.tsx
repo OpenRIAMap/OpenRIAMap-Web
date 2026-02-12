@@ -11,7 +11,8 @@ import { PlayerLayer } from './PlayerLayer';
 import { RouteHighlightLayer, type RouteHighlightData } from './RouteHighlightLayer';
 import { LineHighlightLayer } from './LineHighlightLayer';
 import { WorldSwitcher } from './WorldSwitcher';
-import { SearchBar } from '../Search/SearchBar';
+import { SearchBar, type SearchResult } from '../Search/SearchBar';
+import { getMatchingRuleButtonIds } from '../Rules/ButtonRule/buttonRuleFilter';
 import { NavigationPanel } from '../Navigation/NavigationPanel';
 import { LineDetailCard } from '../LineDetail/LineDetailCard';
 import { PointDetailCard } from '../PointDetail/PointDetailCard';
@@ -243,14 +244,61 @@ if (mapStyle === 'sketch') {
   }, [currentWorld, dataLoaded, getWorldData]);
 
   // 搜索结果选中处理
-  const handleSearchSelect = useCallback((result: { coord: { x: number; y: number; z: number } }) => {
+  const lastRuleSearchUidRef = useRef<string | null>(null);
+
+  const handleSearchSelect = useCallback((result: SearchResult) => {
     const map = leafletMapRef.current;
     const proj = projectionRef.current;
     if (!map || !proj) return;
 
-    const latLng = proj.locationToLatLng(result.coord.x, result.coord.y, result.coord.z);
-    map.setView(latLng, 5);  // 放大到 zoom 5
-  }, []);
+    // 旧数据（站点/地标/线路）保持原行为：中心到点位 & zoom=5
+    if (result.type !== 'rule') {
+      if (!result.coord) return;
+      const latLng = proj.locationToLatLng(result.coord.x, result.coord.y, result.coord.z);
+      map.setView(latLng, 5);
+      return;
+    }
+
+    // Rules：
+    // 1) 若对应图层按钮未开启，先自动开启（避免“搜索到但不显示/不可点”）
+    // 2) 聚焦到 bbox 中心，并在需要时缩放到能包裹 bbox 的最小 zoom
+    // 3) 发事件交给 RuleDrivenLayer 打开信息卡
+    const r = result.ruleRecord;
+
+    // ✅ 避免重复点击同一要素时不断触发视图缩放（会导致“二次放大偏离预期”）
+    // - 同一 uid：仅触发打开信息卡，不再修改视图
+    const uid = String(r?.uid ?? '').trim();
+    const isSameAsLast = !!uid && lastRuleSearchUidRef.current === uid;
+    if (uid) lastRuleSearchUidRef.current = uid;
+
+    if (r) {
+      const needIds = getMatchingRuleButtonIds(r);
+      if (needIds.length) {
+        for (const id of needIds) {
+          if (!activeRuleButtonIds.includes(id)) toggleRuleButton(id);
+        }
+      }
+    }
+
+    if (!isSameAsLast) {
+      if (result.coord) {
+        const latLng = proj.locationToLatLng(result.coord.x, result.coord.y, result.coord.z);
+        map.setView(latLng, Math.max(map.getZoom(), 5), { animate: true });
+      }
+
+      // bbox 缩放：优先用 record.coords3 计算（线/面）
+      if (r && Array.isArray(r.coords3) && r.coords3.length > 1) {
+        const pts = r.coords3.map((p) => proj.locationToLatLng(p.x, p.y, p.z));
+        const bounds = L.latLngBounds(pts);
+        // 始终根据 bbox 调整缩放（既可能放大也可能缩小），以确保用户点击后“聚焦 + 合适缩放”
+        map.fitBounds(bounds, { animate: true, padding: [16, 16] });
+      }
+    }
+
+    if (r?.uid) {
+      window.dispatchEvent(new CustomEvent('ria:ruleFeatureSelect', { detail: { uid: r.uid } }));
+    }
+  }, [activeRuleButtonIds, toggleRuleButton]);
 
   // 线路选中处理 - 高亮线路并调整视图
   const handleLineSelect = useCallback((line: ParsedLine) => {
@@ -638,6 +686,7 @@ map.on('mousemove', handleMouseMove);
           stations={stations}
           landmarks={landmarks}
           lines={lines}
+          worldId={currentWorld}
           onSelect={handleSearchSelect}
           onLineSelect={handleLineSelect}
         />

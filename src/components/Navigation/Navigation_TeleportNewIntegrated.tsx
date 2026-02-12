@@ -240,8 +240,10 @@ async function loadTeleportPoints(worldId: string, opt: {
         if (!i2d || !c) continue;
         if (!isFiniteNum(c.x) || !isFiniteNum(c.z)) continue;
 
+        // 新规范：优先读取 coordinate.y；否则回退 elevation；再不行用 DEFAULT_Y
+        const cy = Number((c as any).y);
         const elev = (item as any).elevation;
-        const y = isFiniteNum(elev) ? Number(elev) : DEFAULT_Y;
+        const y = Number.isFinite(cy) ? cy : (isFiniteNum(elev) ? Number(elev) : DEFAULT_Y);
         // Coordinate 类型要求 y 为 number；当未提供时用 DEFAULT_Y
         wrpMap.set(i2d, { coord: normCoord({ x: c.x, z: c.z, y }), elevation: y });
         continue;
@@ -274,16 +276,18 @@ async function loadTeleportPoints(worldId: string, opt: {
     } else {
       const t = (item as any).TGTcoordinate ?? (item as any).tgtCoordinate ?? (item as any).targetCoordinate;
       if (t && isFiniteNum(t.x) && isFiniteNum(t.z)) {
+        const cy = Number((t as any).y);
         const te = (item as any).TGTelevation;
-        const ty = isFiniteNum(te) ? Number(te) : DEFAULT_Y;
+        const ty = Number.isFinite(cy) ? cy : (isFiniteNum(te) ? Number(te) : DEFAULT_Y);
         tgt = normCoord({ x: t.x, z: t.z, y: ty });
       }
     }
 
     if (!tgt) continue;
 
+    const cy = Number((c as any).y);
     const srcElev = (item as any).elevation;
-    const srcY = isFiniteNum(srcElev) ? Number(srcElev) : DEFAULT_Y;
+    const srcY = Number.isFinite(cy) ? cy : (isFiniteNum(srcElev) ? Number(srcElev) : DEFAULT_Y);
 
     out.push({
       id,

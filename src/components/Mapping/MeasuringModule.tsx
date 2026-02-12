@@ -20,11 +20,16 @@ import {
   type DrawMode,
 } from '@/components/Mapping/featureFormats';
 
+import TRPTradeEditor, { type TradeGroup as TRPTradeGroup } from '@/components/Mapping/SpecialInput/TRPTradeEditor';
+
 
 import type { DynmapProjection } from '@/lib/DynmapProjection';
 import { DraggablePanel } from '@/components/DraggablePanel/DraggablePanel';
 import { Pencil, Upload, Trash2, X } from 'lucide-react';
 import ToolIconButton from '@/components/Toolbar/ToolIconButton';
+
+import { buildZipStore } from '@/lib/zipStore';
+import { pickIdFieldValue } from '@/components/Rules/renderRules';
 
 import ControlPointsT, { type ControlPointsTHandle } from '@/components/Mapping/ControlPointsT';
 
@@ -76,10 +81,14 @@ import BuildingWorkflow from '@/components/Mapping/Workflow/BuildingWorkflow';
 import FloorUnitWorkflow from '@/components/Mapping/Workflow/FloorUnitWorkflow';
 import TeleportPointWorkflow from '@/components/Mapping/Workflow/TeleportPointWorkflow';
 import WarpPointWorkflow from '@/components/Mapping/Workflow/WarpPointWorkflow';
+import TradePointWorkflow from '@/components/Mapping/Workflow/TradePointWorkflow';
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
 
-import { checkTempMountIdConflicts, type TempLayerIdCandidate } from '@/components/Rules/globalIdIndex';
+import {
+  checkTempMountIdConflictsDetailed,
+  type TempLayerIdCandidate,
+} from '@/components/Rules/globalIdIndex';
 
 
 
@@ -387,6 +396,8 @@ const [jsonExportSubType, setJsonExportSubType] = useState<string>('__ALL__');
 
 // 临时挂载到 RuleDrivenLayer 的本地存储 key（与 RuleDrivenLayer 保持一致）
 const TEMP_RULE_SOURCES_KEY = 'ria_temp_rule_sources_v1';
+// 临时挂载：覆盖固定数据源中“同 ID 要素”的屏蔽列表（worldId -> string[]）
+const TEMP_RULE_OVERRIDE_IDS_KEY = 'ria_temp_rule_override_ids_v1';
 
 type TempRuleSource = {
   uid: string;
@@ -867,14 +878,12 @@ const onManualPointSubmit = (v: { x: number; y: number; z: number }) => {
   if (controlPointsTRef.current?.isBusy?.()) return;
   if (drawClickSuppressedRef.current) return;
 
-  // 点要素：y 归入 elevation；线/面：y 归入坐标
+  // 点要素：若手动输入包含 y，则写入 tempPoints[0].y，并同步写入 featureInfo.elevation（兼容旧规范）。
   if (drawMode === 'point') {
     setFeatureInfo((prev: any) => ({ ...(prev ?? {}), elevation: v.y }));
   }
 
-  const newPoint = drawMode === 'point'
-    ? ({ x: v.x, z: v.z } as { x: number; z: number })
-    : ({ x: v.x, z: v.z, y: v.y } as { x: number; z: number; y: number });
+  const newPoint = ({ x: v.x, z: v.z, y: v.y } as { x: number; z: number; y: number });
 
   setRedoStack([]);
 
@@ -1579,6 +1588,43 @@ const readTempRuleSources = (): Record<string, TempRuleSource[]> => {
   }
 };
 
+const readTempRuleOverrideIds = (): Record<string, string[]> => {
+  try {
+    const raw = localStorage.getItem(TEMP_RULE_OVERRIDE_IDS_KEY);
+    if (!raw) return {};
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== 'object') return {};
+    return obj as any;
+  } catch {
+    return {};
+  }
+};
+
+const writeTempRuleOverrideIds = (all: Record<string, string[]>) => {
+  try {
+    localStorage.setItem(TEMP_RULE_OVERRIDE_IDS_KEY, JSON.stringify(all));
+    window.dispatchEvent(
+      new CustomEvent('ria-temp-rule-overrides-changed', { detail: { worldId: currentWorldId } }),
+    );
+  } catch {
+    // ignore
+  }
+};
+
+const clearTempRuleOverrideIdsForWorld = () => {
+  const all = readTempRuleOverrideIds();
+  if (all && typeof all === 'object' && (all as any)[currentWorldId]) {
+    const next = { ...all } as any;
+    delete next[currentWorldId];
+    writeTempRuleOverrideIds(next);
+  } else {
+    // 仍然发事件，确保 RuleDrivenLayer 刷新
+    window.dispatchEvent(
+      new CustomEvent('ria-temp-rule-overrides-changed', { detail: { worldId: currentWorldId } }),
+    );
+  }
+};
+
 const writeTempRuleSources = (all: Record<string, TempRuleSource[]>) => {
   try {
     localStorage.setItem(TEMP_RULE_SOURCES_KEY, JSON.stringify(all));
@@ -2128,6 +2174,37 @@ const coerceSelectValue = (field: any, raw: string) => {
 const renderField = (field: any, value: any, onChange: (v: any) => void) => {
   const label = field.optional ? `${field.label}（可选）` : field.label;
 
+  // ===== 特殊输入：TRP 交易列表（支持多级 group；允许删除交易条目但至少保留 1 条） =====
+  if (subType === '交易点' && field.key === 'TradeJSON') {
+    // 优先使用 values.Trade；否则回退解析 TradeJSON 文本
+    let tradeArr: TRPTradeGroup[] | undefined = (featureInfo as any)?.Trade;
+    if (!Array.isArray(tradeArr)) {
+      const txt = String((featureInfo as any)?.TradeJSON ?? '').trim();
+      if (txt) {
+        try {
+          const parsed = JSON.parse(txt);
+          if (Array.isArray(parsed)) tradeArr = parsed;
+        } catch {
+          // ignore, keep undefined
+        }
+      }
+    }
+
+    return (
+      <div key={field.key} className="mb-2">
+        <TRPTradeEditor
+          value={tradeArr}
+          onChange={(arr) => {
+            // 写入 values.Trade 供 buildFeatureInfo 直接输出
+            setValue('Trade', arr);
+            // 同时同步 TradeJSON 以兼容旧数据导出/导入
+            onChange(JSON.stringify(arr, null, 2));
+          }}
+        />
+      </div>
+    );
+  }
+
   if (field.type === 'select') {
     const current = value ?? (field.options?.[0]?.value ?? '');
     return (
@@ -2662,6 +2739,7 @@ const workflowRegistry: WorkflowRegistry = {
   station: StationWorkflow,
   tpp_point: TeleportPointWorkflow,
   wrp_point: WarpPointWorkflow,
+  trp_point: TradePointWorkflow,
   ngf_land: NaturalLandWorkflow,
   ngf_lis: NaturalLandSurfaceWorkflow,
   ngf_wtb: NaturalWaterbodyWorkflow,
@@ -3007,6 +3085,8 @@ const workflowBridge: WorkflowBridge = {
     // 已挂载：移除所有 layer-* 临时源，并恢复测绘图层显示（存在即移除）
     if (tempMountAllActive) {
       removeAllTempMountedLayersForWorld(ids);
+      // 退出挂载：清除“覆盖屏蔽列表”，恢复固定数据源可读
+      clearTempRuleOverrideIdsForWorld();
       setTempMountAllActive(false);
       // 恢复 fixedRoot 显示（避免退出挂载后仍然空白）
       syncFixedRoot(layers, editingLayerId);
@@ -3029,13 +3109,29 @@ const workflowBridge: WorkflowBridge = {
     }, 1000);
 
     try {
+      // 新挂载：先清理上一次残留的覆盖屏蔽列表
+      clearTempRuleOverrideIdsForWorld();
+
       setTempMountIdCheckText('正在读取全局数据库要素索引...');
-      const messages = await checkTempMountIdConflicts({ worldId: currentWorldId, candidates });
-      if (messages.length > 0) {
-        // 若出现重复：弹窗提示并保持未挂载状态
+      const res = await checkTempMountIdConflictsDetailed({ worldId: currentWorldId, candidates });
+      if (res.messages.length > 0) {
+        // 内部冲突：无法通过“更新挂载”解决，直接提示并返回
+        if (res.internalConflict) {
+          if (shown) setTempMountIdCheckOpen(false);
+          window.alert(res.messages.join('\n'));
+          return;
+        }
+
+        // 全局冲突：提供“返回/更新挂载”两个选项
         if (shown) setTempMountIdCheckOpen(false);
-        window.alert(messages.join('\n'));
-        return;
+
+        const msg = res.messages.join('\n');
+        const ok = window.confirm(`${msg}\n\n是否要“更新挂载”？\n- 取消：返回（不挂载）\n- 确定：更新挂载（用临时图层覆盖同ID要素）`);
+        if (!ok) return;
+
+        // 写入覆盖屏蔽列表：固定数据源中同 ID 的要素在挂载期间不可读
+        const all = readTempRuleOverrideIds();
+        writeTempRuleOverrideIds({ ...all, [currentWorldId]: res.conflictIds });
       }
     } finally {
       window.clearTimeout(timer);
@@ -3356,6 +3452,7 @@ const rightDockNode = (
       <option value="station">车站和站台</option>
       <option value="tpp_point">传送点</option>
       <option value="wrp_point">Warp点</option>
+      <option value="trp_point">交易点</option>
       <option value="ngf_land">自然要素-陆地</option>
       <option value="ngf_lis">自然要素-陆面要素</option>
       <option value="ngf_wtb">自然要素-水域</option>
@@ -4159,9 +4256,9 @@ placeholder={'批量 JSON：支持数组或 {items:[...]} / {features:[...]}。�
 
       <div className="p-3 flex gap-3">
         {/* 左侧：按要素类型分区导出 */}
-        <div className="w-28 shrink-0 border rounded p-2 bg-gray-50 max-h-[50vh] overflow-y-auto">
+        <div className="w-28 shrink-0 border rounded p-2 bg-gray-50 max-h-[50vh] overflow-hidden flex flex-col">
           <div className="text-xs text-gray-500 mb-2">导出范围</div>
-          <div className="space-y-1">
+          <div className="space-y-1 overflow-y-auto flex-1">
             <AppButton
               type="button"
               className={`w-full px-2 py-1 text-sm rounded border ${
@@ -4218,19 +4315,11 @@ placeholder={'批量 JSON：支持数组或 {items:[...]} / {features:[...]}。�
               </>
             )}
           </div>
-        </div>
 
-        {/* 右侧：内容 + 操作 */}
-        <div className="flex-1 space-y-2">
-          <textarea
-            readOnly
-            className="w-full h-64 border p-2 text-xs font-mono rounded"
-            value={jsonPanelText}
-          />
-
-          <div className="flex gap-2">
+          {/* 红框位置：复制（把原“复制”按钮挪到左侧底部） */}
+          <div className="pt-2">
             <AppButton
-              className="flex-1 bg-blue-600 text-white px-3 py-2 rounded-lg"
+              className="w-full bg-blue-600 text-white px-2 py-2 rounded-lg"
               onClick={async () => {
                 const text = jsonPanelText ?? '';
                 try {
@@ -4255,7 +4344,84 @@ placeholder={'批量 JSON：支持数组或 {items:[...]} / {features:[...]}。�
             >
               复制
             </AppButton>
+          </div>
+        </div>
 
+        {/* 右侧：内容 + 操作 */}
+        <div className="flex-1 space-y-2">
+          <textarea
+            readOnly
+            className="w-full h-64 border p-2 text-xs font-mono rounded"
+            value={jsonPanelText}
+          />
+
+          <div className="flex gap-2">
+            {/* 原“复制” → 下载(分条) */}
+            <AppButton
+              className="flex-1 bg-blue-600 text-white px-3 py-2 rounded-lg"
+              onClick={() => {
+                const text = jsonPanelText ?? '';
+
+                const safeName = (s: string) =>
+                  String(s)
+                    .trim()
+                    .replace(/[\\/\s:*?"<>|]+/g, '_')
+                    .replace(/_+/g, '_')
+                    .slice(0, 120);
+
+                let arr: any[] = [];
+                try {
+                  const parsed = JSON.parse(text);
+                  if (Array.isArray(parsed)) arr = parsed;
+                  else if (parsed && typeof parsed === 'object') arr = [parsed];
+                } catch {
+                  window.alert('无法解析当前 JSON 文本，无法进行分条下载。');
+                  return;
+                }
+
+                if (!arr.length) {
+                  window.alert('当前导出内容为空。');
+                  return;
+                }
+
+                const files = arr.map((obj, idx) => {
+                  const clsGuess = String((obj as any)?.Class ?? (obj as any)?.subType ?? (obj as any)?.Type ?? '').trim();
+                  const { idValue } = pickIdFieldValue(obj, clsGuess);
+                  const id = String(idValue ?? '').trim();
+                  const base = safeName(id || `item_${String(idx + 1).padStart(3, '0')}`);
+                  return {
+                    name: `${base}.json`,
+                    text: JSON.stringify(obj, null, 2),
+                  };
+                });
+
+                const zipBlob = buildZipStore(files);
+                const now = new Date();
+                const y = String(now.getFullYear());
+                const m = String(now.getMonth() + 1).padStart(2, '0');
+                const d = String(now.getDate()).padStart(2, '0');
+                const scopeName = jsonExportSubType === '__ALL__' ? 'ALL' : String(jsonExportSubType);
+                const zipName = `${safeName(scopeName)}_${y}${m}${d}_split.zip`;
+
+                try {
+                  const url = URL.createObjectURL(zipBlob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = zipName;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                } catch {
+                  // ignore
+                }
+              }}
+              type="button"
+            >
+              下载(分条)
+            </AppButton>
+
+            {/* 原“下载” → 下载(完整)（功能不变） */}
             <AppButton
               className="flex-1 bg-green-600 text-white px-3 py-2 rounded-lg"
               onClick={() => {
@@ -4282,7 +4448,7 @@ placeholder={'批量 JSON：支持数组或 {items:[...]} / {features:[...]}。�
               }}
               type="button"
             >
-              下载
+              下载(完整)
             </AppButton>
 
             <AppButton
