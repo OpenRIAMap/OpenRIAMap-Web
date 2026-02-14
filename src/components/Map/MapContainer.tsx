@@ -283,7 +283,7 @@ if (mapStyle === 'sketch') {
     if (!isSameAsLast) {
       if (result.coord) {
         const latLng = proj.locationToLatLng(result.coord.x, result.coord.y, result.coord.z);
-        map.setView(latLng, Math.max(map.getZoom(), 5), { animate: true });
+        map.setView(latLng, 5, { animate: true });
       }
 
       // bbox 缩放：优先用 record.coords3 计算（线/面）

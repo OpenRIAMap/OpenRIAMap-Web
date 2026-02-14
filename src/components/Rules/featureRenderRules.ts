@@ -507,6 +507,7 @@ label: {
     },
     label: {
       enabled: true,
+      styleKey: 'bubble-dark-14',
       minLevel: 4,
       placement: 'center',
       textFrom: (r) => String((r.featureInfo as any)?.stationName ?? '').trim(),
@@ -577,6 +578,7 @@ label: {
     },
 label: {
   enabled: true,
+      styleKey: 'bubble-dark-14',
   minLevel: 8, 
   placement: 'near',
   textFrom: (r) => String((r.featureInfo as any)?.platformName ?? '').trim(),
@@ -765,6 +767,7 @@ labelClick: {
       },
       label: {
         enabled: true,
+      styleKey: 'bubble-dark-14',
         placement: 'near',
         minLevel: 6,
         textFrom: (r) => String((r.featureInfo as any)?.staBuildingPointName ?? (r.featureInfo as any)?.staBuildingName ?? (r.featureInfo as any)?.stationName ?? '').trim(),
@@ -797,7 +800,7 @@ labelClick: {
       },
       label: {
         enabled: true,
-        styleKey: 'gm-outline',
+        styleKey: 'bubble-dark-14',
         minLevel: 4,
         placement: 'center',
         textFrom: (r) => String((r.featureInfo as any)?.PointName ?? '').trim(),
@@ -816,7 +819,7 @@ labelClick: {
       labelClick: {
         enabled: true,
         mode: 'labelOnly',
-        labelStyleKey: 'gm-outline',
+        labelStyleKey: 'bubble-dark-14',
         pointPinStyleKey: 'pin-red',
         openCard: true,
         geom: { point: true },
@@ -833,29 +836,51 @@ labelClick: {
     zoom: [0, 99],
     symbol: {
       pathStyle: { color: '#111827', opacity: 0.85, weight: 1 },
-      label: {
-        enabled: true,
-        styleKey: 'gm-outline',
-        placement: 'center',
-        minLevel: 0,
-        textFrom: (r) => String((r.featureInfo as any)?.PLineName ?? '').trim(),
-        declutter: {
-          priority: 10,
-          minSpacingPx: 6,
-          candidates: ['N', 'NE', 'NW', 'E', 'W', 'SE', 'SW', 'S'],
-          allowHide: true,
-          allowAbbrev: true,
-          abbrev: (s) => (s.length > 10 ? s.slice(0, 10) + '…' : s),
-        },
+      label: (r) => {
+        const fi: any = r.featureInfo ?? {};
+        const tags: any = fi.tags ?? fi.Tags ?? {};
+        const kind = String(fi.PLineKind ?? fi.Kind ?? tags.PLineKind ?? tags.Kind ?? '').trim();
+        const skind = String(fi.PLineSKind ?? fi.SKind ?? tags.PLineSKind ?? tags.SKind ?? '').trim();
+        const sk2 = String(fi.PLineSKind2 ?? fi.SKind2 ?? tags.PLineSKind2 ?? tags.SKind2 ?? '').trim();
+
+        const isWaterway = kind === 'NGF' && skind === 'WTR' && (sk2 === 'RVR' || sk2 === 'CAN');
+        const styleKey = isWaterway ? 'gm-wtb-16' : 'gm-outline';
+
+        return {
+          enabled: true,
+          styleKey: styleKey as any,
+          placement: 'center',
+          minLevel: 0,
+          textFrom: (rr) => String((rr.featureInfo as any)?.PLineName ?? '').trim(),
+          declutter: {
+            priority: 10,
+            minSpacingPx: 6,
+            candidates: ['N', 'NE', 'NW', 'E', 'W', 'SE', 'SW', 'S'],
+            allowHide: true,
+            allowAbbrev: true,
+            abbrev: (s) => (s.length > 10 ? s.slice(0, 10) + '…' : s),
+          },
+        };
       },
       // 允许线本体点击打开信息卡
-      labelClick: {
-        enabled: true,
-        mode: 'labelOnly',
-        labelStyleKey: 'gm-outline',
-        highlightStyleKey: 'dash',
-        openCard: true,
-        geom: { path: true },
+      labelClick: (r) => {
+        const fi: any = r.featureInfo ?? {};
+        const tags: any = fi.tags ?? fi.Tags ?? {};
+        const kind = String(fi.PLineKind ?? fi.Kind ?? tags.PLineKind ?? tags.Kind ?? '').trim();
+        const skind = String(fi.PLineSKind ?? fi.SKind ?? tags.PLineSKind ?? tags.SKind ?? '').trim();
+        const sk2 = String(fi.PLineSKind2 ?? fi.SKind2 ?? tags.PLineSKind2 ?? tags.SKind2 ?? '').trim();
+
+        const isWaterway = kind === 'NGF' && skind === 'WTR' && (sk2 === 'RVR' || sk2 === 'CAN');
+        const labelStyleKey = isWaterway ? 'gm-wtb-16' : 'gm-outline';
+
+        return {
+          enabled: true,
+          mode: 'labelOnly',
+          labelStyleKey: labelStyleKey as any,
+          highlightStyleKey: 'dash',
+          openCard: true,
+          geom: { path: true },
+        };
       },
     },
   },
@@ -930,6 +955,7 @@ labelClick: {
         const tags: any = fi.tags ?? fi.Tags ?? {};
         const kind = String(fi.PGonKind ?? fi.Kind ?? tags.PGonKind ?? tags.Kind ?? '').trim();
         const skind = String(fi.PGonSKind ?? fi.SKind ?? tags.PGonSKind ?? tags.SKind ?? '').trim();
+        const sk2 = String(fi.PGonSKind2 ?? fi.SKind2 ?? tags.PGonSKind2 ?? tags.SKind2 ?? '').trim();
 
         const isNGF_LAD = kind === 'NGF' && skind === 'LAD';
         const isNGF_WTB = kind === 'NGF' && skind === 'WTB';
@@ -937,7 +963,35 @@ labelClick: {
         const isADM_DBZ = kind === 'ADM' && skind === 'DBZ';
         const isADM_PLZ = kind === 'ADM' && skind === 'PLZ';
 
-        const styleKey = isNGF_LAD ? 'gm-bw-15' : isNGF_WTB ? 'gm-wtb-15' : isNGF_LIS ? 'gm-bw-15' : (isADM_DBZ || isADM_PLZ) ? 'gm-bw-9' : 'gm-outline';
+        const styleKey = (() => {
+          if (isNGF_LAD) {
+            if (sk2 === 'CON') return 'gm-bw-21';
+            if (sk2 === 'SBC') return 'gm-bw-18';
+            if (sk2 === 'RGC') return 'gm-bw-15';
+            if (sk2 === 'ISD') return 'gm-bw-18';
+            // 半岛/地峡/其他 LAD 子类
+            return 'gm-bw-15';
+          }
+          if (isNGF_WTB) {
+            if (sk2 === 'SEA') return 'gm-wtb-21';
+            if (sk2 === 'LKE') return 'gm-wtb-18';
+            if (sk2 === 'STR' || sk2 === 'EST') return 'gm-wtb-15';
+            return 'gm-wtb-15';
+          }
+          if (isNGF_LIS) {
+            // 山区/盆地/平原：统一 15
+            return 'gm-bw-15';
+          }
+          if (isADM_DBZ || isADM_PLZ) {
+            if (sk2 === 'L1') return 'gm-bw-19';
+            if (sk2 === 'L2') return 'gm-bw-17';
+            if (sk2 === 'L3') return 'gm-bw-15';
+            // PLZ: UP/UC
+            if (isADM_PLZ && (sk2 === 'UP' || sk2 === 'UC')) return 'gm-bw-16';
+            return 'gm-bw-15';
+          }
+          return 'gm-outline';
+        })();
         const minLevel = (isADM_DBZ || isADM_PLZ) ? 0 : (isNGF_LAD || isNGF_WTB || isNGF_LIS) ? 0 : 2;
 
         return {
@@ -962,6 +1016,7 @@ labelClick: {
         const tags: any = fi.tags ?? fi.Tags ?? {};
         const kind = String(fi.PGonKind ?? fi.Kind ?? tags.PGonKind ?? tags.Kind ?? '').trim();
         const skind = String(fi.PGonSKind ?? fi.SKind ?? tags.PGonSKind ?? tags.SKind ?? '').trim();
+        const sk2 = String(fi.PGonSKind2 ?? fi.SKind2 ?? tags.PGonSKind2 ?? tags.SKind2 ?? '').trim();
 
         const isNGF_LAD = kind === 'NGF' && skind === 'LAD';
         const isNGF_WTB = kind === 'NGF' && skind === 'WTB';
@@ -969,8 +1024,30 @@ labelClick: {
         const isADM_DBZ = kind === 'ADM' && skind === 'DBZ';
         const isADM_PLZ = kind === 'ADM' && skind === 'PLZ';
 
-        const labelStyleKey =
-          isNGF_LAD ? 'gm-bw-15' : isNGF_WTB ? 'gm-wtb-15' : isNGF_LIS ? 'gm-bw-15' : (isADM_DBZ || isADM_PLZ) ? 'gm-bw-9' : 'gm-outline';
+        const labelStyleKey = (() => {
+          if (isNGF_LAD) {
+            if (sk2 === 'CON') return 'gm-bw-21';
+            if (sk2 === 'SBC') return 'gm-bw-18';
+            if (sk2 === 'RGC') return 'gm-bw-15';
+            if (sk2 === 'ISD') return 'gm-bw-18';
+            return 'gm-bw-15';
+          }
+          if (isNGF_WTB) {
+            if (sk2 === 'SEA') return 'gm-wtb-21';
+            if (sk2 === 'LKE') return 'gm-wtb-18';
+            if (sk2 === 'STR' || sk2 === 'EST') return 'gm-wtb-15';
+            return 'gm-wtb-15';
+          }
+          if (isNGF_LIS) return 'gm-bw-15';
+          if (isADM_DBZ || isADM_PLZ) {
+            if (sk2 === 'L1') return 'gm-bw-19';
+            if (sk2 === 'L2') return 'gm-bw-17';
+            if (sk2 === 'L3') return 'gm-bw-15';
+            if (isADM_PLZ && (sk2 === 'UP' || sk2 === 'UC')) return 'gm-bw-16';
+            return 'gm-bw-15';
+          }
+          return 'gm-outline';
+        })();
 
         return {
           enabled: true,
@@ -1008,6 +1085,7 @@ labelClick: {
       },
       label: {
         enabled: true,
+      styleKey: 'bubble-dark-14',
         minLevel: 5,
         placement: 'center',
         textFrom: (r) => String((r.featureInfo as any)?.TRPointName ?? (r.featureInfo as any)?.Name ?? '').trim(),
@@ -1054,6 +1132,7 @@ labelClick: {
       },
       label: {
         enabled: true,
+      styleKey: 'bubble-dark-14',
         minLevel: 5,
         placement: 'center',
         textFrom: (r) => String((r.featureInfo as any)?.TPPointName ?? (r.featureInfo as any)?.Name ?? '').trim(),
@@ -1100,6 +1179,7 @@ labelClick: {
       },
       label: {
         enabled: true,
+      styleKey: 'bubble-dark-14',
         minLevel: 5,
         placement: 'center',
         textFrom: (r) => String((r.featureInfo as any)?.TPPointName ?? (r.featureInfo as any)?.Name ?? '').trim(),
@@ -1147,6 +1227,7 @@ labelClick: {
       },
       label: {
         enabled: true,
+      styleKey: 'bubble-dark-14',
         placement: 'near',
         minLevel: 6,
         textFrom: (r) => String((r.featureInfo as any)?.name ?? (r.featureInfo as any)?.staName ?? '').trim(),

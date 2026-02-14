@@ -245,7 +245,13 @@ export function getValueByPath(obj: any, path: string): any {
 export function pickIdFieldValue(featureInfo: any, cls: string): { idField: string; idValue: string } {
   const tryField = (field: string): string | null => {
     const v = (featureInfo as any)?.[field];
-    const s = String(v ?? '').trim();
+
+    // 重要：ID 字段不应从 Group/对象/数组中“误命中”。
+    // 例如 Group 中可能包含 xxxID 子字段，但外部主键只可能是顶层 primitive。
+    if (v === null || v === undefined) return null;
+    const t = typeof v;
+    if (t !== 'string' && t !== 'number' && t !== 'bigint') return null;
+    const s = String(v).trim();
     return s ? s : null;
   };
 
@@ -259,7 +265,14 @@ export function pickIdFieldValue(featureInfo: any, cls: string): { idField: stri
       if (!k) return false;
       const low = k.toLowerCase();
       if (low === 'worldid' || low === 'world_id' || low === 'world') return false;
-      return /id$/i.test(k);
+      if (!/id$/i.test(k)) return false;
+
+      // 排除 group/数组/对象：它们不可能是主 ID。
+      const v = (featureInfo as any)?.[k];
+      if (v === null || v === undefined) return false;
+      const t = typeof v;
+      if (t !== 'string' && t !== 'number' && t !== 'bigint') return false;
+      return true;
     });
     if (idKeys.length === 0) return null;
 
