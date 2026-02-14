@@ -193,13 +193,22 @@ function LabeledInput(props: LabeledInputProps) {
   );
 }
 
-function LabeledTextarea(props: { label: string; value: string; placeholder?: string; onChange: (v: string) => void }) {
-  const { label, value, placeholder, onChange } = props;
+type LabeledTextareaProps = {
+  label: string;
+  value: string;
+  placeholder?: string;
+  rows?: number;
+  onChange: (v: string) => void;
+};
+
+function LabeledTextarea(props: LabeledTextareaProps) {
+  const { label, value, placeholder, rows, onChange } = props;
   return (
     <label className="block space-y-1">
       <div className="text-xs opacity-80">{label}</div>
       <textarea
         className="w-full border p-1 rounded text-sm min-h-[80px]"
+        rows={rows}
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
