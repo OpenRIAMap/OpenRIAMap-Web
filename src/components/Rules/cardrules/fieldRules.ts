@@ -261,7 +261,7 @@ function uniqueLinesFromStationIds(stationIds: string[], railIndex?: RailNewInde
 }
 
 export const FIELD_RULES: FieldRule[] = [
-  // === 已有 NGF-LAD 规则（保持） ===
+  // === NGF-LAD 通用主要陆地单元 ===
   {
     name: 'NGF-LAD（陆地单元）信息栏解析',
     match: { Kind: 'NGF', SKind: 'LAD' },
@@ -270,6 +270,277 @@ export const FIELD_RULES: FieldRule[] = [
       return [
         buildTypeRow(feature),
         { label: '命名者', value: getValueByPath(fi, 'tags.nomenclator') || '未知', usedPaths: ['tags.nomenclator'] },
+        {
+          label: 'WIKI链接',
+          value: (() => {
+            const url = String(getValueByPath(fi, 'extensions.link.wiki') ?? '').trim();
+            return url ? makeExternalLink(url) : '未知';
+          })(),
+          usedPaths: ['extensions.link.wiki'],
+        },
+        { label: '简介', value: getValueByPath(fi, 'extensions.character.brief') || '未知', usedPaths: ['extensions.character.brief'] },
+        { label: '创建时间', value: pickFirstString(fi, ['CreateTime', 'createTime']) || '未知', usedPaths: ['CreateTime', 'createTime'] },
+        { label: '修改时间', value: pickFirstString(fi, ['ModifityTime', 'ModifyTime', 'modifyTime']) || '未知', usedPaths: ['ModifityTime', 'ModifyTime', 'modifyTime'] },
+      ];
+    },
+  },
+
+  // === NGF-LIS 陆地自然地物 ===
+  {
+    name: 'NGF-LIS（陆地自然地物）信息栏解析',
+    match: { Kind: 'NGF', SKind: 'LIS' },
+    rows: (feature) => {
+      const fi: any = feature?.featureInfo ?? {};
+      return [
+        buildTypeRow(feature),
+        { label: '命名者', value: getValueByPath(fi, 'tags.nomenclator') || '未知', usedPaths: ['tags.nomenclator'] },
+        { label: '所属地理单元', value: getValueByPath(fi, 'tags.Land') || '未知', usedPaths: ['tags.Land'] },
+        { label: '所属聚落', value: getValueByPath(fi, 'tags.Adm') || '未知', usedPaths: ['tags.Adm'] },
+        {
+          label: 'WIKI链接',
+          value: (() => {
+            const url = String(getValueByPath(fi, 'extensions.link.wiki') ?? '').trim();
+            return url ? makeExternalLink(url) : '未知';
+          })(),
+          usedPaths: ['extensions.link.wiki'],
+        },
+        { label: '简介', value: getValueByPath(fi, 'extensions.character.brief') || '未知', usedPaths: ['extensions.character.brief'] },
+        { label: '创建时间', value: pickFirstString(fi, ['CreateTime', 'createTime']) || '未知', usedPaths: ['CreateTime', 'createTime'] },
+        { label: '修改时间', value: pickFirstString(fi, ['ModifityTime', 'ModifyTime', 'modifyTime']) || '未知', usedPaths: ['ModifityTime', 'ModifyTime', 'modifyTime'] },
+      ];
+    },
+  },
+
+  // === NGF-WTB 水域面 ===
+  {
+    name: 'NGF-WTB（水域面）信息栏解析',
+    match: { Kind: 'NGF', SKind: 'WTB' },
+    rows: (feature) => {
+      const fi: any = feature?.featureInfo ?? {};
+      return [
+        buildTypeRow(feature),
+        { label: '命名者', value: getValueByPath(fi, 'tags.nomenclator') || '未知', usedPaths: ['tags.nomenclator'] },
+        {
+          label: 'WIKI链接',
+          value: (() => {
+            const url = String(getValueByPath(fi, 'extensions.link.wiki') ?? '').trim();
+            return url ? makeExternalLink(url) : '未知';
+          })(),
+          usedPaths: ['extensions.link.wiki'],
+        },
+        { label: '简介', value: getValueByPath(fi, 'extensions.character.brief') || '未知', usedPaths: ['extensions.character.brief'] },
+        { label: '创建时间', value: pickFirstString(fi, ['CreateTime', 'createTime']) || '未知', usedPaths: ['CreateTime', 'createTime'] },
+        { label: '修改时间', value: pickFirstString(fi, ['ModifityTime', 'ModifyTime', 'modifyTime']) || '未知', usedPaths: ['ModifityTime', 'ModifyTime', 'modifyTime'] },
+      ];
+    },
+  },
+
+  // === NGF-WTB 水域线 ===
+  {
+    name: 'NGF-WTR（水域线）信息栏解析',
+    match: { Kind: 'NGF', SKind: 'WTR' },
+    rows: (feature) => {
+      const fi: any = feature?.featureInfo ?? {};
+      return [
+        buildTypeRow(feature),
+        { label: '命名者', value: getValueByPath(fi, 'tags.nomenclator') || '未知', usedPaths: ['tags.nomenclator'] },
+        {
+          label: 'WIKI链接',
+          value: (() => {
+            const url = String(getValueByPath(fi, 'extensions.link.wiki') ?? '').trim();
+            return url ? makeExternalLink(url) : '未知';
+          })(),
+          usedPaths: ['extensions.link.wiki'],
+        },
+        { label: '简介', value: getValueByPath(fi, 'extensions.character.brief') || '未知', usedPaths: ['extensions.character.brief'] },
+        { label: '创建时间', value: pickFirstString(fi, ['CreateTime', 'createTime']) || '未知', usedPaths: ['CreateTime', 'createTime'] },
+        { label: '修改时间', value: pickFirstString(fi, ['ModifityTime', 'ModifyTime', 'modifyTime']) || '未知', usedPaths: ['ModifityTime', 'ModifyTime', 'modifyTime'] },
+      ];
+    },
+  },
+
+  // === NGF-BOD 一般自然地理边界线 ===
+  {
+    name: 'NGF-BOD（一般自然地理边界线）信息栏解析',
+    match: { Kind: 'NGF', SKind: 'BOD' },
+    rows: (feature) => {
+      const fi: any = feature?.featureInfo ?? {};
+      return [
+        buildTypeRow(feature),
+        { label: '命名者', value: getValueByPath(fi, 'tags.nomenclator') || '未知', usedPaths: ['tags.nomenclator'] },
+        {
+          label: 'WIKI链接',
+          value: (() => {
+            const url = String(getValueByPath(fi, 'extensions.link.wiki') ?? '').trim();
+            return url ? makeExternalLink(url) : '未知';
+          })(),
+          usedPaths: ['extensions.link.wiki'],
+        },
+        { label: '简介', value: getValueByPath(fi, 'extensions.character.brief') || '未知', usedPaths: ['extensions.character.brief'] },
+        { label: '创建时间', value: pickFirstString(fi, ['CreateTime', 'createTime']) || '未知', usedPaths: ['CreateTime', 'createTime'] },
+        { label: '修改时间', value: pickFirstString(fi, ['ModifityTime', 'ModifyTime', 'modifyTime']) || '未知', usedPaths: ['ModifityTime', 'ModifyTime', 'modifyTime'] },
+      ];
+    },
+  },
+
+  // === ADM-DBZ 行政区 ===
+  {
+    name: 'ADM-DBZ（行政区）信息栏解析',
+    match: { Kind: 'ADM', SKind: 'DBZ' },
+    rows: (feature) => {
+      const fi: any = feature?.featureInfo ?? {};
+      return [
+        buildTypeRow(feature),
+        { label: '命名者', value: getValueByPath(fi, 'tags.nomenclator') || '未知', usedPaths: ['tags.nomenclator'] },
+        { label: '所属地理单元', value: getValueByPath(fi, 'tags.Land') || '未知', usedPaths: ['tags.Land'] },
+        { label: '所属上级要素', value: getValueByPath(fi, 'tags.UAdm') || '未知', usedPaths: ['tags.UAdm'] },
+        { label: '相关人员', value: getValueByPath(fi, 'tags.Pop') || '未知', usedPaths: ['tags.Pop'] },
+        { label: '所属聚落群', value: getValueByPath(fi, 'tags.GAdm') || '未知', usedPaths: ['tags.GAdm'] },
+        {
+          label: 'WIKI链接',
+          value: (() => {
+            const url = String(getValueByPath(fi, 'extensions.link.wiki') ?? '').trim();
+            return url ? makeExternalLink(url) : '未知';
+          })(),
+          usedPaths: ['extensions.link.wiki'],
+        },
+        { label: '简介', value: getValueByPath(fi, 'extensions.character.brief') || '未知', usedPaths: ['extensions.character.brief'] },
+        { label: '创建时间', value: pickFirstString(fi, ['CreateTime', 'createTime']) || '未知', usedPaths: ['CreateTime', 'createTime'] },
+        { label: '修改时间', value: pickFirstString(fi, ['ModifityTime', 'ModifyTime', 'modifyTime']) || '未知', usedPaths: ['ModifityTime', 'ModifyTime', 'modifyTime'] },
+      ];
+    },
+  },
+
+  // === ADM-PLZ 规划区 ===
+  {
+    name: 'ADM-PLZ（规划区）信息栏解析',
+    match: { Kind: 'ADM', SKind: 'PLZ' },
+    rows: (feature) => {
+      const fi: any = feature?.featureInfo ?? {};
+      return [
+        buildTypeRow(feature),
+        { label: '命名者', value: getValueByPath(fi, 'tags.nomenclator') || '未知', usedPaths: ['tags.nomenclator'] },
+        { label: '所属地理单元', value: getValueByPath(fi, 'tags.Land') || '未知', usedPaths: ['tags.Land'] },
+        { label: '所属上级要素', value: getValueByPath(fi, 'tags.UAdm') || '未知', usedPaths: ['tags.UAdm'] },
+        { label: '负责人员', value: getValueByPath(fi, 'tags.Pop') || '未知', usedPaths: ['tags.Pop'] },
+        { label: '所属聚落群', value: getValueByPath(fi, 'tags.GAdm') || '未知', usedPaths: ['tags.GAdm'] },
+        { label: '预计完成时间', value: getValueByPath(fi, 'tags.YTime') || '未知', usedPaths: ['tags.YTime'] },
+        {
+          label: 'WIKI链接',
+          value: (() => {
+            const url = String(getValueByPath(fi, 'extensions.link.wiki') ?? '').trim();
+            return url ? makeExternalLink(url) : '未知';
+          })(),
+          usedPaths: ['extensions.link.wiki'],
+        },
+        { label: '简介', value: getValueByPath(fi, 'extensions.character.brief') || '未知', usedPaths: ['extensions.character.brief'] },
+        { label: '创建时间', value: pickFirstString(fi, ['CreateTime', 'createTime']) || '未知', usedPaths: ['CreateTime', 'createTime'] },
+        { label: '修改时间', value: pickFirstString(fi, ['ModifityTime', 'ModifyTime', 'modifyTime']) || '未知', usedPaths: ['ModifityTime', 'ModifyTime', 'modifyTime'] },
+      ];
+    },
+  },
+
+  // === BUD 建筑 ===
+  {
+    name: 'BUD（标准建筑）信息栏解析',
+    match: { Kind: 'BUD' },
+    rows: (feature) => {
+      const fi: any = feature?.featureInfo ?? {};
+      return [
+        buildTypeRow(feature),
+        { label: '命名者', value: getValueByPath(fi, 'tags.nomenclator') || '未知', usedPaths: ['tags.nomenclator'] },
+        { label: '所属地理单元', value: getValueByPath(fi, 'tags.Land') || '未知', usedPaths: ['tags.Land'] },
+        { label: '所属聚落(地标点)', value: getValueByPath(fi, 'tags.UAdm') || '未知', usedPaths: ['tags.UAdm'] },
+        { label: '所属聚落(区划)', value: getValueByPath(fi, 'tags.UAdmG') || '未知', usedPaths: ['tags.UAdmG'] },
+        { label: '相关人员', value: getValueByPath(fi, 'tags.Pop') || '未知', usedPaths: ['tags.Pop'] },
+        {
+          label: 'WIKI链接',
+          value: (() => {
+            const url = String(getValueByPath(fi, 'extensions.link.wiki') ?? '').trim();
+            return url ? makeExternalLink(url) : '未知';
+          })(),
+          usedPaths: ['extensions.link.wiki'],
+        },
+        { label: '简介', value: getValueByPath(fi, 'extensions.character.brief') || '未知', usedPaths: ['extensions.character.brief'] },
+        { label: '创建时间', value: pickFirstString(fi, ['CreateTime', 'createTime']) || '未知', usedPaths: ['CreateTime', 'createTime'] },
+        { label: '修改时间', value: pickFirstString(fi, ['ModifityTime', 'ModifyTime', 'modifyTime']) || '未知', usedPaths: ['ModifityTime', 'ModifyTime', 'modifyTime'] },
+      ];
+    },
+  },
+
+  // === BUD 建筑 ===
+  {
+    name: 'BUD（标准建筑）信息栏解析',
+    match: { Kind: 'BUD' },
+    rows: (feature) => {
+      const fi: any = feature?.featureInfo ?? {};
+      return [
+        buildTypeRow(feature),
+        { label: '命名者', value: getValueByPath(fi, 'tags.nomenclator') || '未知', usedPaths: ['tags.nomenclator'] },
+        { label: '所属地理单元', value: getValueByPath(fi, 'tags.Land') || '未知', usedPaths: ['tags.Land'] },
+        { label: '所属聚落(地标点)', value: getValueByPath(fi, 'tags.UAdm') || '未知', usedPaths: ['tags.UAdm'] },
+        { label: '所属聚落(区划)', value: getValueByPath(fi, 'tags.UAdmG') || '未知', usedPaths: ['tags.UAdmG'] },
+        { label: '相关人员', value: getValueByPath(fi, 'tags.Pop') || '未知', usedPaths: ['tags.Pop'] },
+        {
+          label: 'WIKI链接',
+          value: (() => {
+            const url = String(getValueByPath(fi, 'extensions.link.wiki') ?? '').trim();
+            return url ? makeExternalLink(url) : '未知';
+          })(),
+          usedPaths: ['extensions.link.wiki'],
+        },
+        { label: '简介', value: getValueByPath(fi, 'extensions.character.brief') || '未知', usedPaths: ['extensions.character.brief'] },
+        { label: '创建时间', value: pickFirstString(fi, ['CreateTime', 'createTime']) || '未知', usedPaths: ['CreateTime', 'createTime'] },
+        { label: '修改时间', value: pickFirstString(fi, ['ModifityTime', 'ModifyTime', 'modifyTime']) || '未知', usedPaths: ['ModifityTime', 'ModifyTime', 'modifyTime'] },
+      ];
+    },
+  },
+
+  // === FLR 楼层 ===
+  {
+    name: 'FLR（标准楼层单元）信息栏解析',
+    match: { Kind: 'FLR' },
+    rows: (feature) => {
+      const fi: any = feature?.featureInfo ?? {};
+      return [
+        buildTypeRow(feature),
+        { label: '命名者', value: getValueByPath(fi, 'tags.nomenclator') || '未知', usedPaths: ['tags.nomenclator'] },
+        { label: '所属地理单元', value: getValueByPath(fi, 'tags.Land') || '未知', usedPaths: ['tags.Land'] },
+        { label: '所属建筑', value: getValueByPath(fi, 'tags.BuildingID') || '未知', usedPaths: ['tags.BuildingID'] },
+        { label: '楼层', value: getValueByPath(fi, 'tags.BuildingID') || '未知', usedPaths: ['tags.BuildingID'] },
+        { label: '所属聚落(地标点)', value: getValueByPath(fi, 'tags.UAdm') || '未知', usedPaths: ['tags.UAdm'] },
+        { label: '所属聚落(区划)', value: getValueByPath(fi, 'tags.UAdmG') || '未知', usedPaths: ['tags.UAdmG'] },
+        { label: '相关人员', value: getValueByPath(fi, 'tags.Pop') || '未知', usedPaths: ['tags.Pop'] },
+        {
+          label: 'WIKI链接',
+          value: (() => {
+            const url = String(getValueByPath(fi, 'extensions.link.wiki') ?? '').trim();
+            return url ? makeExternalLink(url) : '未知';
+          })(),
+          usedPaths: ['extensions.link.wiki'],
+        },
+        { label: '简介', value: getValueByPath(fi, 'extensions.character.brief') || '未知', usedPaths: ['extensions.character.brief'] },
+        { label: '创建时间', value: pickFirstString(fi, ['CreateTime', 'createTime']) || '未知', usedPaths: ['CreateTime', 'createTime'] },
+        { label: '修改时间', value: pickFirstString(fi, ['ModifityTime', 'ModifyTime', 'modifyTime']) || '未知', usedPaths: ['ModifityTime', 'ModifyTime', 'modifyTime'] },
+      ];
+    },
+  },
+
+  // === STF 车站临时专属楼层 ===
+  {
+    name: 'STF（车站临时专属楼层）信息栏解析',
+    match: { Kind: 'STF' },
+    rows: (feature) => {
+      const fi: any = feature?.featureInfo ?? {};
+      return [
+        buildTypeRow(feature),
+        { label: '命名者', value: getValueByPath(fi, 'tags.nomenclator') || '未知', usedPaths: ['tags.nomenclator'] },
+        { label: '所属地理单元', value: getValueByPath(fi, 'tags.Land') || '未知', usedPaths: ['tags.Land'] },
+        { label: '所属建筑', value: getValueByPath(fi, 'tags.BuildingID') || '未知', usedPaths: ['tags.BuildingID'] },
+        { label: '楼层', value: getValueByPath(fi, 'tags.BuildingID') || '未知', usedPaths: ['tags.BuildingID'] },
+        { label: '所属聚落(地标点)', value: getValueByPath(fi, 'tags.UAdm') || '未知', usedPaths: ['tags.UAdm'] },
+        { label: '所属聚落(区划)', value: getValueByPath(fi, 'tags.UAdmG') || '未知', usedPaths: ['tags.UAdmG'] },
+        { label: '相关人员', value: getValueByPath(fi, 'tags.Pop') || '未知', usedPaths: ['tags.Pop'] },
         {
           label: 'WIKI链接',
           value: (() => {

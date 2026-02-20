@@ -8,6 +8,7 @@ import {
   type ExtValueType,
   listCatalogSKind2Options,
 } from '@/components/Mapping/featureFormats';
+import WorkflowFeatureSearchSelect, { type SearchSelectConfig } from './WorkflowFeatureSearchSelect';
 
 /**
  * NaturalBoundaryWorkflow（工作流：自然要素-地理边界）
@@ -25,6 +26,9 @@ type InfoForm = {
   name: string;
   abbr: string;
   nomenclator: string;
+  /** 可选：边界引用（写入 tags.BNgf1 / tags.BNgf2） */
+  bngf1?: string;
+  bngf2?: string;
   wiki?: string;
   brief?: string; // 简介
 };
@@ -190,9 +194,12 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
     name: '',
     abbr: '',
     nomenclator: '',
+    bngf1: '',
+    bngf2: '',
     wiki: '',
-  
-    brief: '',});
+
+    brief: '',
+  });
   const [extItems, setExtItems] = useState<ExtensionItem[]>([]);
 
   // Page 3
@@ -206,6 +213,26 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
   const skind2Options = useMemo(() => {
     return listCatalogSKind2Options({ kind, skind, geom: '线' });
   }, []);
+
+  // 边界引用：仅检索 Kind=NGF 的所有面要素（ISG Polygon）。
+  const ngfBoundarySearchCfg: SearchSelectConfig = useMemo(
+    () => ({
+      cacheKey: 'ISG_NGF_ALL',
+      filter: (fi: any) => {
+        const cls = String(fi.Class ?? fi.class ?? '').trim();
+        if (cls !== 'ISG') return false;
+        const pts = (fi as any).Conpoints ?? (fi as any).Flrpoints;
+        if (!Array.isArray(pts) || pts.length < 3) return false;
+        const tags = (fi as any)?.tags ?? (fi as any)?.Tags ?? {};
+        const k = String((fi as any).PGonKind ?? (fi as any).Kind ?? tags.PGonKind ?? tags.Kind ?? '').trim();
+        return k === 'NGF';
+      },
+      getId: (fi: any) => String(fi.PGonID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
+      getName: (fi: any) => String(fi.PGonName ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
+      formatOption: (name, id) => `${name}(${id})`,
+    }),
+    []
+  );
 
   useEffect(() => {
     if (nonEmpty(creatorId)) {
@@ -282,6 +309,17 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
         });
       }
 
+      const tags: Array<{ tagKey: string; tagValue: string }> = [
+        {
+          tagKey: 'nomenclator',
+          tagValue: String(info.nomenclator ?? '').trim(),
+        },
+      ];
+      const bngf1 = String(info.bngf1 ?? '').trim();
+      const bngf2 = String(info.bngf2 ?? '').trim();
+      if (bngf1) tags.push({ tagKey: 'BNgf1', tagValue: bngf1 });
+      if (bngf2) tags.push({ tagKey: 'BNgf2', tagValue: bngf2 });
+
       const res = bridgeRef.current.commitFeature({
         subType: '地物线',
         mode: 'polyline',
@@ -295,12 +333,7 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
           PLineSKind2: info.skind2,
         },
         groupInfo: {
-          tags: [
-            {
-              tagKey: 'nomenclator',
-              tagValue: String(info.nomenclator ?? '').trim(),
-            },
-          ],
+          tags,
           extensions: extList.map((it) => ({
             extGroup: it.extGroup,
             extKey: it.extKey,
@@ -370,7 +403,7 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
             </select>
           </label>
 
-          <LabeledInput label="名称" value={info.name} placeholder="例如：莱茵河" onChange={(v) => setInfo((prev) => ({ ...prev, name: v }))} />
+          <LabeledInput label="名称" value={info.name} placeholder="例如：xx大陆海上边界" onChange={(v) => setInfo((prev) => ({ ...prev, name: v }))} />
 
           <LabeledInput
             label="字符简称（用于ID）"
@@ -387,8 +420,26 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
           <LabeledInput
             label="命名者（将写入 tags.nomenclator）"
             value={info.nomenclator}
-            placeholder="例如：Natural Earth / OpenStreetMap / 个人署名"
+            placeholder="例如：XX社团 / 聚落 / 个人署名"
             onChange={(v) => setInfo((prev) => ({ ...prev, nomenclator: v }))}
+          />
+
+          <WorkflowFeatureSearchSelect
+            bridge={bridge}
+            label="边界1（可选，将写入 tags.BNgf1）"
+            value={String(info.bngf1 ?? '')}
+            placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+            config={ngfBoundarySearchCfg}
+            onChange={(v) => setInfo((prev) => ({ ...prev, bngf1: v }))}
+          />
+
+          <WorkflowFeatureSearchSelect
+            bridge={bridge}
+            label="边界2（可选，将写入 tags.BNgf2）"
+            value={String(info.bngf2 ?? '')}
+            placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+            config={ngfBoundarySearchCfg}
+            onChange={(v) => setInfo((prev) => ({ ...prev, bngf2: v }))}
           />
 
           <LabeledInput

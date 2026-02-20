@@ -440,7 +440,7 @@ export default function SettlementBoundaryPlannedWorkflow(props: WorkflowCompone
           <LabeledInput
             label="命名者（将写入 tags.nomenclator）"
             value={info.nomenclator}
-            placeholder="例如：规划文件 / 官方公告 / 个人署名"
+            placeholder="例如：XX社团 / 聚落 / 个人署名"
             onChange={(v) => setInfo((prev) => ({ ...prev, nomenclator: v }))}
           />
 
@@ -465,14 +465,14 @@ export default function SettlementBoundaryPlannedWorkflow(props: WorkflowCompone
           <LabeledInput
             label="负责人员（可选，将写入 tags.Pop）"
             value={info.pop ?? ''}
-            placeholder="例如：张三；李四"
+            placeholder="例如：Codusk"
             onChange={(v) => setInfo((prev) => ({ ...prev, pop: v }))}
           />
 
           <LabeledInput
             label="所属聚落群(名称)（可选，将写入 tags.GAdm）"
             value={info.gadm ?? ''}
-            placeholder="例如：大湾区"
+            placeholder="例如：主岛聚落群"
             onChange={(v) => setInfo((prev) => ({ ...prev, gadm: v }))}
           />
 

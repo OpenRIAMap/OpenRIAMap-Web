@@ -274,27 +274,52 @@ visible: (r, ctx, store) => {
           weight: 3,
         };
       },
-label: {
-  enabled: true,
-  minLevel: 5,
-  placement: 'center',
-        textFrom: (r) => {
-          return (
-            String((r.featureInfo as any)?.LineName ?? '').trim() ||
-            String((r.featureInfo as any)?.LineID ?? '').trim()
-          );
-        },
-  offsetY: 10,
-  withDot: true,
-  declutter: {
-    priority: 10,
-    minSpacingPx: 6,
-    candidates: ['N', 'NE', 'NW', 'E', 'W', 'SE', 'SW', 'S'],
-    allowHide: true,
-    allowAbbrev: true,
-    abbrev: (s) => (s.length > 6 ? s.slice(0, 6) + '…' : s),
-  },
-},
+
+      // RLE：两种线路标签样式
+      // - dir=0/1：沿线文字（13px），文字色=线路色，白色粗描边
+      // - dir=3：线路“药丸牌”（13px），底色=线路色，白字
+      label: (r, _ctx, _store) => {
+        const raw = (r.featureInfo as any)?.direction;
+        const dir = raw === '' || raw === null || raw === undefined ? NaN : Number(raw);
+        const c = normalizeColor((r.featureInfo as any)?.color) ?? '#2563eb';
+        const text =
+          String((r.featureInfo as any)?.LineName ?? '').trim() ||
+          String((r.featureInfo as any)?.LineID ?? '').trim();
+
+        // 仅对指定 dir 挂载；其它 dir 不显示 label（避免旧逻辑干扰）
+        const isLineText = dir === 0 || dir === 1;
+        const isPill = dir === 3;
+        if (!isLineText && !isPill) {
+          return { enabled: false } as any;
+        }
+
+        return {
+          enabled: true,
+          minLevel: 5,
+          placement: 'center',
+          textFrom: () => text,
+          withDot: false,
+          offsetY: 0,
+          // 新增：用于 declutter 的“沿线多 anchor 尝试”
+          declutter: {
+            priority: isLineText ? 12 : 8, // 药丸牌优先级更低
+            minSpacingPx: 6,
+            candidates: ['C', 'N', 'S', 'E', 'W', 'NE', 'NW', 'SE', 'SW'],
+            allowHide: true,
+            allowAbbrev: true,
+            abbrev: (s: string) => (s.length > 10 ? s.slice(0, 10) + '…' : s),
+            // 扩展字段（labelLayout/RuleDrivenLayer 会识别）
+            anchorMode: 'polyline-multi',
+            anchorSamples: 7,
+          },
+
+          // styleKey 作为“动态样式对象”传入 labelStyles
+          styleKey: isLineText
+            ? ({ key: 'rle-line-13', color: c } as any)
+            : ({ key: 'rle-pill-13', color: c } as any),
+        } as any;
+      },
+
     labelClick: {
       enabled: true,
       mode: 'normal',

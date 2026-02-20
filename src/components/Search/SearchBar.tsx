@@ -9,52 +9,18 @@ import type { ParsedStation, ParsedLine } from '@/types';
 import type { ParsedLandmark } from '@/lib/landmarkParser';
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
-import { WORKFLOW_FEATURE_CATALOG } from '@/components/Mapping/featureFormats';
 import type { FeatureRecord } from '@/components/Rules/renderRules';
 import { pickIdFieldValue } from '@/components/Rules/renderRules';
 import { getRuleSearchPool } from '@/components/Rules/ruleSearchRegistry';
 import { loadRailNewIndex, passLineBooleanFilters, type RailNewIndex } from '@/components/Navigation/railNewIndex';
+import {
+  isRuleBlacklisted,
+  getRulePriorityIndex,
+  getRuleCategoryName,
+  getRuleDisplayName,
+} from '@/components/Search/searchRuleTables';
 
-// ===== 搜索黑名单（可维护过滤） =====
-// 每行一条规则；支持字段：Class / Kind / SKind / SKind2。
-// - 仅写 Class：屏蔽该 Class 的全部要素
-// - 同时写 Kind/SKind/SKind2：需要同时匹配才屏蔽
-// 书写示例：
-//   "Class":"PFB";
-//   "Class":"FLR";"Kind":"xxx";"SKind":"yyy";
-//
-// 范例：屏蔽站台轮廓（PFB）
-const SEARCH_RULE_BLACKLIST_LINES = [
-  '"Class":"PFB"',
-];
-
-type RuleBlacklistItem = {
-  Class?: string;
-  Kind?: string;
-  SKind?: string;
-  SKind2?: string;
-};
-
-const parseRuleBlacklist = (lines: string[]): RuleBlacklistItem[] => {
-  const out: RuleBlacklistItem[] = [];
-  for (const raw of lines) {
-    const s = String(raw ?? '').trim();
-    if (!s || s.startsWith('//') || s.startsWith('#')) continue;
-    // 提取形如 "Key":"Value" 的对；分隔符不敏感
-    const re = /"(Class|Kind|SKind|SKind2)"\s*:\s*"([^"]*)"/g;
-    const item: RuleBlacklistItem = {};
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(s))) {
-      const k = m[1] as keyof RuleBlacklistItem;
-      const v = String(m[2] ?? '').trim();
-      if (v) (item as any)[k] = v;
-    }
-    if (item.Class || item.Kind || item.SKind || item.SKind2) out.push(item);
-  }
-  return out;
-};
-
-const SEARCH_RULE_BLACKLIST = parseRuleBlacklist(SEARCH_RULE_BLACKLIST_LINES);
+// NOTE: blacklist & priority tables are now shared in searchRuleTables.ts
 
 export interface SearchResult {
   type: 'station' | 'landmark' | 'line' | 'rule';
@@ -89,193 +55,9 @@ function normalizeHexColorInput(v: any): string {
   return t; // 允许 CSS color（例如 rgb(...)）
 }
 
-function extractKindTriplet(r: FeatureRecord): { kind: string; skind: string; skind2: string } {
-  const fi: any = r?.featureInfo ?? {};
-  const tags: any = fi?.tags ?? fi?.Tags ?? {};
-  const cls = String(r?.meta?.Class ?? fi?.Class ?? '').trim();
+// isRuleBlacklisted / getRulePriorityIndex are shared
 
-  // class 优先的特例
-  if (cls === 'BUD') {
-    return {
-      kind: String(fi.BuildingKind ?? tags.BuildingKind ?? fi.Kind ?? tags.Kind ?? '').trim(),
-      skind: String(fi.BuildingSKind ?? tags.BuildingSKind ?? fi.SKind ?? tags.SKind ?? '').trim(),
-      skind2: String(fi.SKind2 ?? tags.SKind2 ?? '').trim(),
-    };
-  }
-  if (cls === 'FLR' || cls === 'STF') {
-    return {
-      kind: String(fi.FloorKind ?? tags.FloorKind ?? fi.Kind ?? tags.Kind ?? '').trim(),
-      skind: String(fi.FloorSKind ?? tags.FloorSKind ?? fi.SKind ?? tags.SKind ?? '').trim(),
-      skind2: String(fi.SKind2 ?? tags.SKind2 ?? '').trim(),
-    };
-  }
-
-  const t = r?.type ?? r?.meta?.Type;
-  const prefix = t === 'Points' ? 'Point' : t === 'Polyline' ? 'PLine' : t === 'Polygon' ? 'PGon' : '';
-  if (prefix) {
-    const kKey = `${prefix}Kind`;
-    const skKey = `${prefix}SKind`;
-    const sk2Key = `${prefix}SKind2`;
-    return {
-      kind: String(fi?.[kKey] ?? tags?.[kKey] ?? fi.Kind ?? tags.Kind ?? '').trim(),
-      skind: String(fi?.[skKey] ?? tags?.[skKey] ?? fi.SKind ?? tags.SKind ?? '').trim(),
-      skind2: String(fi?.[sk2Key] ?? tags?.[sk2Key] ?? fi.SKind2 ?? tags.SKind2 ?? '').trim(),
-    };
-  }
-
-  return {
-    kind: String(fi.Kind ?? tags.Kind ?? '').trim(),
-    skind: String(fi.SKind ?? tags.SKind ?? '').trim(),
-    skind2: String(fi.SKind2 ?? tags.SKind2 ?? '').trim(),
-  };
-}
-
-function isRuleBlacklisted(r: FeatureRecord): boolean {
-  if (!SEARCH_RULE_BLACKLIST.length) return false;
-  const fi: any = r?.featureInfo ?? {};
-  const cls = String(r?.meta?.Class ?? fi?.Class ?? '').trim();
-  const kk = extractKindTriplet(r);
-  for (const it of SEARCH_RULE_BLACKLIST) {
-    if (it.Class && it.Class !== cls) continue;
-    if (it.Kind && it.Kind !== kk.kind) continue;
-    if (it.SKind && it.SKind !== kk.skind) continue;
-    if (it.SKind2 && it.SKind2 !== kk.skind2) continue;
-    return true;
-  }
-  return false;
-}
-
-function getRuleCategoryName(r: FeatureRecord): string {
-  const cls = String(r?.meta?.Class ?? r?.featureInfo?.Class ?? '').trim();
-  const kk = extractKindTriplet(r);
-
-  const hit = WORKFLOW_FEATURE_CATALOG.find(
-    (e) => e.classCode === cls && e.kind === kk.kind && e.skind === kk.skind && e.skind2 === kk.skind2,
-  );
-  if (hit?.name) return hit.name;
-
-  const fallback: Record<string, string> = {
-    ISG: '地物面',
-    ISP: '地物点',
-    ISL: '地物线',
-    STA: '站场',
-    STB: '车站',
-    SBP: '车站建筑点',
-    PLF: '站台',
-    PFB: '站台轮廓',
-    RLE: '铁路',
-    TPP: '传送点',
-    TRP: '交易点',
-    WRP: 'Warp点',
-    BUD: '建筑',
-    FLR: '楼层',
-    STF: '楼层',
-  };
-  return fallback[cls] ?? cls;
-}
-
-function getRuleDisplayName(r: FeatureRecord): { name: string; rawName: string; idValue: string } {
-  const fi: any = r?.featureInfo ?? {};
-  const tags: any = (fi?.tags ?? fi?.Tags ?? {}) as any;
-  const cls = String(r?.meta?.Class ?? fi?.Class ?? '').trim();
-
-  const picked = pickIdFieldValue(fi, cls);
-  const idField = String((picked as any)?.idField ?? '').trim();
-  const idValue = String((picked as any)?.idValue ?? '').trim();
-
-  const keyMap = (() => {
-    const m = new Map<string, string>();
-    if (!fi || typeof fi !== 'object') return m;
-    for (const k of Object.keys(fi)) m.set(String(k).toLowerCase(), k);
-    return m;
-  })();
-
-  const tryGet = (k: string) => {
-    const v = fi?.[k];
-    return v === null || v === undefined ? '' : String(v).trim();
-  };
-
-  const tryGetTags = (k: string) => {
-    const v = tags?.[k];
-    return v === null || v === undefined ? '' : String(v).trim();
-  };
-
-  const tryGetCI = (k: string) => {
-    const direct = tryGet(k) || tryGetTags(k);
-    if (direct) return direct;
-    const realKey = keyMap.get(String(k).toLowerCase());
-    return realKey ? (tryGet(realKey) || tryGetTags(realKey)) : '';
-  };
-
-  // 1) 最强兼容：由 xxxID 推导 xxxName（例如 staBuildingID -> staBuildingName / TRPointID -> TRPointName）
-  let rawName = '';
-  if (idField) {
-    const derivedNameKey = idField.replace(/ID$/i, 'Name');
-    rawName = tryGetCI(derivedNameKey);
-
-    // 常见大小写差异：LineID -> LineName / lineID -> LineName
-    if (!rawName && derivedNameKey && derivedNameKey[0]) {
-      const cap = derivedNameKey[0].toUpperCase() + derivedNameKey.slice(1);
-      rawName = tryGetCI(cap);
-    }
-  }
-
-  // 2) 常见字段兜底（不会影响新增要素，只是提高命中率）
-  if (!rawName) {
-    const commonKeys = [
-      'PointName',
-      'PGonName',
-      'PLineName',
-      // railway
-      'LineName',
-      'lineName',
-      'platformName',
-      'plfRoundName',
-      'TRPointName',
-      'TPPointName',
-      'WRPointName',
-      'stationName',
-      'staBuildingName',
-      'staBuildingPointName',
-      'staBFloorName',
-      'BuildingName',
-      'FloorName',
-      'Name',
-      'name',
-    ];
-    for (const k of commonKeys) {
-      rawName = tryGetCI(k);
-      if (rawName) break;
-    }
-  }
-
-  // 3) 通用扫描任意 *Name：优先选择存在同前缀 *ID 配对的 Name（FooName + FooID）
-  if (!rawName) {
-    const keys = fi && typeof fi === 'object' ? Object.keys(fi) : [];
-    const nameKeys = keys.filter(
-      (k) => /name$/i.test(k) && !/(kindname|skindname|classkey)$/i.test(k),
-    );
-
-    const scored = nameKeys
-      .map((k) => {
-        const pairIdKey = k.replace(/name$/i, 'ID');
-        const hasPairId = tryGet(pairIdKey) ? 1 : 0;
-        return { k, hasPairId };
-      })
-      .sort((a, b) => (b.hasPairId - a.hasPairId) || a.k.localeCompare(b.k));
-
-    for (const it of scored) {
-      const v = tryGet(it.k);
-      if (v) {
-        rawName = v;
-        break;
-      }
-    }
-  }
-
-  const name = rawName ? rawName : idValue ? `${cls} ${idValue}` : `${cls}`;
-  return { name, rawName, idValue };
-}
+// getRuleCategoryName / getRuleDisplayName moved to searchRuleTables.ts (single source of truth)
 
 type LineToken = { label: string; color: string; title?: string };
 
@@ -570,6 +352,7 @@ export function SearchBar({ stations, landmarks, lines, worldId, onSelect, onLin
         if (isRuleBlacklisted(r)) continue;
 
         const dn = getRuleDisplayName(r);
+        // 规则要素检索：仅按 Name/ID/Class 做模糊匹配（不包含 Kind/SKind/SKind2 的编码检索）。
         const hay = `${dn.name} ${dn.rawName} ${cls} ${dn.idValue}`.toLowerCase();
         if (!hay.includes(searchQuery)) continue;
 
@@ -584,8 +367,23 @@ export function SearchBar({ stations, landmarks, lines, worldId, onSelect, onLin
       }
     }
 
+    // 规则要素排序：命中“优先级表”的类型，按表内顺序提前显示；其余保持原顺序。
+    const nonRule = matchedResults.filter((x) => x.type !== 'rule');
+    const ruleWithOrder = matchedResults
+      .map((x, i) => ({ x, i }))
+      .filter((it) => it.x.type === 'rule');
+
+    ruleWithOrder.sort((a, b) => {
+      const pa = a.x.ruleRecord ? getRulePriorityIndex(a.x.ruleRecord) : Number.POSITIVE_INFINITY;
+      const pb = b.x.ruleRecord ? getRulePriorityIndex(b.x.ruleRecord) : Number.POSITIVE_INFINITY;
+      if (pa !== pb) return pa - pb;
+      return a.i - b.i; // 稳定排序
+    });
+
+    const finalResults = [...nonRule, ...ruleWithOrder.map((it) => it.x)];
+
     // 限制结果数量
-    setResults(matchedResults.slice(0, 15));
+    setResults(finalResults.slice(0, 35));
   }, [query, stations, landmarks, lines, worldId]);
 
   // 点击外部关闭
@@ -615,11 +413,12 @@ export function SearchBar({ stations, landmarks, lines, worldId, onSelect, onLin
 
       let maxW = baseW;
       rows.forEach((row) => {
-        const left = row.querySelector<HTMLElement>('[data-sr-left]');
+        // 关键：测量“内容本身”的宽度，避免因此前被加宽后 scrollWidth=clientWidth 导致无法缩回。
+        const left = row.querySelector<HTMLElement>('[data-sr-left-inner]');
         const coord = row.querySelector<HTMLElement>('[data-sr-coord]');
         if (!left || !coord) return;
 
-        // left 为 flex-1 且 min-w-0，但 scrollWidth 仍能给出“内容真实所需宽度”
+        // left-inner 为 w-fit：scrollWidth 不会被父容器加宽后的 clientWidth 撑大
         const leftW = left.scrollWidth;
         const coordW = coord.scrollWidth;
         // gap：线路条与坐标之间的固定间距（ml-3 ≈ 12px），再加按钮左右 padding + 轻微余量。
@@ -679,11 +478,13 @@ export function SearchBar({ stations, landmarks, lines, worldId, onSelect, onLin
 	              <div data-sr-row className="flex w-full items-center">
 	                {/* 名称和额外信息（始终左对齐；不跟随下拉框宽度变化而居中） */}
 	                <div data-sr-left className="flex-1 min-w-0">
-	                  <div className="text-sm font-medium text-gray-800 whitespace-nowrap">
-	                    {result.name}
-	                  </div>
-	                  {result.extra && (
-	                    <div className="text-xs text-gray-500 flex items-center gap-2 whitespace-nowrap">
+	                  {/* inner 使用 w-fit，确保 scrollWidth 代表“真实内容宽度”，下拉框可随结果缩回 */}
+	                  <div data-sr-left-inner className="inline-flex flex-col w-fit">
+	                    <div className="text-sm font-medium text-gray-800 whitespace-nowrap">
+	                      {result.name}
+	                    </div>
+	                    {result.extra && (
+	                      <div className="text-xs text-gray-500 flex items-center gap-2 whitespace-nowrap">
                     <span className="shrink-0">{(() => {
                       if (result.type !== 'rule') return result.extra;
                       const r = result.ruleRecord;
@@ -743,8 +544,9 @@ export function SearchBar({ stations, landmarks, lines, worldId, onSelect, onLin
                         />
                       );
                     })()}
-	                    </div>
-	                  )}
+	                      </div>
+	                    )}
+	                  </div>
 	                </div>
 
 	                {/* 坐标（始终靠右） */}

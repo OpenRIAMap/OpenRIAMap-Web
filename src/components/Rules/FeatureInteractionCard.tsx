@@ -191,7 +191,28 @@ export default function FeatureInteractionCard(props: Props) {
     const { mainRows, otherRows } = buildInfoSectionsForFeature(feature, railIndex, {
       disableFieldRules: !!disableFieldRules,
     });
-    return { mainRows, otherRows };
+    // 过滤“空值/未知”行：避免大量“未知”占位挤占信息卡空间
+    const isEmptyOrUnknown = (v: any): boolean => {
+      if (v === null || v === undefined) return true;
+      if (typeof v === 'string') {
+        const s = v.trim();
+        return !s || s === '未知';
+      }
+      // 交互型 value：缺少关键字段也视为空
+      if (v && typeof v === 'object') {
+        const kind = String((v as any).kind ?? '').trim();
+        if (kind === 'externalLink') return !String((v as any).href ?? '').trim();
+        if (kind === 'featureLink') return !String((v as any).targetId ?? '').trim();
+        if (kind === 'colorChip') return !String((v as any).color ?? '').trim();
+        if (kind === 'lineChips') return !Array.isArray((v as any).items) || (v as any).items.length === 0;
+      }
+      return false;
+    };
+
+    return {
+      mainRows: (mainRows ?? []).filter((r) => r && !isEmptyOrUnknown((r as any).value)),
+      otherRows: (otherRows ?? []).filter((r) => r && !isEmptyOrUnknown((r as any).value)),
+    };
   }, [feature, railIndex, disableFieldRules, infoSectionsOverride]);
 
   const [otherOpen, setOtherOpen] = useState(false);

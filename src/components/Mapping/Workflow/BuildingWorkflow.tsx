@@ -450,9 +450,9 @@ export default function BuildingWorkflow(props: WorkflowComponentProps) {
             </select>
           </label>
 
-          <LabeledInput label="名称" value={info.name} placeholder="例如：帝国理工白城校区" onChange={(v) => setInfo((p) => ({ ...p, name: v }))} />
-          <LabeledInput label="字符简称（用于ID后缀）" value={info.abbr} placeholder="例如：ICWC" onChange={(v) => setInfo((p) => ({ ...p, abbr: v }))} />
-          <LabeledInput label="命名者（nomenclator）" value={info.nomenclator} placeholder="例如：YZ" onChange={(v) => setInfo((p) => ({ ...p, nomenclator: v }))} />
+          <LabeledInput label="名称" value={info.name} placeholder="例如：主岛码头" onChange={(v) => setInfo((p) => ({ ...p, name: v }))} />
+          <LabeledInput label="字符简称（用于ID后缀）" value={info.abbr} placeholder="例如：ZDMT" onChange={(v) => setInfo((p) => ({ ...p, abbr: v }))} />
+          <LabeledInput label="命名者（nomenclator）" value={info.nomenclator} placeholder="例如：Codusk" onChange={(v) => setInfo((p) => ({ ...p, nomenclator: v }))} />
 
           <div className="grid grid-cols-2 gap-2">
             <WorkflowFeatureSearchSelect

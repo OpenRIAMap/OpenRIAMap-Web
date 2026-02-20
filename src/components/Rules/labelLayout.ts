@@ -110,8 +110,25 @@ export type LabelRequest = {
   /** label anchor（世界坐标） */
   anchorLatLng: L.LatLng;
 
+  /**
+   * 可选：额外的 anchor 候选点（用于“沿线尝试其它中心点”）。
+   * - 由调用侧（RuleDrivenLayer）按要素几何计算。
+   * - 布局引擎会按顺序依次尝试，找到可放置的位置即停。
+   */
+  anchorCandidatesLatLng?: L.LatLng[];
+
   /** label 文本 */
   text: string;
+
+  /** 可选：渲染旋转角（deg）。主要用于“沿线文字”样式。 */
+  rotateDeg?: number;
+
+  /**
+   * 可选：当 anchorCandidatesLatLng 存在时，为每个候选 anchor 提供对应的旋转角（deg）。
+   * - 长度应与 anchorCandidatesLatLng 一致
+   * - 若缺失/长度不匹配，则退回使用 rotateDeg
+   */
+  rotateDegCandidates?: number[];
 
   /** 复用现有 makeLabelMarker 的 placement（决定 CSS transform 参考点） */
   placement: 'center' | 'near';
@@ -140,6 +157,12 @@ export type PlacedLabel = {
   dx: number;
   dy: number;
   hidden: boolean;
+
+  /**
+   * 当某些样式需要“沿线旋转”时，这里给出最终选择 anchor 对应的旋转角。
+   * - 若未提供，则渲染侧可继续使用 request.rotateDeg
+   */
+  rotateDeg?: number;
 };
 
 export type AvoidRectPx = {
@@ -493,16 +516,39 @@ for (const ar of avoidRects) {
       .slice(0, params.maxCandidatesPerLabel)
       .sort((c1, c2) => (c2.score ?? 0) - (c1.score ?? 0));
 
-    for (const c of candidates) {
-      const dx = c.dx ?? 0;
-      const dy = c.dy ?? 0;
-
-      const anchor = L.point(item.anchorPx.x + dx, item.anchorPx.y + dy);
-      const rect = computeLabelRect(anchor, measured, baseReq.placement, Number(baseReq.offsetY ?? 0));
-
-      if (!params.allowOutsideViewport && !inViewport(rect, size, item.viewportPaddingPx)) {
-        continue;
+    const anchorCandidates: Array<{ px: L.Point; rotateDeg?: number }> = [
+      { px: item.anchorPx, rotateDeg: typeof baseReq.rotateDeg === 'number' ? baseReq.rotateDeg : undefined },
+    ];
+    if (Array.isArray(baseReq.anchorCandidatesLatLng) && baseReq.anchorCandidatesLatLng.length) {
+      const rotArr = Array.isArray((baseReq as any).rotateDegCandidates) ? (baseReq as any).rotateDegCandidates : [];
+      for (let i = 0; i < baseReq.anchorCandidatesLatLng.length; i++) {
+        const ll = baseReq.anchorCandidatesLatLng[i];
+        try {
+          const candPx = map.latLngToContainerPoint(ll);
+          const candRot = typeof rotArr?.[i] === 'number' ? Number(rotArr[i]) : undefined;
+          anchorCandidates.push({ px: candPx, rotateDeg: candRot });
+        } catch {
+          // ignore invalid candidate
+        }
       }
+    }
+
+    // 依次尝试不同 anchor（例如沿线其它点），每个 anchor 再尝试 candidates
+    for (const ac of anchorCandidates) {
+      const anchorPxCand = ac.px;
+      const baseDeltaX = anchorPxCand.x - item.anchorPx.x;
+      const baseDeltaY = anchorPxCand.y - item.anchorPx.y;
+
+      for (const c of candidates) {
+        const dx = (c.dx ?? 0) + baseDeltaX;
+        const dy = (c.dy ?? 0) + baseDeltaY;
+
+        const anchor = L.point(item.anchorPx.x + dx, item.anchorPx.y + dy);
+        const rect = computeLabelRect(anchor, measured, baseReq.placement, Number(baseReq.offsetY ?? 0));
+
+        if (!params.allowOutsideViewport && !inViewport(rect, size, item.viewportPaddingPx)) {
+          continue;
+        }
 
       const expanded = inflateRect(rect, item.minSpacingPx);
         const hits = index.query(expanded);
@@ -517,30 +563,32 @@ for (const ar of avoidRects) {
             }
         }
 
-      if (!ok) continue;
+        if (!ok) continue;
 
-      // group 限制
-      if (item.groupKey && typeof item.maxPerScreen === 'number') {
-        const cur = groupCount.get(item.groupKey) ?? 0;
-        if (cur >= item.maxPerScreen) {
-          continue;
+        // group 限制
+        if (item.groupKey && typeof item.maxPerScreen === 'number') {
+          const cur = groupCount.get(item.groupKey) ?? 0;
+          if (cur >= item.maxPerScreen) {
+            continue;
+          }
         }
+
+        index.add(expanded);
+
+        if (item.groupKey && typeof item.maxPerScreen === 'number') {
+          groupCount.set(item.groupKey, (groupCount.get(item.groupKey) ?? 0) + 1);
+        }
+
+        return {
+          id: baseReq.id,
+          featureUid: baseReq.featureUid,
+          text,
+          dx,
+          dy,
+          hidden: false,
+          rotateDeg: typeof ac.rotateDeg === 'number' ? ac.rotateDeg : undefined,
+        };
       }
-
-      index.add(expanded);
-
-      if (item.groupKey && typeof item.maxPerScreen === 'number') {
-        groupCount.set(item.groupKey, (groupCount.get(item.groupKey) ?? 0) + 1);
-      }
-
-      return {
-        id: baseReq.id,
-        featureUid: baseReq.featureUid,
-        text,
-        dx,
-        dy,
-        hidden: false,
-      };
     }
 
     return null;

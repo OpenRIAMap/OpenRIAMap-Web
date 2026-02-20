@@ -4,7 +4,7 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { Navigation, List, HelpCircle, Train, Home, Moon, X, User, Users, Map, Palette, Pencil, Settings } from 'lucide-react';
+import { Navigation, List, HelpCircle, Train, Home, Moon, X, User, Users, Map, Palette, Pencil, Settings, Filter } from 'lucide-react';
 import type { MapStyle } from '@/lib/cookies';
 import ToolIconButton from '@/components/Toolbar/ToolIconButton';
 import AppButton from '@/components/ui/AppButton';
@@ -12,6 +12,7 @@ import AppCard from '@/components/ui/AppCard';
 
 interface ToolbarProps {
   onNavigationClick: () => void;
+  onAttributeQueryClick: () => void;
   onLinesClick: () => void;
   onPlayersClick: () => void;
   onHelpClick: () => void;
@@ -20,6 +21,7 @@ interface ToolbarProps {
 
 export function Toolbar({
   onNavigationClick,
+  onAttributeQueryClick,
   onLinesClick,
   onPlayersClick,
   onHelpClick,
@@ -40,6 +42,18 @@ export function Toolbar({
       </AppButton>
 
       <div className="w-px h-6 bg-gray-200" />
+
+      {/* 按属性查询 */}
+      <AppButton
+        onClick={onAttributeQueryClick}
+        className="p-2 rounded-lg hover:bg-emerald-50 text-gray-600 hover:text-emerald-600 transition-colors group relative"
+        title="按属性查询"
+      >
+        <Filter className="w-5 h-5" />
+        <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+          按属性查询
+        </span>
+      </AppButton>
 
       {/* 全部线路 */}
       <AppButton

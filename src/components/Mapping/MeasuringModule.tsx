@@ -151,6 +151,11 @@ const [workflowRunning, setWorkflowRunning] = useState(false);
 // 说明：y 为可选（仅在部分 JSON 子类型需要输出 [x,y,z] 时使用；地图渲染仍使用固定 y=64）
 const [tempPoints, setTempPoints] = useState<Array<{ x: number; z: number; y?: number }>>([]);
 
+// 对外广播测绘激活态（用于禁用导航“图上选点”等交互）
+useEffect(() => {
+  window.dispatchEvent(new CustomEvent('ria:measuringActiveChanged', { detail: { active: measuringActive, source: 'MeasuringModule' } }));
+}, [measuringActive]);
+
 
 
 

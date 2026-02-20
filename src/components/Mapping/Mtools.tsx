@@ -83,6 +83,11 @@ export default function MeasurementToolsModule(props: MeasurementToolsModuleProp
   // 主按钮开关
   const [active, setActive] = useState(false);
 
+  // 对外广播激活态（用于禁用导航“图上选点”等交互）
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('ria:measuringActiveChanged', { detail: { active, source: 'MeasurementToolsModule' } }));
+  }, [active]);
+
   // 三大主类按钮
   const [mainTab, setMainTab] = useState<MainTab>('measure');
 

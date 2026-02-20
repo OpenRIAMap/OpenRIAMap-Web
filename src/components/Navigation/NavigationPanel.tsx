@@ -16,16 +16,18 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import {
   X,
   ArrowUpDown,
+  Search as SearchIcon,
   Train,
   Home,
   Footprints,
-  User,
+  //User,
   Zap,
   Clock,
   Rocket,
   Shield,
   ChevronDown,
   ChevronRight,
+  MousePointerClick,
 } from 'lucide-react';
 import type { ParsedStation, ParsedLine, Coordinate, Player, TravelMode } from '@/types';
 import type { ParsedLandmark } from '@/lib/landmarkParser';
@@ -52,6 +54,12 @@ import type { RouteHighlightData, RouteStyledSegment, RouteStationMarker } from 
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
 
+import { getRuleSearchPool } from '@/components/Rules/ruleSearchRegistry';
+import type { FeatureRecord } from '@/components/Rules/renderRules';
+import { formatGridNumber, snapWorldPointByMode } from '@/components/Mapping/GridSnapModeSwitch';
+import { isRuleBlacklisted, getRulePriorityIndex, getRuleCategoryName, getRuleDisplayName } from '@/components/Search/searchRuleTables';
+import { loadRailNewIndex, passLineBooleanFilters, type RailNewIndex } from '@/components/Navigation/railNewIndex';
+
 
 // ---------------------------
 // utils
@@ -73,6 +81,128 @@ function formatArrivalTime(secondsFromNow: number): string {
   return `${hh}:${mm}`;
 }
 
+function getRepresentativeCoordForRule(r: FeatureRecord): Coordinate | null {
+  if (!r) return null;
+  if (r.type === 'Points' && r.p3) {
+    return { x: r.p3.x, y: r.p3.y ?? 64, z: r.p3.z };
+  }
+
+  const coords = Array.isArray(r.coords3) ? r.coords3 : [];
+  if (!coords.length) return null;
+
+  // bbox center（面/线兜底）
+  const bboxCenter = () => {
+    let minX = Number.POSITIVE_INFINITY;
+    let minZ = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxZ = Number.NEGATIVE_INFINITY;
+    for (const c of coords) {
+      minX = Math.min(minX, c.x);
+      minZ = Math.min(minZ, c.z);
+      maxX = Math.max(maxX, c.x);
+      maxZ = Math.max(maxZ, c.z);
+    }
+    if (!Number.isFinite(minX) || !Number.isFinite(minZ) || !Number.isFinite(maxX) || !Number.isFinite(maxZ)) return null;
+    return { x: (minX + maxX) / 2, y: 64, z: (minZ + maxZ) / 2 };
+  };
+
+  // Polyline：按路径长度取中点（插值）
+  if (r.type === 'Polyline' && coords.length >= 2) {
+    let total = 0;
+    const segLens: number[] = [];
+    for (let i = 1; i < coords.length; i++) {
+      const dx = coords[i].x - coords[i - 1].x;
+      const dz = coords[i].z - coords[i - 1].z;
+      const len = Math.hypot(dx, dz);
+      segLens.push(len);
+      total += len;
+    }
+    if (total <= 0) return bboxCenter();
+    const half = total / 2;
+    let acc = 0;
+    for (let i = 1; i < coords.length; i++) {
+      const len = segLens[i - 1] ?? 0;
+      if (acc + len >= half && len > 0) {
+        const t = (half - acc) / len;
+        const x = coords[i - 1].x + (coords[i].x - coords[i - 1].x) * t;
+        const z = coords[i - 1].z + (coords[i].z - coords[i - 1].z) * t;
+        return { x, y: 64, z };
+      }
+      acc += len;
+    }
+    return { x: coords[Math.floor(coords.length / 2)].x, y: 64, z: coords[Math.floor(coords.length / 2)].z };
+  }
+
+  // Polygon：bbox center
+  return bboxCenter();
+}
+
+// getRuleCategoryName / getRuleDisplayName moved to searchRuleTables.ts (single source of truth)
+
+function normalizeHexColorInput(v: any): string {
+  const s = String(v ?? '').trim();
+  if (!s) return '';
+  const t = s.startsWith('0x') || s.startsWith('0X') ? `#${s.slice(2)}` : s;
+  if (/^#[0-9a-fA-F]{3}$/.test(t) || /^#[0-9a-fA-F]{6}$/.test(t) || /^#[0-9a-fA-F]{8}$/.test(t)) return t;
+  if (/^[0-9a-fA-F]{6}$/.test(t)) return `#${t}`;
+  return t;
+}
+
+function extractLinePrefix(s: string): string {
+  const t = String(s ?? '').trim();
+  if (!t) return '';
+  const idx = t.indexOf('线');
+  if (idx > 0) return t.slice(0, idx + 1);
+  return t;
+}
+
+function LineBadgesTruncate({ tokens }: { tokens: LineToken[] }) {
+  const outerRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
+  const [overflow, setOverflow] = useState(false);
+
+  useEffect(() => {
+    const outer = outerRef.current;
+    const inner = innerRef.current;
+    if (!outer || !inner) return;
+
+    const calc = () => {
+      const ov = inner.scrollWidth > outer.clientWidth + 1;
+      setOverflow(ov);
+    };
+    calc();
+
+    const ro = new ResizeObserver(() => calc());
+    ro.observe(outer);
+    ro.observe(inner);
+    return () => ro.disconnect();
+  }, [tokens]);
+
+  return (
+    <div ref={outerRef} className="relative min-w-0 flex-1 overflow-hidden">
+      <div ref={innerRef} className="flex items-center gap-1 flex-nowrap">
+        {tokens.map((it, j) => (
+          <span
+            key={`${it.label}-${j}`}
+            className="inline-flex flex-none w-fit shrink-0 items-center rounded px-1.5 border text-[9px] font-semibold leading-[14px] h-[14px] whitespace-nowrap"
+            style={{ borderColor: it.color, backgroundColor: it.color, color: '#ffffff' }}
+            title={it.title ?? it.label}
+          >
+            {it.label}
+          </span>
+        ))}
+      </div>
+      {overflow ? (
+        <span className="absolute right-0 top-0 bottom-0 flex items-center pl-1 text-gray-400 bg-white">...</span>
+      ) : null}
+    </div>
+  );
+}
+
+function makeCoordLabel(p: { x: number; z: number }) {
+  return `X:${formatGridNumber(p.x)}  Z:${formatGridNumber(p.z)}`;
+}
+
 
 // ---------------------------
 // types
@@ -90,9 +220,16 @@ interface NavigationPanelProps {
 }
 
 interface SearchItem {
-  type: 'station' | 'landmark' | 'player' | 'StaBuilding';
+  type: 'station' | 'landmark' | 'player' | 'StaBuilding' | 'rule' | 'coord';
   name: string;
   coord: Coordinate;
+
+  // for SearchBar-like display
+  extra?: string;
+  searchKey?: string;
+
+  // rule 专用
+  ruleRecord?: FeatureRecord;
 
   // StaBuilding 专用（可选，但建议保留）
   staBuildingId?: string;
@@ -190,17 +327,29 @@ interface PointSearchInputProps {
   items: SearchItem[];
   placeholder: string;
   label: string;
+  labelRight?: React.ReactNode;
+  disabled?: boolean;
+  railIndex?: RailNewIndex | null;
+  buildingNameIndex?: Map<string, string>;
 }
 
-function PointSearchInput({ value, onChange, items, placeholder, label }: PointSearchInputProps) {
+type LineToken = { label: string; color: string; title?: string };
+
+function PointSearchInput({ value, onChange, items, placeholder, label, labelRight, disabled, railIndex, buildingNameIndex }: PointSearchInputProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState(value?.name || '');
   const containerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const filteredItems = useMemo(() => {
     if (query.length === 0) return [];
     const q = query.toLowerCase();
-    return items.filter((item) => item.name.toLowerCase().includes(q)).slice(0, 10);
+    return items
+      .filter((item) => {
+        const key = String(item.searchKey ?? item.name ?? '').toLowerCase();
+        return key.includes(q);
+      })
+      .slice(0, 30);
   }, [query, items]);
 
   useEffect(() => {
@@ -217,6 +366,102 @@ function PointSearchInput({ value, onChange, items, placeholder, label }: PointS
     setQuery(value?.name || '');
   }, [value]);
 
+  // 导航起终点：保持固定宽度（不做 SearchBar 那种自适应加宽）
+
+  const getLineTokensForRule = (r: FeatureRecord | undefined | null): LineToken[] => {
+    if (!r || !railIndex) return [];
+    const fi: any = r?.featureInfo ?? {};
+    const cls = String(r?.meta?.Class ?? fi?.Class ?? '').trim();
+
+    const refs: Array<{ id: string; flags?: Record<string, boolean> }> = [];
+
+    const collectFromPlf = (plfId: string) => {
+      const pid = String(plfId ?? '').trim();
+      if (!pid) return;
+      const plf = railIndex.plfs.get(pid);
+      if (!plf?.lines?.length) return;
+      for (const lr of plf.lines) refs.push({ id: String((lr as any).id ?? '').trim(), flags: (lr as any)?.flags });
+    };
+
+    if (cls === 'PLF') {
+      collectFromPlf(String((r as any)?.meta?.idValue ?? fi?.platformID ?? fi?.platformId ?? ''));
+    } else if (cls === 'PFB') {
+      collectFromPlf(String(fi?.platformID ?? fi?.platformId ?? ''));
+    } else if (cls === 'STA') {
+      const stationId = String((r as any)?.meta?.idValue ?? fi?.stationID ?? fi?.stationId ?? '').trim();
+      const sta = stationId ? railIndex.stas.get(stationId) : undefined;
+      for (const pid of (sta?.platformIds ?? [])) collectFromPlf(pid);
+    } else if (cls === 'STB' || cls === 'SBP') {
+      const buildingId = String((r as any)?.meta?.idValue ?? '').trim();
+      const stationIds = buildingId && railIndex.buildingToStations.get(buildingId)
+        ? Array.from(railIndex.buildingToStations.get(buildingId)!)
+        : [];
+      for (const sid of stationIds) {
+        const sta = sid ? railIndex.stas.get(sid) : undefined;
+        for (const pid of (sta?.platformIds ?? [])) collectFromPlf(pid);
+      }
+    }
+
+    const picked: Array<{ id: string; bureau: string; line: string; name: string; prefix: string; color: string }> = [];
+    for (const lr of refs) {
+      const id = String(lr.id ?? '').trim();
+      if (!id) continue;
+      if (!passLineBooleanFilters(lr.flags)) continue;
+      const rle = railIndex.rles.get(id);
+      if (!rle) continue;
+      const name = String((rle as any).name || (rle as any).line || (rle as any).id || id).trim();
+      const prefix = extractLinePrefix(name);
+      const color = normalizeHexColorInput((rle as any)?.color) || '#999999';
+      picked.push({ id, bureau: String((rle as any)?.bureau ?? '').trim(), line: String((rle as any)?.line ?? '').trim(), name, prefix, color });
+    }
+    if (picked.length === 0) return [];
+
+    const groups = new Map<string, Array<typeof picked[number]>>();
+    const orderKeys: string[] = [];
+    for (const it of picked) {
+      const key = it.bureau && it.line ? `${it.bureau}@@${it.line}` : `__id__@@${it.id}`;
+      if (!groups.has(key)) {
+        groups.set(key, []);
+        orderKeys.push(key);
+      }
+      groups.get(key)!.push(it);
+    }
+
+    const out: LineToken[] = [];
+    const seen = new Set<string>();
+    const pushToken = (label: string, color: string, title?: string) => {
+      const k = `${label}@@${color}`;
+      if (seen.has(k)) return;
+      seen.add(k);
+      out.push({ label, color, title });
+    };
+
+    for (const gk of orderKeys) {
+      const arr = groups.get(gk) ?? [];
+      if (arr.length === 0) continue;
+      if (arr.length === 1) {
+        const a = arr[0];
+        pushToken(a.prefix || a.name, a.color, a.name);
+        continue;
+      }
+      const firstPrefix = String(arr[0].prefix || '').trim();
+      const allSamePrefix = firstPrefix && arr.every((x) => String(x.prefix || '').trim() === firstPrefix);
+      if (allSamePrefix) {
+        pushToken(firstPrefix, arr[0].color, arr.map((x) => x.name).join(' / '));
+        continue;
+      }
+      const localSeen = new Set<string>();
+      for (const a of arr) {
+        const p = String(a.prefix || a.name).trim();
+        if (!p) continue;
+        if (localSeen.has(p)) continue;
+        localSeen.add(p);
+        pushToken(p, a.color, a.name);
+      }
+    }
+    return out;
+  };
+
   const handleSelect = (item: SearchItem) => {
     setQuery(item.name);
     onChange(item);
@@ -225,57 +470,119 @@ function PointSearchInput({ value, onChange, items, placeholder, label }: PointS
 
   return (
     <div ref={containerRef} className="relative">
-      <label className="text-xs text-gray-500 mb-1 block">{label}</label>
-      <input
-        type="text"
-        value={query}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          setIsOpen(true);
-          const match = items.find((item) => item.name === e.target.value);
-          onChange(match || null);
-        }}
-        onFocus={() => setIsOpen(true)}
-        placeholder={placeholder}
-        className="w-full px-3 py-2 border rounded text-sm outline-none focus:border-blue-400"
-      />
+      <div className="flex items-center justify-between mb-1">
+        <label className="text-xs text-gray-500 block">{label}</label>
+        {labelRight ? <div className="flex items-center gap-1">{labelRight}</div> : null}
+      </div>
 
+      {/* 输入框：尽量与主 SearchBar 的视觉一致 */}
+      <div className={disabled ? 'opacity-60 pointer-events-none' : ''}>
+        <AppCard className="flex items-center p-0 rounded-2xl overflow-hidden shadow-none">
+          <div className="px-3 py-2 text-gray-400">
+            <SearchIcon className="w-4 h-4" />
+          </div>
+          <input
+            type="text"
+            value={query}
+            disabled={disabled}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setIsOpen(true);
+              // 仅当完全匹配名称时才绑定 value；否则保持输入态
+              const match = items.find((it) => it.name === e.target.value);
+              if (match) onChange(match);
+              else onChange(null);
+            }}
+            onFocus={() => !disabled && setIsOpen(true)}
+            placeholder={placeholder}
+            className="flex-1 w-full px-3 py-2 text-sm outline-none rounded-r-2xl"
+          />
+        </AppCard>
+      </div>
+
+
+      {/* 下拉结果：复用 SearchBar 的行布局（名称+类型在左，坐标靠右） */}
       {isOpen && filteredItems.length > 0 && (
-        <AppCard className="absolute top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto z-50 border">
-          {filteredItems.map((item, idx) => (
-            <AppButton
-              key={`${item.type}-${item.name}-${idx}`}
-              className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 border-b border-gray-50 last:border-b-0 flex items-center gap-2"
-              onClick={() => handleSelect(item)}
-            >
-              <span
-                className={`w-5 h-5 rounded-full flex items-center justify-center ${
-                  item.type === 'station'
-                    ? 'bg-blue-500 text-white'
-                    : item.type === 'player'
-                      ? 'bg-cyan-500 text-white'
-                        : item.type === 'StaBuilding'
-                        ? 'bg-purple-500 text-white'
-                        : 'bg-orange-500 text-white'
-                }`}
+        <div
+          ref={dropdownRef as any}
+          className="absolute top-full left-0 mt-1 z-50"
+          style={{ width: undefined }}
+        >
+          <AppCard className="max-h-80 overflow-y-auto">
+            {filteredItems.map((item, idx) => (
+              <AppButton
+                key={`${item.type}-${item.name}-${idx}`}
+                className="w-full px-3 py-2 text-left hover:bg-gray-100 flex items-center justify-start border-b border-gray-100 last:border-b-0"
+                onClick={() => handleSelect(item)}
               >
-                {item.type === 'station' ? (
-                  <Train className="w-3 h-3" />
-                ) : item.type === 'player' ? (
-                  <User className="w-3 h-3" />
-                ) : item.type === 'StaBuilding' ? (
-                  <Shield className="w-3 h-3" />
-                ) : (
-                  <Home className="w-3 h-3" />
-                )}
+                <div data-sr-row className="flex w-full items-center">
+                  <div data-sr-left className="flex-1 min-w-0">
+                    <div data-sr-left-inner className="flex flex-col min-w-0">
+                      <div className="text-sm font-medium text-gray-800 truncate">{item.name}</div>
+                      {item.extra && (
+                        <div className="text-xs text-gray-500 flex items-center gap-2 min-w-0">
+                          <span className="shrink-0">{(() => {
+                            if (item.type !== 'rule') return item.extra;
+                            const r = item.ruleRecord;
+                            const fi: any = r?.featureInfo ?? {};
+                            const cls = String(r?.meta?.Class ?? fi?.Class ?? '').trim();
+                            if (!buildingNameIndex) return item.extra;
 
-              </span>
-              <span>{item.name}</span>
-              <span className="text-xs text-gray-400 ml-auto">
-                {item.type === 'station' ? '站点' : item.type === 'player' ? '玩家' : item.type === 'StaBuilding' ? '站体' : '地标'}
-              </span>
-            </AppButton>
-          ))}
+                            if (cls === 'FLR') {
+                              const bid = String(fi?.BuildingID ?? fi?.buildingID ?? fi?.buildingId ?? '').trim();
+                              const bname = bid ? (buildingNameIndex.get(bid) || '') : '';
+                              return bname ? `${item.extra}（${bname}）` : item.extra;
+                            }
+                            if (cls === 'STF') {
+                              const bid = String(fi?.staBuildingID ?? fi?.staBuildingId ?? fi?.STBuilding ?? fi?.BuildingID ?? '').trim();
+                              const bname = bid ? (buildingNameIndex.get(bid) || '') : '';
+                              return bname ? `${item.extra}（${bname}）` : item.extra;
+                            }
+                            return item.extra;
+                          })()}</span>
+
+                          {/* 包含线路：PLF/PFB/STA/STB/SBP */}
+                          {item.type === 'rule' && (() => {
+                            const r = item.ruleRecord;
+                            const fi: any = r?.featureInfo ?? {};
+                            const cls = String(r?.meta?.Class ?? fi?.Class ?? '').trim();
+                            if (!['PLF', 'PFB', 'STA', 'STB', 'SBP'].includes(cls)) return null;
+                            const tokens = getLineTokensForRule(r);
+                            if (!tokens.length) return null;
+                            return (
+                              <LineBadgesTruncate tokens={tokens} />
+                            );
+                          })()}
+
+                          {/* RLE：颜色条 */}
+                          {item.type === 'rule' && (() => {
+                            const r = item.ruleRecord;
+                            const fi: any = r?.featureInfo ?? {};
+                            const cls = String(r?.meta?.Class ?? fi?.Class ?? '').trim();
+                            if (cls !== 'RLE') return null;
+                            const color = normalizeHexColorInput(fi?.color ?? fi?.Color) || '#999999';
+                            return (
+                              <span className="inline-block rounded-sm" style={{ width: 22, height: 14, backgroundColor: color }} title={color} />
+                            );
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div data-sr-coord className="text-xs text-gray-400 flex-none ml-3">
+                    {`${Math.round(item.coord.x)}, ${Math.round(item.coord.z)}`}
+                  </div>
+                </div>
+              </AppButton>
+            ))}
+          </AppCard>
+        </div>
+      )}
+
+      {isOpen && query.length > 0 && filteredItems.length === 0 && (
+        <AppCard className="absolute top-full left-0 right-0 mt-1 p-3 text-sm text-gray-500 z-50">
+          未找到匹配结果
         </AppCard>
       )}
     </div>
@@ -506,6 +813,69 @@ export function NavigationPanel({
   const [resultTeleportNew, setResultTeleportNew] = useState<NavTeleportNewIntegratedPlan | null>(null);
   const [searching, setSearching] = useState(false);
 
+  // 图上选取（起/终点互斥）
+  const [mapPickTarget, setMapPickTarget] = useState<'start' | 'end' | null>(null);
+  const [measuringActive, setMeasuringActive] = useState(false);
+
+  // 监听测绘激活态：测绘启用时禁止导航图选点；若已开启则自动关闭
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const ce = ev as CustomEvent<{ active?: boolean }>;
+      const active = Boolean(ce?.detail?.active);
+      setMeasuringActive(active);
+    };
+    window.addEventListener('ria:measuringActiveChanged', handler as any);
+    return () => window.removeEventListener('ria:measuringActiveChanged', handler as any);
+  }, []);
+
+  useEffect(() => {
+    if (measuringActive && mapPickTarget) {
+      setMapPickTarget(null);
+    }
+  }, [measuringActive, mapPickTarget]);
+
+  // 监听地图点击（来自 MapContainer 派发）
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      if (!mapPickTarget) return;
+      if (measuringActive) return;
+      const ce = ev as CustomEvent<any>;
+      const detail = ce?.detail as { worldId?: string; point?: { x: number; y: number; z: number } };
+      if (!detail?.point) return;
+      if (detail.worldId && detail.worldId !== worldId) return;
+
+      const snapped = snapWorldPointByMode({ x: detail.point.x, z: detail.point.z });
+      const coord: Coordinate = { x: snapped.x, y: detail.point.y ?? 64, z: snapped.z };
+      const item: SearchItem = {
+        type: 'coord',
+        name: makeCoordLabel({ x: coord.x, z: coord.z }),
+        extra: '坐标',
+        searchKey: `${formatGridNumber(coord.x)} ${formatGridNumber(coord.z)} ${coord.x} ${coord.z}`,
+        coord,
+      };
+
+      if (mapPickTarget === 'start') {
+        setStartPoint(item);
+      } else {
+        setEndPoint(item);
+      }
+      setResultLegacy(null);
+      setResultRailNew(null);
+      setResultTeleportNew(null);
+    };
+    window.addEventListener('ria:mapClickWorldPoint', handler as any);
+    return () => window.removeEventListener('ria:mapClickWorldPoint', handler as any);
+  }, [mapPickTarget, measuringActive, worldId]);
+
+  const togglePick = (target: 'start' | 'end') => {
+    if (measuringActive) return;
+    setMapPickTarget((prev) => (prev === target ? null : target));
+  };
+
+  const closeAndResetPick = () => {
+    setMapPickTarget(null);
+  };
+
   // teleport_new：返回主城
   const hubReturnPoints = useMemo(() => listHubReturnPoints(worldId), [worldId]);
   const [returnToHubEnabled, setReturnToHubEnabled] = useState(false);
@@ -547,6 +917,8 @@ useEffect(() => {
         items.push({
           type: 'StaBuilding',
           name: b.name,
+          extra: b.kind === 'STB' ? '车站' : '车站建筑点',
+          searchKey: [b.name, b.id, b.kind].filter(Boolean).join(' '),
           coord: b.coord,
           staBuildingId: b.id,
           staBuildingKind: b.kind,
@@ -571,6 +943,41 @@ useEffect(() => {
   // rail_new：每段展开状态
   const [expandedRailLegs, setExpandedRailLegs] = useState<Record<string, boolean>>({});
 
+  // SearchBar 同源：用于“线路彩色标签”与过滤逻辑
+  const [railIndex, setRailIndex] = useState<RailNewIndex | null>(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const idx = await loadRailNewIndex(worldId);
+        if (alive) setRailIndex(idx);
+      } catch {
+        if (alive) setRailIndex(null);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [worldId]);
+
+  const buildingNameIndex = useMemo(() => {
+    // 用于楼层类补充“所属建筑名”
+    const m = new Map<string, string>();
+    try {
+      const pool = getRuleSearchPool(worldId);
+      for (const r of pool) {
+        const fi: any = r?.featureInfo ?? {};
+        const cls = String(r?.meta?.Class ?? fi?.Class ?? '').trim();
+        if (cls !== 'BUD' && cls !== 'STB') continue;
+        const disp = getRuleDisplayName(r);
+        if (disp.idValue && disp.name) m.set(disp.idValue, disp.name);
+      }
+    } catch {
+      // ignore
+    }
+    return m;
+  }, [worldId]);
+
   const formatLineName = (lineId: string): string => {
     const line = lines.find((l) => l.lineId === lineId);
     if (line) return line.bureau === 'RMP' ? line.line : `${line.bureau}-${line.line}`;
@@ -585,13 +992,18 @@ useEffect(() => {
     for (const station of stations) {
       if (!stationNames.has(station.name)) {
         stationNames.add(station.name);
-        items.push({ type: 'station', name: station.name, coord: station.coord });
+        items.push({ type: 'station', name: station.name, extra: '旧+车站', searchKey: station.name, coord: station.coord });
       }
     }
 
     // 地标
     for (const landmark of landmarks) {
-      if (landmark.coord) items.push({ type: 'landmark', name: landmark.name, coord: landmark.coord });
+      if (!landmark.coord) continue;
+      const id = (landmark as any)?.id;
+      const idStr = id === null || id === undefined ? '' : String(id).trim();
+      const shownName = idStr ? `#${idStr} ${landmark.name}` : landmark.name;
+      const sk = idStr ? `${landmark.name} ${idStr} #${idStr}` : landmark.name;
+      items.push({ type: 'landmark', name: shownName, extra: '旧+地标', searchKey: sk, coord: landmark.coord });
     }
 
     // 玩家
@@ -599,14 +1011,52 @@ useEffect(() => {
       items.push({
         type: 'player',
         name: player.name,
+        extra: '玩家',
+        searchKey: player.name,
         coord: { x: player.x, y: player.y, z: player.z },
       });
     }
 
     for (const b of railNewStaBuildingItems) items.push(b);
 
+    // 规则要素（与主搜索栏同源：规则预加载池，包含临时挂载）
+    try {
+      const pool = getRuleSearchPool(worldId);
+      const ruleItems: SearchItem[] = [];
+      for (const r of pool) {
+        if (isRuleBlacklisted(r)) continue;
+        const coord = getRepresentativeCoordForRule(r);
+        if (!coord) continue;
+        const disp = getRuleDisplayName(r);
+        const fi: any = r?.featureInfo ?? {};
+        const cls = String(r?.meta?.Class ?? fi?.Class ?? '').trim();
+        const extra = getRuleCategoryName(r);
+        const searchKey = [
+          disp.name,
+          disp.rawName,
+          disp.idValue,
+          extra,
+          cls,
+          String((r as any)?.meta?.idValue ?? ''),
+          String(r.uid ?? ''),
+        ]
+          .filter(Boolean)
+          .join(' ');
+        ruleItems.push({ type: 'rule', name: disp.name, extra, searchKey, coord, ruleRecord: r });
+      }
+      ruleItems.sort((a, b) => {
+        const pa = a.ruleRecord ? getRulePriorityIndex(a.ruleRecord) : Number.POSITIVE_INFINITY;
+        const pb = b.ruleRecord ? getRulePriorityIndex(b.ruleRecord) : Number.POSITIVE_INFINITY;
+        if (pa !== pb) return pa - pb;
+        return a.name.localeCompare(b.name, 'zh-Hans-CN');
+      });
+      items.push(...ruleItems);
+    } catch {
+      // ignore
+    }
+
     return items;
-  }, [stations, landmarks, players, railNewStaBuildingItems]);
+  }, [stations, landmarks, players, railNewStaBuildingItems, worldId]);
 
   const railwayGraph = useMemo(() => buildRailwayGraph(lines), [lines]);
   const toriiList = useMemo(() => extractToriiList(landmarks), [landmarks]);
@@ -794,7 +1244,14 @@ if (travelMode === 'teleport_new') {
       {/* 标题 */}
       <div className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0">
         <h3 className="font-bold text-gray-800">路径规划</h3>
-        <AppButton onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded" title="关闭">
+        <AppButton
+          onClick={() => {
+            closeAndResetPick();
+            onClose();
+          }}
+          className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
+          title="关闭"
+        >
           <X className="w-4 h-4" />
         </AppButton>
       </div>
@@ -811,6 +1268,7 @@ if (travelMode === 'teleport_new') {
             }`}
             onClick={() => {
               setTravelMode(mode);
+              closeAndResetPick();
               setResultLegacy(null);
               setResultRailNew(null);
               setResultTeleportNew(null);
@@ -835,8 +1293,23 @@ if (travelMode === 'teleport_new') {
                 setResultTeleportNew(null);
               }}
               items={searchItems}
-              placeholder="输入起点（站点/地标）..."
+              railIndex={railIndex}
+              buildingNameIndex={buildingNameIndex}
+              placeholder="搜索起点（同主搜索栏范围）..."
               label="起点"
+              labelRight={
+                <AppButton
+                  onClick={() => togglePick('start')}
+                  disabled={measuringActive}
+                  className={`px-2 py-0.5 text-xs rounded border flex items-center gap-1 ${
+                    mapPickTarget === 'start' ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-white text-gray-600 border-gray-200'
+                  } ${measuringActive ? 'opacity-60 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+                  title={measuringActive ? '测绘启用时不可图上选取' : '图上选取起点'}
+                >
+                  <MousePointerClick className="w-3.5 h-3.5" />
+                  <span>{mapPickTarget === 'start' ? '图选中' : '图上选取'}</span>
+                </AppButton>
+              }
             />
           </div>
           <AppButton
@@ -858,10 +1331,31 @@ if (travelMode === 'teleport_new') {
               setResultTeleportNew(null);
             }}
             items={searchItems}
-            placeholder="输入终点（站点/地标）..."
+            railIndex={railIndex}
+            buildingNameIndex={buildingNameIndex}
+            placeholder="搜索终点（同主搜索栏范围）..."
             label="终点"
+            labelRight={
+              <AppButton
+                onClick={() => togglePick('end')}
+                disabled={measuringActive}
+                className={`px-2 py-0.5 text-xs rounded border flex items-center gap-1 ${
+                  mapPickTarget === 'end' ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-white text-gray-600 border-gray-200'
+                } ${measuringActive ? 'opacity-60 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+                title={measuringActive ? '测绘启用时不可图上选取' : '图上选取终点'}
+              >
+                <MousePointerClick className="w-3.5 h-3.5" />
+                <span>{mapPickTarget === 'end' ? '图选中' : '图上选取'}</span>
+              </AppButton>
+            }
           />
         </div>
+
+        {mapPickTarget && !measuringActive && (
+          <div className="mb-2 text-xs text-blue-600">
+            开启图上选取功能：请点击地图以设置{mapPickTarget === 'start' ? '起点' : '终点'}坐标。
+          </div>
+        )}
 
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-3">

@@ -40,6 +40,12 @@ import { formatGridNumber, snapWorldPointByMode } from '@/components/Mapping/Gri
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
 
+// 导航“图上选取”使用：由 MapContainer 统一派发地图点击事件
+type MapClickWorldPointEventDetail = {
+  worldId: string;
+  point: { x: number; y: number; z: number };
+};
+
 
 // 世界配置
 const WORLDS = [
@@ -60,6 +66,10 @@ function MapContainer() {
   // 从 cookie 读取初始设置
   const savedSettings = loadMapSettings();
   const [currentWorld, setCurrentWorld] = useState(savedSettings?.currentWorld ?? 'zth');
+  const currentWorldRef = useRef<string>(savedSettings?.currentWorld ?? 'zth');
+  useEffect(() => {
+    currentWorldRef.current = currentWorld;
+  }, [currentWorld]);
   const [showRailway, setShowRailway] = useState(savedSettings?.showRailway ?? true);
   const [showLandmark, setShowLandmark] = useState(savedSettings?.showLandmark ?? true);
   const [showPlayers, setShowPlayers] = useState(savedSettings?.showPlayers ?? true);
@@ -93,6 +103,28 @@ function MapContainer() {
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [measuringCloseSignal, setMeasuringCloseSignal] = useState(0);
   const [measureToolsCloseSignal, setMeasureToolsCloseSignal] = useState(0);
+
+  // 是否有任意测绘模块处于激活状态（用于禁用导航图上选点）
+  const [isMeasuringActive, setIsMeasuringActive] = useState(false);
+  const isMeasuringActiveRef = useRef(false);
+  const measuringActiveBySourceRef = useRef<Record<string, boolean>>({});
+
+  useEffect(() => {
+    isMeasuringActiveRef.current = isMeasuringActive;
+  }, [isMeasuringActive]);
+
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const ce = ev as CustomEvent<{ active?: boolean; source?: string }>;
+      const active = Boolean(ce?.detail?.active);
+      const source = String(ce?.detail?.source ?? 'unknown');
+      measuringActiveBySourceRef.current[source] = active;
+      const anyActive = Object.values(measuringActiveBySourceRef.current).some(Boolean);
+      setIsMeasuringActive(anyActive);
+    };
+    window.addEventListener('ria:measuringActiveChanged', handler as any);
+    return () => window.removeEventListener('ria:measuringActiveChanged', handler as any);
+  }, []);
 
   // 规则图层“分组开关”（按 world 维度持久化）
   const { activeButtonIds: activeRuleButtonIds, toggle: toggleRuleButton } = useRuleButtonState(currentWorld);
@@ -244,15 +276,24 @@ if (mapStyle === 'sketch') {
   }, [currentWorld, dataLoaded, getWorldData]);
 
   // 搜索结果选中处理
-  const lastRuleSearchUidRef = useRef<string | null>(null);
+  // 说明：过去仅用 uid 去重会在“先选 STB/其它要素，再选规则要素”时产生偶发短路。
+  // 这里改为 token + 时间窗的方式：仅在极短时间内重复点击同一目标时跳过缩放。
+  const lastSearchTokenRef = useRef<string | null>(null);
+  const lastSearchAtRef = useRef<number>(0);
 
   const handleSearchSelect = useCallback((result: SearchResult) => {
     const map = leafletMapRef.current;
     const proj = projectionRef.current;
     if (!map || !proj) return;
 
+    // 防止上一轮 setView/fitBounds 的动画仍在进行导致本次 fitBounds 偶发不生效
+    map.stop();
+
     // 旧数据（站点/地标/线路）保持原行为：中心到点位 & zoom=5
     if (result.type !== 'rule') {
+      // 切换到非 rule 结果后，允许下一次再次选择同一 rule 时重新聚焦/缩放
+      lastSearchTokenRef.current = result.type ? `${result.type}:` : null;
+      lastSearchAtRef.current = Date.now();
       if (!result.coord) return;
       const latLng = proj.locationToLatLng(result.coord.x, result.coord.y, result.coord.z);
       map.setView(latLng, 5);
@@ -266,10 +307,13 @@ if (mapStyle === 'sketch') {
     const r = result.ruleRecord;
 
     // ✅ 避免重复点击同一要素时不断触发视图缩放（会导致“二次放大偏离预期”）
-    // - 同一 uid：仅触发打开信息卡，不再修改视图
+    // - 仅在很短时间内重复点击同一 token 时跳过缩放；否则始终允许重新聚焦
     const uid = String(r?.uid ?? '').trim();
-    const isSameAsLast = !!uid && lastRuleSearchUidRef.current === uid;
-    if (uid) lastRuleSearchUidRef.current = uid;
+    const token = uid ? `rule:${uid}` : 'rule:';
+    const now = Date.now();
+    const isSameQuickRepeat = lastSearchTokenRef.current === token && (now - lastSearchAtRef.current) < 600;
+    lastSearchTokenRef.current = token;
+    lastSearchAtRef.current = now;
 
     if (r) {
       const needIds = getMatchingRuleButtonIds(r);
@@ -280,18 +324,40 @@ if (mapStyle === 'sketch') {
       }
     }
 
-    if (!isSameAsLast) {
-      if (result.coord) {
-        const latLng = proj.locationToLatLng(result.coord.x, result.coord.y, result.coord.z);
-        map.setView(latLng, 5, { animate: true });
+    if (!isSameQuickRepeat) {
+      // bbox 缩放：优先用 record.coords3 计算（线/面）
+      // 关键：若有 bbox，则只做 fitBounds（不要先 setView 再 fitBounds），避免动画竞争导致偶发失效
+      let didFit = false;
+      if (r && Array.isArray(r.coords3) && r.coords3.length > 1) {
+        const fallbackY = (result.coord?.y ?? 64) as any;
+        const pts = r.coords3
+          .map((p: any) => {
+            const y = Number.isFinite(p?.y) ? p.y : fallbackY;
+            const ll = proj.locationToLatLng(p.x, y, p.z);
+            return ll;
+          })
+          .filter((ll: any) => ll && Number.isFinite(ll.lat) && Number.isFinite(ll.lng));
+
+        if (pts.length >= 2) {
+          const bounds = L.latLngBounds(pts);
+          if ((bounds as any)?.isValid?.() ? (bounds as any).isValid() : true) {
+            didFit = true;
+            // 终止上一轮动画后，在下一帧执行 fitBounds，提升稳定性
+            requestAnimationFrame(() => {
+              map.stop();
+              map.fitBounds(bounds, { animate: true, padding: [16, 16] });
+            });
+          }
+        }
       }
 
-      // bbox 缩放：优先用 record.coords3 计算（线/面）
-      if (r && Array.isArray(r.coords3) && r.coords3.length > 1) {
-        const pts = r.coords3.map((p) => proj.locationToLatLng(p.x, p.y, p.z));
-        const bounds = L.latLngBounds(pts);
-        // 始终根据 bbox 调整缩放（既可能放大也可能缩小），以确保用户点击后“聚焦 + 合适缩放”
-        map.fitBounds(bounds, { animate: true, padding: [16, 16] });
+      // 点要素/无 bbox：回退为 setView
+      if (!didFit && result.coord) {
+        const latLng = proj.locationToLatLng(result.coord.x, result.coord.y, result.coord.z);
+        requestAnimationFrame(() => {
+          map.stop();
+          map.setView(latLng, 5, { animate: true });
+        });
       }
     }
 
@@ -602,6 +668,24 @@ const handleMouseMove = (e: L.LeafletMouseEvent) => {
 
 map.on('mousemove', handleMouseMove);
 
+// 统一派发地图点击（用于导航“图上选取”）
+const handleMapClick = (e: L.LeafletMouseEvent) => {
+  const proj = projectionRef.current;
+  if (!proj) return;
+  // 测绘模块激活时，不派发导航取点事件（避免与测绘交互冲突）
+  if (isMeasuringActiveRef.current) return;
+
+  const worldCoord = proj.latLngToLocation(e.latlng, 64);
+  const snapped = snapWorldPointByMode({ x: worldCoord.x, z: worldCoord.z });
+  const detail: MapClickWorldPointEventDetail = {
+    worldId: currentWorldRef.current,
+    point: { x: snapped.x, y: 64, z: snapped.z },
+  };
+  window.dispatchEvent(new CustomEvent('ria:mapClickWorldPoint', { detail }));
+};
+
+map.on('click', handleMapClick);
+
 
     leafletMapRef.current = map;
     setMapReady(true);
@@ -609,6 +693,7 @@ map.on('mousemove', handleMouseMove);
     // 清理函数
     return () => {
       map.off('mousemove', handleMouseMove);
+      map.off('click', handleMapClick);
       if (rafId !== null) window.cancelAnimationFrame(rafId);
       if (leafletMapRef.current) {
         leafletMapRef.current.remove();

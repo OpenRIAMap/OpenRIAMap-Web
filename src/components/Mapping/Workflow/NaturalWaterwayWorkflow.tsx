@@ -370,7 +370,7 @@ export default function NaturalWaterwayWorkflow(props: WorkflowComponentProps) {
             </select>
           </label>
 
-          <LabeledInput label="名称" value={info.name} placeholder="例如：莱茵河" onChange={(v) => setInfo((prev) => ({ ...prev, name: v }))} />
+          <LabeledInput label="名称" value={info.name} placeholder="例如：北川" onChange={(v) => setInfo((prev) => ({ ...prev, name: v }))} />
 
           <LabeledInput
             label="字符简称（用于ID）"
@@ -387,7 +387,7 @@ export default function NaturalWaterwayWorkflow(props: WorkflowComponentProps) {
           <LabeledInput
             label="命名者（将写入 tags.nomenclator）"
             value={info.nomenclator}
-            placeholder="例如：Natural Earth / OpenStreetMap / 个人署名"
+            placeholder="例如：XX社团 / 聚落 / 个人署名"
             onChange={(v) => setInfo((prev) => ({ ...prev, nomenclator: v }))}
           />
 

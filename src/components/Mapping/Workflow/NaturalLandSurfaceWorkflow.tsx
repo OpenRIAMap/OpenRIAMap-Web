@@ -415,7 +415,7 @@ export default function NaturalLandSurfaceWorkflow(props: WorkflowComponentProps
             </select>
           </label>
 
-          <LabeledInput label="名称" value={info.name} placeholder="例如：青藏高原" onChange={(v) => setInfo((prev) => ({ ...prev, name: v }))} />
+          <LabeledInput label="名称" value={info.name} placeholder="例如：南山" onChange={(v) => setInfo((prev) => ({ ...prev, name: v }))} />
 
           <LabeledInput
             label="字符简称（用于ID）"
@@ -432,7 +432,7 @@ export default function NaturalLandSurfaceWorkflow(props: WorkflowComponentProps
           <LabeledInput
             label="命名者（将写入 tags.nomenclator）"
             value={info.nomenclator}
-            placeholder="例如：Natural Earth / OpenStreetMap / 个人署名"
+            placeholder="例如：XX社团 / 聚落 / 个人署名"
             onChange={(v) => setInfo((prev) => ({ ...prev, nomenclator: v }))}
           />
 
@@ -448,7 +448,7 @@ export default function NaturalLandSurfaceWorkflow(props: WorkflowComponentProps
           <LabeledInput
             label="所属聚落(一级)（可选，将写入 tags.Adm）"
             value={info.admLevel1 ?? ''}
-            placeholder="例如：东亚 / 欧洲 / 北美"
+            placeholder="例如：鳕鱼鱼"
             onChange={(v) => setInfo((prev) => ({ ...prev, admLevel1: v }))}
           />
 

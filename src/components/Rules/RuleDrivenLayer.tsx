@@ -1273,7 +1273,19 @@ if (r.type === 'Points' && pointLatLng && !labelOnly) {
       const req = buildLabelRequest(r, labelPlan, context, store, projection, pointLatLng, clickPlan, viewportWorldRectXZ);
       if (req) {
         declutterLabelRequests.push(req);
-        const styleKey = (labelPlan as any)?.styleKey ?? (clickPlan as any)?.labelStyleKey ?? 'bubble-dark';
+        let styleKey: any = (labelPlan as any)?.styleKey ?? (clickPlan as any)?.labelStyleKey ?? 'bubble-dark';
+
+        // Polyline：若 request 给了 rotateDeg，并且 styleKey 是对象，则注入旋转角
+        if (styleKey && typeof styleKey === 'object') {
+          const k = String((styleKey as any).key ?? '');
+          if (k.startsWith('rle-line-')) {
+            styleKey = { ...(styleKey as any), rotateDeg: Number((req as any).rotateDeg ?? 0) || 0 };
+          } else {
+            // pill 等保持屏幕朝向
+            styleKey = { ...(styleKey as any), rotateDeg: 0 };
+          }
+        }
+
         declutterLabelMeta.set(req.id, { styleKey, plan: (clickPlan && (clickPlan as any).enabled) ? clickPlan : null });
       } else {
         // 该要素当前不应显示 label（minLevel/text 空等）→ 移除旧 label
@@ -1321,9 +1333,25 @@ if (r.type === 'Points' && pointLatLng && !labelOnly) {
 
       const meta = declutterLabelMeta.get(req.id);
         const plan = meta?.plan ?? null;
-        const styleKey = meta?.styleKey ?? 'bubble-dark';
+        let styleKey = meta?.styleKey ?? 'bubble-dark';
 
-        const labelKey = `${p.text}|${req.placement}|${req.withDot ? 1 : 0}|${Number(req.offsetY ?? 0)}|${styleKey}|${plan ? 1 : 0}`;
+        // Polyline：沿线文字的旋转角以“最终放置点对应的 anchor”优先
+        if (styleKey && typeof styleKey === 'object') {
+          const k = String((styleKey as any).key ?? '');
+          if (k.startsWith('rle-line-')) {
+            const rot = (p as any)?.rotateDeg;
+            styleKey = { ...(styleKey as any), rotateDeg: typeof rot === 'number' ? rot : Number((req as any).rotateDeg ?? 0) || 0 };
+          }
+        }
+
+        const styleKeyCache =
+          typeof styleKey === 'string'
+            ? styleKey
+            : styleKey && typeof styleKey === 'object'
+              ? `${String((styleKey as any).key ?? '')}@${String((styleKey as any).color ?? '')}@${String((styleKey as any).rotateDeg ?? '')}`
+              : String(styleKey);
+
+        const labelKey = `${p.text}|${req.placement}|${req.withDot ? 1 : 0}|${Number(req.offsetY ?? 0)}|${styleKeyCache}|${plan ? 1 : 0}`;
 
       // 尽量复用 marker，避免每次 refresh 都重建
       if (b.label && b.label instanceof L.Marker && b.labelKey === labelKey) {
@@ -1714,53 +1742,95 @@ function buildLabelRequest(
 
   // Polyline：优先使用“可见中心锚点”（B1），兜底再用累计长度中点
   if (r.type === 'Polyline') {
-    const vis = computeVisibleAnchorXZForPolyline((r.coords3 as any), viewportWorldRectXZ);
-    if (vis) {
-      const ll = projection.locationToLatLng(vis.x, Y_FOR_DISPLAY, vis.z);
-      return {
-        id: `${r.uid}#label`,
-        featureUid: r.uid,
-        anchorLatLng: ll,
-        text,
-        placement: 'center',
-        withDot: !!labelPlan.withDot,
-        offsetY: Number(labelPlan.offsetY ?? 0),
-        declutter: labelPlan.declutter,
-      };
-    }
-    let total = 0;
-    for (let i = 1; i < r.coords3.length; i++) {
-      const a = r.coords3[i - 1];
-      const b = r.coords3[i];
-      total += Math.hypot(b.x - a.x, b.z - a.z);
-    }
-    let ll: L.LatLng;
-    if (total <= 1e-9) {
-      const mid = r.coords3[Math.floor(r.coords3.length / 2)];
-      ll = projection.locationToLatLng(mid.x, Y_FOR_DISPLAY, mid.z);
-    } else {
-      const half = total / 2;
+    const coords = r.coords3;
+
+    const pointAtFraction = (t01: number): { x: number; z: number } => {
+      const t = Math.min(1, Math.max(0, Number(t01) || 0));
+      let total = 0;
+      for (let i = 1; i < coords.length; i++) {
+        const a = coords[i - 1];
+        const b = coords[i];
+        total += Math.hypot(b.x - a.x, b.z - a.z);
+      }
+      if (total <= 1e-9) {
+        const mid = coords[Math.floor(coords.length / 2)];
+        return { x: mid.x, z: mid.z };
+      }
+      const target = total * t;
       let acc = 0;
-      let found: { x: number; z: number } | null = null;
-      for (let i = 1; i < r.coords3.length; i++) {
-        const a = r.coords3[i - 1];
-        const b = r.coords3[i];
+      for (let i = 1; i < coords.length; i++) {
+        const a = coords[i - 1];
+        const b = coords[i];
         const seg = Math.hypot(b.x - a.x, b.z - a.z);
-        if (acc + seg >= half) {
-          const t = (half - acc) / (seg || 1);
-          found = { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t };
-          break;
+        if (acc + seg >= target) {
+          const u = (target - acc) / (seg || 1);
+          return { x: a.x + (b.x - a.x) * u, z: a.z + (b.z - a.z) * u };
         }
         acc += seg;
       }
-      const p = found ?? { x: r.coords3[r.coords3.length - 1].x, z: r.coords3[r.coords3.length - 1].z };
-      ll = projection.locationToLatLng(p.x, Y_FOR_DISPLAY, p.z);
+      const last = coords[coords.length - 1];
+      return { x: last.x, z: last.z };
+    };
+
+    const computeTangentAngleDeg = (p: { x: number; z: number }): number => {
+      // 找到“距离点最近”的线段方向
+      let bestD2 = Infinity;
+      let bestDx = 1;
+      let bestDz = 0;
+      for (let i = 1; i < coords.length; i++) {
+        const a = coords[i - 1];
+        const b = coords[i];
+        const vx = b.x - a.x;
+        const vz = b.z - a.z;
+        const len2 = vx * vx + vz * vz;
+        if (len2 <= 1e-9) continue;
+        const t = ((p.x - a.x) * vx + (p.z - a.z) * vz) / len2;
+        const u = Math.min(1, Math.max(0, t));
+        const px = a.x + vx * u;
+        const pz = a.z + vz * u;
+        const d2 = (p.x - px) * (p.x - px) + (p.z - pz) * (p.z - pz);
+        if (d2 < bestD2) {
+          bestD2 = d2;
+          bestDx = vx;
+          bestDz = vz;
+        }
+      }
+      let ang = (Math.atan2(bestDz, bestDx) * 180) / Math.PI;
+      // 让文字尽量不倒置
+      if (ang > 90) ang -= 180;
+      if (ang < -90) ang += 180;
+      return ang;
+    };
+
+    const vis = computeVisibleAnchorXZForPolyline((coords as any), viewportWorldRectXZ);
+    const anchorXZ = vis ?? pointAtFraction(0.5);
+    const ll = projection.locationToLatLng(anchorXZ.x, Y_FOR_DISPLAY, anchorXZ.z);
+
+    // declutter 扩展：沿线多 anchor
+    const decl: any = labelPlan.declutter;
+    let anchorCandidatesLatLng: L.LatLng[] | undefined;
+    let rotateDegCandidates: number[] | undefined;
+    if (decl && decl.anchorMode === 'polyline-multi') {
+      const samples = Math.max(3, Math.min(15, Number(decl.anchorSamples ?? 7) || 7));
+      const half = Math.floor((samples - 1) / 2);
+      const step = 0.1;
+      const fracs: number[] = [];
+      for (let i = 1; i <= half; i++) {
+        fracs.push(0.5 - i * step);
+        fracs.push(0.5 + i * step);
+      }
+      const pts = fracs.map((f) => pointAtFraction(f));
+      anchorCandidatesLatLng = pts.map((p) => projection.locationToLatLng(p.x, Y_FOR_DISPLAY, p.z));
+      rotateDegCandidates = pts.map((p) => computeTangentAngleDeg(p));
     }
 
     return {
       id: `${r.uid}#label`,
       featureUid: r.uid,
       anchorLatLng: ll,
+      anchorCandidatesLatLng,
+      rotateDeg: computeTangentAngleDeg(anchorXZ),
+      rotateDegCandidates,
       text,
       placement: 'center',
       withDot: !!labelPlan.withDot,

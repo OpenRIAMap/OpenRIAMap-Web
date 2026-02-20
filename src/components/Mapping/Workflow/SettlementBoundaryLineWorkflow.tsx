@@ -227,6 +227,28 @@ export default function SettlementBoundaryLineWorkflow(props: WorkflowComponentP
     }),
     []
   );
+
+  // 边界引用：仅检索 Kind=ADM 的所有面要素（ISG Polygon）。
+  const admBoundarySearchCfg: SearchSelectConfig = useMemo(
+    () => ({
+      cacheKey: 'ISG_ADM_ALL',
+      filter: (fi: any) => {
+        const cls = String(fi.Class ?? fi.class ?? '').trim();
+        if (cls !== 'ISG') return false;
+        // 仅面要素（以 Conpoints/Flrpoints 判定），避免把点/线混进来。
+        const pts = (fi as any).Conpoints ?? (fi as any).Flrpoints;
+        if (!Array.isArray(pts) || pts.length < 3) return false;
+
+        const tags = (fi as any)?.tags ?? (fi as any)?.Tags ?? {};
+        const kind = String((fi as any).PGonKind ?? (fi as any).Kind ?? tags.PGonKind ?? tags.Kind ?? '').trim();
+        return kind === 'ADM';
+      },
+      getId: (fi: any) => String(fi.PGonID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
+      getName: (fi: any) => String(fi.PGonName ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
+      formatOption: (name, id) => `${name}(${id})`,
+    }),
+    []
+  );
   const kind = 'ADM';
 
   const typeOptions = useMemo(() => {
@@ -420,7 +442,7 @@ export default function SettlementBoundaryLineWorkflow(props: WorkflowComponentP
             </select>
           </label>
 
-          <LabeledInput label="名称" value={info.name} placeholder="例如：某某聚落边界" onChange={(v) => setInfo((prev) => ({ ...prev, name: v }))} />
+          <LabeledInput label="名称" value={info.name} placeholder="例如：某某区边界" onChange={(v) => setInfo((prev) => ({ ...prev, name: v }))} />
 
           <LabeledInput
             label="字符简称（用于ID）"
@@ -437,7 +459,7 @@ export default function SettlementBoundaryLineWorkflow(props: WorkflowComponentP
           <LabeledInput
             label="命名者（将写入 tags.nomenclator）"
             value={info.nomenclator}
-            placeholder="例如：官方公告 / OSM / 个人署名"
+            placeholder="例如：XX社团 / 聚落 / 个人署名"
             onChange={(v) => setInfo((prev) => ({ ...prev, nomenclator: v }))}
           />
 
@@ -450,24 +472,28 @@ export default function SettlementBoundaryLineWorkflow(props: WorkflowComponentP
             onChange={(v) => setInfo((prev) => ({ ...prev, land: v }))}
           />
 
-          <LabeledInput
-            label="边界1（可选，将写入 tags.BAdm1）"
-            value={info.badm1 ?? ''}
-            placeholder="例如：ZADMDBZL1_xxx"
-            onChange={(v) => setInfo((prev) => ({ ...prev, badm1: v }))}
-          />
+	          <WorkflowFeatureSearchSelect
+	            bridge={bridge}
+	            label="边界1（可选，将写入 tags.BAdm1）"
+	            value={String(info.badm1 ?? '')}
+	            placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+	            config={admBoundarySearchCfg}
+	            onChange={(v) => setInfo((prev) => ({ ...prev, badm1: v }))}
+	          />
 
-          <LabeledInput
-            label="边界2（可选，将写入 tags.BAdm2）"
-            value={info.badm2 ?? ''}
-            placeholder="例如：ZADMDBZL1_yyy"
-            onChange={(v) => setInfo((prev) => ({ ...prev, badm2: v }))}
-          />
+	          <WorkflowFeatureSearchSelect
+	            bridge={bridge}
+	            label="边界2（可选，将写入 tags.BAdm2）"
+	            value={String(info.badm2 ?? '')}
+	            placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+	            config={admBoundarySearchCfg}
+	            onChange={(v) => setInfo((prev) => ({ ...prev, badm2: v }))}
+	          />
 
           <LabeledInput
             label="所属聚落群(名称)（可选，将写入 tags.GAdm）"
             value={info.gadm ?? ''}
-            placeholder="例如：大湾区"
+            placeholder="例如：主岛聚落群"
             onChange={(v) => setInfo((prev) => ({ ...prev, gadm: v }))}
           />
 

@@ -56,7 +56,9 @@ export const RULE_BUTTON_DEFS: RuleButtonDef[] = [
     label: '自然地理',
     tone: 'green',
     icon: <Leaf className="w-5 h-5" />,
-    criteria: { Class: ['ISG'], Kind: ['NGF'] },
+    // 覆盖自然要素：面（ISG）+ 线（ISL）。
+    // - 需要让 SearchBar 能对 NGF-WTR 等线要素自动打开对应开关并触发信息卡。
+    criteria: { Class: ['ISG', 'ISL'], Kind: ['NGF'] },
   },
   {
     id: 'settlement',

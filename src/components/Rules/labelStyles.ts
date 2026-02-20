@@ -21,7 +21,23 @@ export type LabelStyleKey =
   | 'gm-outline'
   | 'gm-outline-bold'
   | `gm-bw-${number}`
-  | `gm-wtb-${number}`;
+  | `gm-wtb-${number}`
+  | `rle-line-${number}`
+  | `rle-pill-${number}`;
+
+/**
+ * 允许 styleKey 传入对象以承载“动态颜色/旋转”等运行时样式。
+ * - key: 样式名（如 rle-line-13 / rle-pill-13）
+ * - color: 线路主色
+ * - rotateDeg: 旋转角（用于沿线文字）
+ */
+export type LabelStyleKeyInput =
+  | LabelStyleKey
+  | {
+      key: LabelStyleKey;
+      color?: string;
+      rotateDeg?: number;
+    };
 
 export type LabelPlacement = 'center' | 'near';
 
@@ -69,11 +85,17 @@ function placementExtraMarginTopPx(placement: LabelPlacement, offsetY?: number):
  * 渲染 label HTML。
  * 注意：此处不做 DOM 操作，返回 HTML 字符串，用于 Leaflet.divIcon。
  */
-export function renderLabelHtml(styleKey: LabelStyleKey, text: string, opts: LabelRenderOptions): string {
+export function renderLabelHtml(styleKey: LabelStyleKeyInput, text: string, opts: LabelRenderOptions): string {
+  const keyObj = typeof styleKey === 'object' && styleKey ? (styleKey as any) : null;
+  const styleKeyStr: string = keyObj ? String(keyObj.key ?? '') : String(styleKey);
+  const themeColor = keyObj ? String(keyObj.color ?? '') : '';
+  const rotateDeg = keyObj && Number.isFinite(Number(keyObj.rotateDeg)) ? Number(keyObj.rotateDeg) : 0;
+
   const safe = escapeHtml(String(text ?? ''));
 
   const placement = opts.placement ?? 'center';
-  const transform = placementTransform(placement);
+  const baseTransform = placementTransform(placement);
+  const transform = rotateDeg ? `${baseTransform} rotate(${rotateDeg}deg)` : baseTransform;
   const extraMarginTop = placementExtraMarginTopPx(placement, opts.offsetY);
 
   const dot = opts.withDot ? dotHtml() : '';
@@ -105,7 +127,7 @@ export function renderLabelHtml(styleKey: LabelStyleKey, text: string, opts: Lab
     'gm-wtb-15': { fontSize: 15, strokeW: 0.5, fill: '#dbeafe', stroke: '#1d4ed8', fontWeight: 700 },
   };
 
-  const gmStatic = GM_STATIC[String(styleKey)];
+  const gmStatic = GM_STATIC[String(styleKeyStr)];
   const GM_STROKE_RATIO = 1 / 30; // 与旧值保持一致：15->0.5, 9->0.3
 
   const tryBuildGmDerived = (key: string): { fontSize: number; strokeW: number; fill: string; stroke: string; fontWeight: number } | null => {
@@ -134,7 +156,7 @@ export function renderLabelHtml(styleKey: LabelStyleKey, text: string, opts: Lab
     return null;
   };
 
-  const gm = gmStatic ?? tryBuildGmDerived(String(styleKey));
+  const gm = gmStatic ?? tryBuildGmDerived(String(styleKeyStr));
   if (gm) {
     const shadow = `
       0 0 0px rgba(0,0,0,0.9),
@@ -170,13 +192,88 @@ export function renderLabelHtml(styleKey: LabelStyleKey, text: string, opts: Lab
     `;
   }
 
+  // ===================== RLE：沿线文字 / 线路“药丸牌” =====================
+  // rle-line-xx：文字沿线（可旋转），文字颜色=线路色，白色粗描边
+  // rle-pill-xx：屏幕朝向的圆角矩形牌子（背景=线路色，白字）
+
+  const parseSizeSuffixAny = (key: string, prefix: string): number | null => {
+    if (!key.startsWith(prefix)) return null;
+    const s = key.slice(prefix.length);
+    const n = Number(s);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return n;
+  };
+
+  const rleLineSize = parseSizeSuffixAny(styleKeyStr, 'rle-line-');
+  if (rleLineSize !== null) {
+    const c = themeColor || '#2563eb';
+    // 描边宽度按字号等比缩放（参考 GM 的做法），以当前基准为准：13px -> 0.3px。
+    // 量化到 0.05px，避免小数过碎。
+    const RLE_LINE_STROKE_RATIO = 0.3 / 13;
+    const strokeW = roundTo(rleLineSize * RLE_LINE_STROKE_RATIO, 0.05);
+    return `
+      <div style="
+        transform:${transform};
+        margin-top:${extraMarginTop}px;
+        white-space:nowrap;
+        pointer-events:${pe};
+        cursor:${cursor};
+        display:inline-flex;
+        align-items:center;
+        background:transparent;
+        padding:0;
+      ">
+        <span style="
+          color:${c};
+          font-weight:700;
+          font-size:${rleLineSize}px;
+          line-height:1.1;
+          -webkit-text-stroke:${strokeW}px #ffffff;
+          text-shadow: 0 0 0 rgba(255,255,255,0.95);
+        ">${safe}</span>
+      </div>
+    `;
+  }
+
+  const rlePillSize = parseSizeSuffixAny(styleKeyStr, 'rle-pill-');
+  if (rlePillSize !== null) {
+    const c = themeColor || '#2563eb';
+    // 以当前 13px 下的视觉参数为基准，按比例缩放（类似 bubble-dark）。
+    // 13px（原逻辑）对应：padY=3, padX=7, radius=8。
+    const PILL_PADY_RATIO = 3 / 13;
+    const PILL_PADX_RATIO = 7 / 13;
+    const PILL_RADIUS_RATIO = 8 / 13;
+
+    const padY = Math.max(2, Math.round(rlePillSize * PILL_PADY_RATIO));
+    const padX = Math.max(6, Math.round(rlePillSize * PILL_PADX_RATIO));
+    const radius = Math.max(6, Math.round(rlePillSize * PILL_RADIUS_RATIO));
+    return `
+      <div style="
+        transform:${transform};
+        margin-top:${extraMarginTop}px;
+        white-space:nowrap;
+        pointer-events:${pe};
+        cursor:${cursor};
+        display:inline-flex;
+        align-items:center;
+        background:${c};
+        color:#ffffff;
+        padding:${padY}px ${padX}px;
+        border-radius:${radius}px;
+        font-weight:700;
+        font-size:${rlePillSize}px;
+        line-height:1;
+      ">${safe}</div>
+    `;
+  }
+
   // bubble-dark(-xx)：黑底半透明圆角气泡（参考 STA 的现有风格）
   // 需求：dot（若启用）应独立在气泡外部，气泡仅包裹文字。
   // 可扩展尺寸系统：bubble-dark-xx
   const bubbleSize =
-    String(styleKey) === 'bubble-dark'
+    String(styleKeyStr) === 'bubble-dark'
       ? 12
-      : parseSizeSuffix(String(styleKey), 'bubble-dark-') ?? 12;
+      : parseSizeSuffix(String(styleKeyStr), 'bubble-dark-') ?? 12;
 
   // 与旧值保持一致（bubble-dark-13：paddingY=2, paddingX=6, radius=6）
   const BUBBLE_PADY_RATIO = 2 / 13;
@@ -213,7 +310,7 @@ export function renderLabelHtml(styleKey: LabelStyleKey, text: string, opts: Lab
   `;
 }
 
-export function makeLabelDivIcon(styleKey: LabelStyleKey, text: string, opts: LabelRenderOptions): L.DivIcon {
+export function makeLabelDivIcon(styleKey: LabelStyleKeyInput, text: string, opts: LabelRenderOptions): L.DivIcon {
   const html = renderLabelHtml(styleKey, text, opts);
   return L.divIcon({ className: '', html, iconSize: [0, 0] });
 }
