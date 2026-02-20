@@ -12,7 +12,11 @@ import AppCard from '@/components/ui/AppCard';
 
 interface ToolbarProps {
   onNavigationClick: () => void;
-  onAttributeQueryClick: () => void;
+  /**
+   * Optional: Attribute query entry. Some deployments/branches may not include the AttributeQuery module.
+   * When omitted, the button is hidden to keep the toolbar layout consistent.
+   */
+  onAttributeQueryClick?: () => void;
   onLinesClick: () => void;
   onPlayersClick: () => void;
   onHelpClick: () => void;
@@ -43,17 +47,23 @@ export function Toolbar({
 
       <div className="w-px h-6 bg-gray-200" />
 
-      {/* 按属性查询 */}
-      <AppButton
-        onClick={onAttributeQueryClick}
-        className="p-2 rounded-lg hover:bg-emerald-50 text-gray-600 hover:text-emerald-600 transition-colors group relative"
-        title="按属性查询"
-      >
-        <Filter className="w-5 h-5" />
-        <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-          按属性查询
-        </span>
-      </AppButton>
+      {/* 按属性查询（可选） */}
+      {onAttributeQueryClick ? (
+        <>
+          <AppButton
+            onClick={onAttributeQueryClick}
+            className="p-2 rounded-lg hover:bg-emerald-50 text-gray-600 hover:text-emerald-600 transition-colors group relative"
+            title="按属性查询"
+          >
+            <Filter className="w-5 h-5" />
+            <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+              按属性查询
+            </span>
+          </AppButton>
+
+          <div className="w-px h-6 bg-gray-200" />
+        </>
+      ) : null}
 
       {/* 全部线路 */}
       <AppButton
