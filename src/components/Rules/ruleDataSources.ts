@@ -63,9 +63,6 @@ export const RULE_DATA_SOURCES: Record<string, WorldRuleDataSource> = {
     'ZRTL1_01B.json',
     'test.json',
     'H7 A 海华北-会展中心 251231.json',
-    'T3测试.json',
-    //'T5测试.json'
-    '社营风南线_海华北至风满楼.json',
     'ALL_20260128.json',
     'Warptest.json',
     'TPPtest.json',
