@@ -59,7 +59,7 @@ export class FeatureStore {
 
       // line color index (用于 PFB / 站台轮廓按线路色)
       if (cls === 'RLE' || cls === 'LINE' || cls === 'LIN' || cls === 'RMP_LINE') {
-        const lineId = String((r.featureInfo as any)?.LineID ?? (r.featureInfo as any)?.lineID ?? (r.featureInfo as any)?.ID ?? '').trim();
+        const lineId = String((r.featureInfo as any)?.ID ?? (r.featureInfo as any)?.lineID ?? (r.featureInfo as any)?.ID ?? '').trim();
         const color = String((r.featureInfo as any)?.color ?? (r.featureInfo as any)?.Color ?? '').trim();
         if (lineId && color) this.lineColorIndex[lineId] = color;
       }
@@ -78,7 +78,7 @@ export class FeatureStore {
   /**
    * 读取“关联线路颜色”：
    * - 优先从 groups.Lines / groups.lines 中找 color
-   * - 其次从 featureInfo.LineID / lineID 对应到全局线路索引
+   * - 其次从 featureInfo.ID / lineID 对应到全局线路索引
    */
   findRelatedLineColor(r: FeatureRecord): string | null {
     const g = r.meta.groups as any;
@@ -88,13 +88,13 @@ export class FeatureStore {
       if (c) return c;
     }
 
-    const fid = String((r.featureInfo as any)?.LineID ?? (r.featureInfo as any)?.lineID ?? '').trim();
+    const fid = String((r.featureInfo as any)?.LineID ?? (r.featureInfo as any)?.lineId ?? (r.featureInfo as any)?.lineID ?? (r.featureInfo as any)?.ID ?? '').trim();
     if (fid && this.lineColorIndex[fid]) return this.lineColorIndex[fid];
 
     // 兜底：在全量里线性扫一次（可读性优先）
     if (fid) {
       for (const x of this.all) {
-        const id = String((x.featureInfo as any)?.LineID ?? (x.featureInfo as any)?.lineID ?? (x.featureInfo as any)?.ID ?? '').trim();
+        const id = String((x.featureInfo as any)?.ID ?? (x.featureInfo as any)?.lineID ?? (x.featureInfo as any)?.ID ?? '').trim();
         if (id === fid) {
           const c = String((x.featureInfo as any)?.color ?? (x.featureInfo as any)?.Color ?? '').trim();
           if (c) return c;

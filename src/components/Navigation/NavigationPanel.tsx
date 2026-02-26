@@ -28,6 +28,7 @@ import {
   ChevronDown,
   ChevronRight,
   MousePointerClick,
+  Route,
 } from 'lucide-react';
 import type { ParsedStation, ParsedLine, Coordinate, Player, TravelMode } from '@/types';
 import type { ParsedLandmark } from '@/lib/landmarkParser';
@@ -49,6 +50,7 @@ import { findTeleportPath, extractToriiList } from '@/lib/toriiTeleport';
 import { computeRailPlanFromCoords, type NavRailNewIntegratedPlan, type TransferType } from './Navigation_RailNewIntegrated';
 import { listRailNewStaBuildingsForSearch, type RailNewStaBuildingSearchItem } from './Navigation_RailNewIntegrated';
 import { computeTeleportNewPlanFromCoords, type NavTeleportNewIntegratedPlan } from './Navigation_TeleportNewIntegrated';
+import { computeRoadPlanFromCoords, ROAD_TRAVEL_PROFILES, type NavRoadPlan } from './Navigation_Road';
 import { listHubReturnPoints } from './teleportHubReturnPoints';
 import type { RouteHighlightData, RouteStyledSegment, RouteStationMarker } from '@/components/Map/RouteHighlightLayer';
 import AppButton from '@/components/ui/AppButton';
@@ -57,7 +59,13 @@ import AppCard from '@/components/ui/AppCard';
 import { getRuleSearchPool } from '@/components/Rules/ruleSearchRegistry';
 import type { FeatureRecord } from '@/components/Rules/renderRules';
 import { formatGridNumber, snapWorldPointByMode } from '@/components/Mapping/GridSnapModeSwitch';
-import { isRuleBlacklisted, getRulePriorityIndex, getRuleCategoryName, getRuleDisplayName } from '@/components/Search/searchRuleTables';
+import {
+  isRuleBlacklisted,
+  getRulePriorityIndex,
+  getRuleDisplayName,
+  buildBuildingNameIndex,
+  getRuleCategoryLabelWithParent,
+} from '@/components/Search/searchRuleTables';
 import { loadRailNewIndex, passLineBooleanFilters, type RailNewIndex } from '@/components/Navigation/railNewIndex';
 
 
@@ -238,7 +246,7 @@ interface SearchItem {
 
 
 // UI：在 TravelMode 的基础上增加 rail_new
-type TravelModePanel = TravelMode | 'rail_new' | 'teleport_new';
+type TravelModePanel = TravelMode | 'rail_new' | 'teleport_new' | 'road';
 
 // 新铁路：最小化依赖的显示结构
 type RailNewLegKind = 'access' | 'walk' | 'rail' | 'transfer';
@@ -300,6 +308,7 @@ export type RoutePathV2 = Array<{ coord: Coordinate }> & {
 const TRAVEL_MODES: Array<{ mode: TravelModePanel; label: string; icon: typeof Train }> = [
   { mode: 'rail_new', label: '铁路(新)', icon: Train },
   { mode: 'teleport_new', label: '传送(新)', icon: Zap },
+  { mode: 'road', label: '道路', icon: Route },
   { mode: 'rail', label: '铁路', icon: Train },
   { mode: 'teleport', label: '传送', icon: Zap },
   { mode: 'walk', label: '步行', icon: Footprints },
@@ -384,11 +393,11 @@ function PointSearchInput({ value, onChange, items, placeholder, label, labelRig
     };
 
     if (cls === 'PLF') {
-      collectFromPlf(String((r as any)?.meta?.idValue ?? fi?.platformID ?? fi?.platformId ?? ''));
+      collectFromPlf(String((r as any)?.meta?.idValue ?? fi?.ID ?? ''));
     } else if (cls === 'PFB') {
-      collectFromPlf(String(fi?.platformID ?? fi?.platformId ?? ''));
+      collectFromPlf(String(fi?.ID ?? ''));
     } else if (cls === 'STA') {
-      const stationId = String((r as any)?.meta?.idValue ?? fi?.stationID ?? fi?.stationId ?? '').trim();
+      const stationId = String((r as any)?.meta?.idValue ?? fi?.ID ?? '').trim();
       const sta = stationId ? railIndex.stas.get(stationId) : undefined;
       for (const pid of (sta?.platformIds ?? [])) collectFromPlf(pid);
     } else if (cls === 'STB' || cls === 'SBP') {
@@ -611,6 +620,8 @@ function transferTypeLabel(t: TransferType): string {
       return '并出主线';
     case 'enterConnector':
       return '驶入联络线';
+    case 'interComponentFly':
+      return '跨网飞行';
     default:
       return '换乘';
   }
@@ -811,7 +822,11 @@ export function NavigationPanel({
   const [resultLegacy, setResultLegacy] = useState<MultiModePathResult | null>(null);
   const [resultRailNew, setResultRailNew] = useState<RailNewPlan | null>(null);
   const [resultTeleportNew, setResultTeleportNew] = useState<NavTeleportNewIntegratedPlan | null>(null);
+  const [resultRoad, setResultRoad] = useState<NavRoadPlan | null>(null);
   const [searching, setSearching] = useState(false);
+
+  // 道路：出行方式（速度）选择
+  const [roadProfileName, setRoadProfileName] = useState<string>(ROAD_TRAVEL_PROFILES[0]?.name ?? '步行');
 
   // 图上选取（起/终点互斥）
   const [mapPickTarget, setMapPickTarget] = useState<'start' | 'end' | null>(null);
@@ -1022,6 +1037,7 @@ useEffect(() => {
     // 规则要素（与主搜索栏同源：规则预加载池，包含临时挂载）
     try {
       const pool = getRuleSearchPool(worldId);
+      const buildingNameIndex = buildBuildingNameIndex(pool);
       const ruleItems: SearchItem[] = [];
       for (const r of pool) {
         if (isRuleBlacklisted(r)) continue;
@@ -1030,7 +1046,7 @@ useEffect(() => {
         const disp = getRuleDisplayName(r);
         const fi: any = r?.featureInfo ?? {};
         const cls = String(r?.meta?.Class ?? fi?.Class ?? '').trim();
-        const extra = getRuleCategoryName(r);
+        const extra = getRuleCategoryLabelWithParent(r, buildingNameIndex);
         const searchKey = [
           disp.name,
           disp.rawName,
@@ -1069,6 +1085,7 @@ useEffect(() => {
     setResultLegacy(null);
     setResultRailNew(null);
     setResultTeleportNew(null);
+    setResultRoad(null);
   };
 
   // 新铁路：展开/收起途经站
@@ -1094,6 +1111,7 @@ useEffect(() => {
       });
       setResultRailNew({ found: false, totalTimeSeconds: 0, totalDistance: 0, totalTransfers: 0, legs: [] });
       setResultTeleportNew(null);
+      setResultRoad(null);
       return;
     }
 
@@ -1123,6 +1141,7 @@ if (travelMode === 'rail_new') {
   setResultRailNew(plan);
   setResultLegacy(null);
   setResultTeleportNew(null);
+  setResultRoad(null);
 
   // 通知地图高亮：务必传 RouteHighlightData（不要再传 Array，否则 MapContainer 会归一化为 generic）
   if (onRouteFound && raw.ok) {
@@ -1149,6 +1168,37 @@ if (travelMode === 'teleport_new') {
   setResultTeleportNew(raw);
   setResultLegacy(null);
   setResultRailNew(null);
+  setResultRoad(null);
+
+  if (onRouteFound && raw.ok) {
+    onRouteFound(raw.routeHighlight);
+  }
+
+  return;
+}
+
+// road：道路导航（ROD）
+if (travelMode === 'road') {
+  const profile = ROAD_TRAVEL_PROFILES.find(p => p.name === roadProfileName) ?? ROAD_TRAVEL_PROFILES[0];
+  const raw = await computeRoadPlanFromCoords({
+    worldId,
+    startCoord: startPoint.coord,
+    endCoord: endPoint.coord,
+    defaultSpeed: profile?.speed ?? 4.3,
+    // StepA eps：按你的要求默认 1.5
+    eps: 1.5,
+  });
+
+  // 记录 profile 名称（便于结果展示）
+  if (raw.ok) {
+    raw.profileName = profile?.name ?? roadProfileName;
+    raw.profileSpeed = profile?.speed ?? (raw.profileSpeed ?? 4.3);
+  }
+
+  setResultRoad(raw);
+  setResultLegacy(null);
+  setResultRailNew(null);
+  setResultTeleportNew(null);
 
   if (onRouteFound && raw.ok) {
     onRouteFound(raw.routeHighlight);
@@ -1212,6 +1262,7 @@ if (travelMode === 'teleport_new') {
       setResultLegacy(pathResult);
       setResultRailNew(null);
       setResultTeleportNew(null);
+      setResultRoad(null);
 
       if (onRouteFound && pathResult.found) {
         const path: Array<{ coord: Coordinate }> = [];
@@ -1237,7 +1288,7 @@ if (travelMode === 'teleport_new') {
   // Render
   // ---------------------------
 
-  const hasResult = !!(resultLegacy || resultRailNew || resultTeleportNew);
+  const hasResult = !!(resultLegacy || resultRailNew || resultTeleportNew || resultRoad);
 
   return (
     <AppCard className="w-full sm:w-72 max-h-[60vh] sm:max-h-[70vh] flex flex-col">
@@ -1272,6 +1323,7 @@ if (travelMode === 'teleport_new') {
               setResultLegacy(null);
               setResultRailNew(null);
               setResultTeleportNew(null);
+              setResultRoad(null);
             }}
           >
             <Icon className="w-4 h-4" />
@@ -1291,6 +1343,7 @@ if (travelMode === 'teleport_new') {
                 setResultLegacy(null);
                 setResultRailNew(null);
                 setResultTeleportNew(null);
+                setResultRoad(null);
               }}
               items={searchItems}
               railIndex={railIndex}
@@ -1329,6 +1382,7 @@ if (travelMode === 'teleport_new') {
               setResultLegacy(null);
               setResultRailNew(null);
               setResultTeleportNew(null);
+              setResultRoad(null);
             }}
             items={searchItems}
             railIndex={railIndex}
@@ -1357,6 +1411,27 @@ if (travelMode === 'teleport_new') {
           </div>
         )}
 
+        {/* 道路：出行方式（速度）选择 */}
+        {travelMode === 'road' && (
+          <div className="mb-2">
+            <div className="text-[11px] text-gray-500 mb-1">出行方式</div>
+            <select
+              className="w-full border rounded px-2 py-1 text-xs bg-white"
+              value={roadProfileName}
+              onChange={(e) => {
+                setRoadProfileName(e.target.value);
+                setResultRoad(null);
+              }}
+            >
+              {ROAD_TRAVEL_PROFILES.map((p) => (
+                <option key={p.name} value={p.name}>
+                  {p.name}（{p.speed}格/秒）
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-3">
             {(travelMode === 'rail' || travelMode === 'auto' || travelMode === 'rail_new') && (
@@ -1369,6 +1444,7 @@ if (travelMode === 'teleport_new') {
                     setResultLegacy(null);
                     setResultRailNew(null);
                     setResultTeleportNew(null);
+                    setResultRoad(null);
                   }}
                   className="w-3 h-3"
                 />
@@ -1385,6 +1461,7 @@ if (travelMode === 'teleport_new') {
                   setResultLegacy(null);
                   setResultRailNew(null);
                   setResultTeleportNew(null);
+                  setResultRoad(null);
                 }}
                 className="w-3 h-3"
               />
@@ -1733,8 +1810,80 @@ if (travelMode === 'teleport_new') {
             </>
           )}
 
+          {/* 道路结果 */}
+          {travelMode === 'road' && resultRoad && (
+            <>
+              {resultRoad.ok ? (
+                <>
+                  <div className="bg-gray-50 rounded-lg p-3 mb-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-semibold text-gray-800">道路</div>
+                      <div className="text-xs text-gray-500">
+                        到达时间 <span className="font-medium text-gray-800">{formatArrivalTime(resultRoad.totalTimeSeconds)}</span>
+                      </div>
+                    </div>
+                    <div className="mt-2 text-xs text-gray-600">
+                      全程约 <span className="font-medium text-gray-800">{formatTime(resultRoad.totalTimeSeconds)}</span>
+                      <span className="ml-3">距离 <span className="font-medium">{Math.round(resultRoad.totalDistance)}m</span></span>
+                      {resultRoad.profileName ? (
+                        <span className="ml-3">方式 <span className="font-medium text-gray-800">{resultRoad.profileName}</span></span>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {resultRoad.instructions.map((it, idx) => {
+                      const label = (() => {
+                        switch (it.action) {
+                          case 'start':
+                            return '出发';
+                          case 'arrive':
+                            return '到达终点';
+                          case 'slight_left':
+                            return '向左前方';
+                          case 'left':
+                            return '左转';
+                          case 'slight_right':
+                            return '向右前方';
+                          case 'right':
+                            return '右转';
+                          case 'uturn':
+                            return '掉头';
+                          default:
+                            return '直行';
+                        }
+                      })();
+
+                      return (
+                        <div key={`road-ins-${idx}`} className="bg-white border rounded p-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="text-xs text-gray-800">
+                                <span className="font-medium">{label}</span>
+                                <span className="text-gray-400 mx-1">·</span>
+                                <span className="text-gray-700">{it.roadName || '道路'}</span>
+                              </div>
+                              <div className="text-[10px] text-gray-500 mt-0.5">
+                                {Math.round(it.distance)}m · {formatTime(it.timeSeconds)}
+                              </div>
+                            </div>
+                            <AppButton className="text-[10px] text-blue-600 hover:underline" onClick={() => onPointClick?.(it.at)}>
+                              定位
+                            </AppButton>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div className="text-center text-gray-500 py-4 text-sm">{resultRoad.reason || '未找到可用道路路线'}</div>
+              )}
+            </>
+          )}
+
           {/* 旧模式结果 */}
-          {travelMode !== 'rail_new' && travelMode !== 'teleport_new' && resultLegacy && (
+          {travelMode !== 'rail_new' && travelMode !== 'teleport_new' && travelMode !== 'road' && resultLegacy && (
             <>
               {resultLegacy.found ? (
                 <>

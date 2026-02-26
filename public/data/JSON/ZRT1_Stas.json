@@ -1,7 +1,7 @@
 [
   {
-    "platformID": "ZRT1PLF_01_D",
-    "platformName": "黄与红站-1站台",
+    "ID": "ZRT1PLF_01_D",
+    "Name": "黄与红站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -24,8 +24,8 @@
     "CreateTime": "20251224"
   },
   {
-    "platformID": "ZRT1PLF_01_U",
-    "platformName": "黄与红站-2站台",
+    "ID": "ZRT1PLF_01_U",
+    "Name": "黄与红站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -48,8 +48,8 @@
     "CreateTime": "20251224"
   },
   {
-    "stationID": "ZRT1STA_01",
-    "stationName": "黄与红站",
+    "ID": "ZRT1STA_01",
+    "Name": "黄与红站",
     "coordinate": {
       "x": 1031.5,
       "z": 2746.5
@@ -68,8 +68,8 @@
     "CreateTime": "20251224"
   },
   {
-    "platformID": "ZRT1PLF_02_D",
-    "platformName": "林前站-1站台",
+    "ID": "ZRT1PLF_02_D",
+    "Name": "林前站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -92,8 +92,8 @@
     "CreateTime": "20251224"
   },
   {
-    "platformID": "ZRT1PLF_02_U",
-    "platformName": "林前站-2站台",
+    "ID": "ZRT1PLF_02_U",
+    "Name": "林前站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -116,8 +116,8 @@
     "CreateTime": "20251224"
   },
   {
-    "stationID": "ZRT1STA_02",
-    "stationName": "林前站",
+    "ID": "ZRT1STA_02",
+    "Name": "林前站",
     "coordinate": {
       "x": 1505.5,
       "z": 3121.5
@@ -136,8 +136,8 @@
     "CreateTime": "20251224"
   },
   {
-    "platformID": "ZRT1PLF_03_D",
-    "platformName": "峡西站-1站台",
+    "ID": "ZRT1PLF_03_D",
+    "Name": "峡西站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -160,8 +160,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_03_U",
-    "platformName": "峡西站-2站台",
+    "ID": "ZRT1PLF_03_U",
+    "Name": "峡西站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -184,8 +184,8 @@
     "CreateTime": "20251225"
   },
   {
-    "stationID": "ZRT1STA_03",
-    "stationName": "峡西站",
+    "ID": "ZRT1STA_03",
+    "Name": "峡西站",
     "coordinate": {
       "x": 2030.5,
       "z": 3121.5
@@ -204,8 +204,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_04_D",
-    "platformName": "西屿站-1站台",
+    "ID": "ZRT1PLF_04_D",
+    "Name": "西屿站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -228,8 +228,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_04_U",
-    "platformName": "西屿站-2站台",
+    "ID": "ZRT1PLF_04_U",
+    "Name": "西屿站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -252,8 +252,8 @@
     "CreateTime": "20251225"
   },
   {
-    "stationID": "ZRT1STA_04",
-    "stationName": "西屿站",
+    "ID": "ZRT1STA_04",
+    "Name": "西屿站",
     "coordinate": {
       "x": 2675.5,
       "z": 3121.5
@@ -272,8 +272,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_05_D",
-    "platformName": "东屿站-1站台",
+    "ID": "ZRT1PLF_05_D",
+    "Name": "东屿站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -296,8 +296,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_05_U",
-    "platformName": "东屿站-2站台",
+    "ID": "ZRT1PLF_05_U",
+    "Name": "东屿站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -320,8 +320,8 @@
     "CreateTime": "20251225"
   },
   {
-    "stationID": "ZRT1STA_05",
-    "stationName": "东屿站",
+    "ID": "ZRT1STA_05",
+    "Name": "东屿站",
     "coordinate": {
       "x": 2900.5,
       "z": 3121.5
@@ -340,8 +340,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_06_D",
-    "platformName": "山岸站-1站台",
+    "ID": "ZRT1PLF_06_D",
+    "Name": "山岸站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -364,8 +364,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_06_U",
-    "platformName": "山岸站-2站台",
+    "ID": "ZRT1PLF_06_U",
+    "Name": "山岸站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -388,8 +388,8 @@
     "CreateTime": "20251225"
   },
   {
-    "stationID": "ZRT1STA_06",
-    "stationName": "山岸站",
+    "ID": "ZRT1STA_06",
+    "Name": "山岸站",
     "coordinate": {
       "x": 3515.5,
       "z": 3121.5
@@ -408,8 +408,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_07_D",
-    "platformName": "乡谷站-1站台",
+    "ID": "ZRT1PLF_07_D",
+    "Name": "乡谷站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -432,8 +432,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_07_U",
-    "platformName": "乡谷站-2站台",
+    "ID": "ZRT1PLF_07_U",
+    "Name": "乡谷站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -456,8 +456,8 @@
     "CreateTime": "20251225"
   },
   {
-    "stationID": "ZRT1STA_07",
-    "stationName": "乡谷站",
+    "ID": "ZRT1STA_07",
+    "Name": "乡谷站",
     "coordinate": {
       "x": 3965.5,
       "z": 3121.5
@@ -476,8 +476,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_08_D",
-    "platformName": "守望之乡站-3站台",
+    "ID": "ZRT1PLF_08_D",
+    "Name": "守望之乡站-3站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -500,8 +500,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_08_U",
-    "platformName": "守望之乡站-4站台",
+    "ID": "ZRT1PLF_08_U",
+    "Name": "守望之乡站-4站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -524,8 +524,8 @@
     "CreateTime": "20251225"
   },
   {
-    "stationID": "ZRT1STA_08",
-    "stationName": "守望之乡站",
+    "ID": "ZRT1STA_08",
+    "Name": "守望之乡站",
     "coordinate": {
       "x": 4303.5,
       "z": 3121.5
@@ -545,8 +545,8 @@
     "ModifityTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_09_D",
-    "platformName": "海原北站-1站台",
+    "ID": "ZRT1PLF_09_D",
+    "Name": "海原北站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -569,8 +569,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_09_U",
-    "platformName": "海原北站-2站台",
+    "ID": "ZRT1PLF_09_U",
+    "Name": "海原北站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -593,8 +593,8 @@
     "CreateTime": "20251225"
   },
   {
-    "stationID": "ZRT1STA_09",
-    "stationName": "海原北站",
+    "ID": "ZRT1STA_09",
+    "Name": "海原北站",
     "coordinate": {
       "x": 4574.5,
       "z": 3884.5
@@ -613,8 +613,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_10_D",
-    "platformName": "海原站-1站台",
+    "ID": "ZRT1PLF_10_D",
+    "Name": "海原站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -645,8 +645,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_10_U",
-    "platformName": "海原站-2站台",
+    "ID": "ZRT1PLF_10_U",
+    "Name": "海原站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -677,8 +677,8 @@
     "CreateTime": "20251225"
   },
   {
-    "stationID": "ZRT1STA_10",
-    "stationName": "海原站",
+    "ID": "ZRT1STA_10",
+    "Name": "海原站",
     "coordinate": {
       "x": 4760.5,
       "z": 4090.5
@@ -697,8 +697,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_11_D",
-    "platformName": "岚岸站-1站台",
+    "ID": "ZRT1PLF_11_D",
+    "Name": "岚岸站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -721,8 +721,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_11_U",
-    "platformName": "岚岸站-2站台",
+    "ID": "ZRT1PLF_11_U",
+    "Name": "岚岸站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -745,8 +745,8 @@
     "CreateTime": "20251225"
   },
   {
-    "stationID": "ZRT1STA_11",
-    "stationName": "岚岸站",
+    "ID": "ZRT1STA_11",
+    "Name": "岚岸站",
     "coordinate": {
       "x": 4791.5,
       "z": 4385.5
@@ -765,8 +765,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_12_D",
-    "platformName": "白霖教堂站-1站台",
+    "ID": "ZRT1PLF_12_D",
+    "Name": "白霖教堂站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -789,8 +789,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_12_U",
-    "platformName": "白霖教堂站-2站台",
+    "ID": "ZRT1PLF_12_U",
+    "Name": "白霖教堂站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -813,8 +813,8 @@
     "CreateTime": "20251225"
   },
   {
-    "stationID": "ZRT1STA_12",
-    "stationName": "白霖教堂站",
+    "ID": "ZRT1STA_12",
+    "Name": "白霖教堂站",
     "coordinate": {
       "x": 4879.5,
       "z": 4508.5
@@ -833,8 +833,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_13_D",
-    "platformName": "白霖站-1站台",
+    "ID": "ZRT1PLF_13_D",
+    "Name": "白霖站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -857,8 +857,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_13_U",
-    "platformName": "白霖站-2站台",
+    "ID": "ZRT1PLF_13_U",
+    "Name": "白霖站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -881,8 +881,8 @@
     "CreateTime": "20251225"
   },
   {
-    "stationID": "ZRT1STA_13",
-    "stationName": "白霖站",
+    "ID": "ZRT1STA_13",
+    "Name": "白霖站",
     "coordinate": {
       "x": 4930.5,
       "z": 4624.5
@@ -901,8 +901,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_14_D",
-    "platformName": "北城外站-1站台",
+    "ID": "ZRT1PLF_14_D",
+    "Name": "北城外站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -933,8 +933,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_14_U",
-    "platformName": "北城外站-2站台",
+    "ID": "ZRT1PLF_14_U",
+    "Name": "北城外站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -965,8 +965,8 @@
     "CreateTime": "20251225"
   },
   {
-    "stationID": "ZRT1STA_14",
-    "stationName": "北城外站",
+    "ID": "ZRT1STA_14",
+    "Name": "北城外站",
     "coordinate": {
       "x": 4987.5,
       "z": 4783.5
@@ -985,8 +985,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_15_D",
-    "platformName": "西城港站-1站台",
+    "ID": "ZRT1PLF_15_D",
+    "Name": "西城港站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -1009,8 +1009,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_15_U",
-    "platformName": "西城港站-2站台",
+    "ID": "ZRT1PLF_15_U",
+    "Name": "西城港站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -1033,8 +1033,8 @@
     "CreateTime": "20251225"
   },
   {
-    "stationID": "ZRT1STA_15",
-    "stationName": "西城港站",
+    "ID": "ZRT1STA_15",
+    "Name": "西城港站",
     "coordinate": {
       "x": 5014.5,
       "z": 4875.5
@@ -1053,8 +1053,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_16_D",
-    "platformName": "南麓广场站-1站台",
+    "ID": "ZRT1PLF_16_D",
+    "Name": "南麓广场站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -1077,8 +1077,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_16_U",
-    "platformName": "南麓广场站-2站台",
+    "ID": "ZRT1PLF_16_U",
+    "Name": "南麓广场站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -1101,8 +1101,8 @@
     "CreateTime": "20251225"
   },
   {
-    "stationID": "ZRT1STA_16",
-    "stationName": "南麓广场站",
+    "ID": "ZRT1STA_16",
+    "Name": "南麓广场站",
     "coordinate": {
       "x": 5079.5,
       "z": 4981.5
@@ -1121,8 +1121,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_17_D",
-    "platformName": "南山口站-1站台",
+    "ID": "ZRT1PLF_17_D",
+    "Name": "南山口站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -1145,8 +1145,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_17_U",
-    "platformName": "南山口站-2站台",
+    "ID": "ZRT1PLF_17_U",
+    "Name": "南山口站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -1169,8 +1169,8 @@
     "CreateTime": "20251225"
   },
   {
-    "stationID": "ZRT1STA_17",
-    "stationName": "南山口站",
+    "ID": "ZRT1STA_17",
+    "Name": "南山口站",
     "coordinate": {
       "x": 5118.5,
       "z": 4981.5
@@ -1189,8 +1189,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_18_D",
-    "platformName": "东坪站-1站台",
+    "ID": "ZRT1PLF_18_D",
+    "Name": "东坪站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -1213,8 +1213,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_18_U",
-    "platformName": "东坪站-2站台",
+    "ID": "ZRT1PLF_18_U",
+    "Name": "东坪站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -1237,8 +1237,8 @@
     "CreateTime": "20251225"
   },
   {
-    "stationID": "ZRT1STA_18",
-    "stationName": "东坪站",
+    "ID": "ZRT1STA_18",
+    "Name": "东坪站",
     "coordinate": {
       "x": 5213.5,
       "z": 4896.5
@@ -1257,8 +1257,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_19_D",
-    "platformName": "溯东站-1站台",
+    "ID": "ZRT1PLF_19_D",
+    "Name": "溯东站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -1289,8 +1289,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_19_U",
-    "platformName": "溯东站-2站台",
+    "ID": "ZRT1PLF_19_U",
+    "Name": "溯东站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -1321,8 +1321,8 @@
     "CreateTime": "20251225"
   },
   {
-    "stationID": "ZRT1STA_19",
-    "stationName": "溯东站",
+    "ID": "ZRT1STA_19",
+    "Name": "溯东站",
     "coordinate": {
       "x": 5468.5,
       "z": 4896.5
@@ -1342,8 +1342,8 @@
     "CreateBy": "639"
   },
   {
-    "platformID": "ZRT1PLF_20_D",
-    "platformName": "漪泱居前站-1站台",
+    "ID": "ZRT1PLF_20_D",
+    "Name": "漪泱居前站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -1366,8 +1366,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_20_U",
-    "platformName": "漪泱居前站-2站台",
+    "ID": "ZRT1PLF_20_U",
+    "Name": "漪泱居前站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -1390,8 +1390,8 @@
     "CreateTime": "20251225"
   },
   {
-    "stationID": "ZRT1STA_20",
-    "stationName": "漪泱居前站",
+    "ID": "ZRT1STA_20",
+    "Name": "漪泱居前站",
     "coordinate": {
       "x": 5727.5,
       "z": 4896.5
@@ -1410,8 +1410,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_21_D",
-    "platformName": "漪泱站-1站台",
+    "ID": "ZRT1PLF_21_D",
+    "Name": "漪泱站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -1434,8 +1434,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_21_U",
-    "platformName": "漪泱站-2站台",
+    "ID": "ZRT1PLF_21_U",
+    "Name": "漪泱站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -1458,8 +1458,8 @@
     "CreateTime": "20251225"
   },
   {
-    "stationID": "ZRT1STA_21",
-    "stationName": "漪泱站",
+    "ID": "ZRT1STA_21",
+    "Name": "漪泱站",
     "coordinate": {
       "x": 5847.5,
       "z": 4896.5
@@ -1478,8 +1478,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_22_D",
-    "platformName": "幽南高架东站-1站台",
+    "ID": "ZRT1PLF_22_D",
+    "Name": "幽南高架东站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -1502,8 +1502,8 @@
     "CreateTime": "20251225"
   },
   {
-    "platformID": "ZRT1PLF_22_U",
-    "platformName": "幽南高架东站-2站台",
+    "ID": "ZRT1PLF_22_U",
+    "Name": "幽南高架东站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -1526,8 +1526,8 @@
     "CreateTime": "20251225"
   },
   {
-    "stationID": "ZRT1STA_22",
-    "stationName": "幽南高架东站",
+    "ID": "ZRT1STA_22",
+    "Name": "幽南高架东站",
     "coordinate": {
       "x": 5982.5,
       "z": 4896.5

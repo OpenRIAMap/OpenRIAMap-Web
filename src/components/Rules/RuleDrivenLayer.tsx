@@ -285,9 +285,9 @@ function getBuildingIdCandidatesForFloorView(b: FeatureRecord): Set<string> {
   const vals: string[] = [];
 
   if (cls === 'STB') {
-    vals.push(fi?.staBuildingID, fi?.ID);
+    vals.push(fi?.ID, fi?.ID);
   } else if (cls === 'SBP') {
-    vals.push(fi?.staBuildingPointID, fi?.staBuildingPointId, fi?.staBuildingID, fi?.ID);
+    vals.push(fi?.ID, fi?.staBuildingPointId, fi?.ID, fi?.ID);
   } else if (cls === 'BUD') {
     vals.push(fi?.BuildingID, fi?.ID);
   } else {
@@ -305,15 +305,15 @@ function getBuildingIdCandidatesForFloorView(b: FeatureRecord): Set<string> {
 function getFloorIdForFloorView(f: FeatureRecord): string {
   const fi: any = f.featureInfo;
   const cls = String(f.meta?.Class ?? '').trim() as FloorClass;
-  if (cls === 'STF') return String(fi?.staBFloorID ?? fi?.ID ?? '').trim();
-  if (cls === 'FLR') return String(fi?.FloorID ?? fi?.ID ?? '').trim();
+  if (cls === 'STF') return String(fi?.ID ?? fi?.ID ?? '').trim();
+  if (cls === 'FLR') return String(fi?.ID ?? fi?.ID ?? '').trim();
   return String(fi?.ID ?? '').trim();
 }
 
 function getFloorParentIdForFloorView(f: FeatureRecord): string {
   const fi: any = f.featureInfo;
   const cls = String(f.meta?.Class ?? '').trim() as FloorClass;
-  if (cls === 'STF') return String(fi?.staBuildingID ?? '').trim();
+  if (cls === 'STF') return String(fi?.ID ?? '').trim();
   if (cls === 'FLR') return String(fi?.BuildingID ?? '').trim();
   return '';
 }
@@ -605,8 +605,11 @@ useEffect(() => {
     const ds = RULE_DATA_SOURCES[worldId];
     const all: FeatureRecord[] = [];
 
-    // 覆盖屏蔽列表：在“临时挂载-更新挂载”期间，固定数据源同 ID 要素暂时不可读
-    const overrideIds = readTempOverrideIds(worldId);
+    // 覆盖屏蔽列表：仅当“临时挂载源”处于启用状态时才生效。
+    // 说明：之前的实现会在 localStorage 残留 overrideIds 时永久屏蔽固定数据源，导致用户以为要素“消失”。
+    // 这里做最小修复：没有任何 enabled 的临时挂载源时，不应用 override 屏蔽。
+    const enabledTemps = readTempSources(worldId).filter((t) => t.enabled);
+    const overrideIds = enabledTemps.length > 0 ? readTempOverrideIds(worldId) : new Set<string>();
 
     // (A) 固定数据源（public 下文件）
     // 注意：即使该 world 没有配置 files，也不应直接 return。
@@ -626,7 +629,7 @@ useEffect(() => {
 
     // (B) 临时挂载数据源（来自 MeasuringModule，本地存储）
     try {
-      const temps = readTempSources(worldId).filter((t) => t.enabled);
+      const temps = enabledTemps;
       for (const t of temps) {
         try {
           const label = t.label ?? t.uid;
@@ -1039,7 +1042,7 @@ useEffect(() => {
       // 建筑名兼容：STB/SBP/BUD
       const bfi: any = picked.featureInfo;
       const bName = String(
-        bfi?.staBuildingName ?? bfi?.staBuildingPointName ?? bfi?.BuildingName ?? bfi?.name ?? ''
+        bfi?.Name ?? bfi?.Name ?? bfi?.BuildingName ?? bfi?.name ?? ''
       ).trim();
       setActiveBuildingName(bName);
 

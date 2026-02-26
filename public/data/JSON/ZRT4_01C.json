@@ -1,7 +1,7 @@
 [
   {
-    "LineID": "ZRT4_01C",
-    "LineName": "溯铁4号线岭澜段",
+    "ID": "ZRT4_01C",
+    "Name": "溯铁4号线岭澜段",
     "bureau": "T",
     "line": "3",
     "color": "FFD700",

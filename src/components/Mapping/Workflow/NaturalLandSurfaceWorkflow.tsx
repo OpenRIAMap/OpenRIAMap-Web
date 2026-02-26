@@ -218,12 +218,12 @@ export default function NaturalLandSurfaceWorkflow(props: WorkflowComponentProps
       filter: (fi: any) => {
         const cls = String(fi.Class ?? fi.class ?? '').trim();
         if (cls !== 'ISG') return false;
-        const kind = String(fi.PGonKind ?? fi.Kind ?? fi?.tags?.PGonKind ?? fi?.tags?.Kind ?? '').trim();
-        const skind = String(fi.PGonSKind ?? fi.SKind ?? fi?.tags?.PGonSKind ?? fi?.tags?.SKind ?? '').trim();
+        const kind = String(fi.Kind ?? fi.Kind ?? fi?.tags?.Kind ?? fi?.tags?.Kind ?? '').trim();
+        const skind = String(fi.SKind ?? fi.SKind ?? fi?.tags?.SKind ?? fi?.tags?.SKind ?? '').trim();
         return kind === 'NGF' && (skind === 'LAD' || skind === 'WTB');
       },
-      getId: (fi: any) => String(fi.PGonID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
-      getName: (fi: any) => String(fi.PGonName ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
+      getId: (fi: any) => String(fi.ID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
+      getName: (fi: any) => String(fi.Name ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
       formatOption: (name, id) => `${name}(${id})`,
     }),
     []
@@ -335,11 +335,11 @@ export default function NaturalLandSurfaceWorkflow(props: WorkflowComponentProps
         coords,
         editorId: creatorId.trim(),
         values: {
-          PGonID: pgonId,
-          PGonName: String(info.name ?? '').trim(),
-          PGonKind: kind,
-          PGonSKind: skind,
-          PGonSKind2: info.skind2,
+          ID: pgonId,
+          Name: String(info.name ?? '').trim(),
+          Kind: kind,
+          SKind: skind,
+          SKind2: info.skind2,
         },
         groupInfo: {
           tags,
@@ -440,7 +440,7 @@ export default function NaturalLandSurfaceWorkflow(props: WorkflowComponentProps
             bridge={bridge}
             label="所属地理单元（可选，将写入 tags.Land）"
             value={String(info.landLevel1 ?? '')}
-            placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+            placeholder="输入关键词检索：可匹配 Name / ID"
             config={landUnitSearchCfg}
             onChange={(v) => setInfo((prev) => ({ ...prev, landLevel1: v }))}
           />
@@ -583,7 +583,7 @@ export default function NaturalLandSurfaceWorkflow(props: WorkflowComponentProps
 
         <div className="text-xs text-gray-700">
           将生成：
-          <div className="mt-1 font-mono text-xs break-all">PGonID = {worldPrefix}{kind}{skind}{info.skind2 || '...'}_{abbrNormalized || '...'}</div>
+          <div className="mt-1 font-mono text-xs break-all">ID = {worldPrefix}{kind}{skind}{info.skind2 || '...'}_{abbrNormalized || '...'}</div>
         </div>
 
         <div className="text-xs text-gray-700">

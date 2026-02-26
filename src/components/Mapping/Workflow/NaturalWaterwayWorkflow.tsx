@@ -288,11 +288,11 @@ export default function NaturalWaterwayWorkflow(props: WorkflowComponentProps) {
         coords,
         editorId: creatorId.trim(),
         values: {
-          PLineID: plineId,
-          PLineName: String(info.name ?? '').trim(),
-          PLineKind: kind,
-          PLineSKind: skind,
-          PLineSKind2: info.skind2,
+          ID: plineId,
+          Name: String(info.name ?? '').trim(),
+          Kind: kind,
+          SKind: skind,
+          SKind2: info.skind2,
         },
         groupInfo: {
           tags: [
@@ -521,7 +521,7 @@ export default function NaturalWaterwayWorkflow(props: WorkflowComponentProps) {
         <div className="text-xs text-gray-700">
           将生成：
           <div className="mt-1 font-mono text-xs break-all">
-            PLineID = {worldPrefix}{kind}{skind}{info.skind2 || '...'}_{abbrNormalized || '...'}
+            ID = {worldPrefix}{kind}{skind}{info.skind2 || '...'}_{abbrNormalized || '...'}
           </div>
         </div>
 

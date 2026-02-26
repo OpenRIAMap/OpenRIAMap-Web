@@ -1,7 +1,7 @@
 [
   {
-    "staBuildingID": "ZRTSTB_LX",
-    "staBuildingName": "连西站",
+    "ID": "ZRTSTB_LX",
+    "Name": "连西站",
     "Conpoints": [
       [
         1539.5,
@@ -40,8 +40,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_LD",
-    "staBuildingName": "连东站",
+    "ID": "ZRTSTB_LD",
+    "Name": "连东站",
     "Conpoints": [
       [
         1809.5,
@@ -80,8 +80,8 @@
     "CreateBy": "639"
   },
   {
-    "staBFloorID": "ZRTSTF_BL_01",
-    "staBFloorName": "车站大堂",
+    "ID": "ZRTSTF_BL_01",
+    "Name": "车站大堂",
     "NofFloor": "1F",
     "Flrpoints": [
       [
@@ -112,8 +112,8 @@
     "CreateBy": "639"
   },
   {
-    "staBFloorID": "ZRTSTF_BL_02",
-    "staBFloorName": "室外候车大厅",
+    "ID": "ZRTSTF_BL_02",
+    "Name": "室外候车大厅",
     "NofFloor": "1F",
     "Flrpoints": [
       [
@@ -144,8 +144,8 @@
     "CreateBy": "639"
   },
   {
-    "staBFloorID": "ZRTSTF_BL_03",
-    "staBFloorName": "4号线天桥",
+    "ID": "ZRTSTF_BL_03",
+    "Name": "4号线天桥",
     "NofFloor": "2F",
     "Flrpoints": [
       [
@@ -176,8 +176,8 @@
     "CreateBy": "639"
   },
   {
-    "staBFloorID": "ZRTSTF_BL_04",
-    "staBFloorName": "悬空花园",
+    "ID": "ZRTSTF_BL_04",
+    "Name": "悬空花园",
     "NofFloor": "2F",
     "Flrpoints": [
       [
@@ -208,8 +208,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_BL",
-    "staBuildingName": "白霖站",
+    "ID": "ZRTSTB_BL",
+    "Name": "白霖站",
     "Conpoints": [
       [
         4897.5,
@@ -311,8 +311,8 @@
     "CreateBy": "639"
   },
   {
-    "staBFloorID": "ZRTSTF_SD_01",
-    "staBFloorName": "地下主通道",
+    "ID": "ZRTSTF_SD_01",
+    "Name": "地下主通道",
     "NofFloor": "B1",
     "Flrpoints": [
       [
@@ -588,8 +588,8 @@
     "CreateBy": "639"
   },
   {
-    "staBFloorID": "ZRTSTF_SD_02",
-    "staBFloorName": "B2站台天桥",
+    "ID": "ZRTSTF_SD_02",
+    "Name": "B2站台天桥",
     "NofFloor": "B1",
     "Flrpoints": [
       [
@@ -620,8 +620,8 @@
     "CreateBy": "639"
   },
   {
-    "staBFloorID": "ZRTSTF_SD_03",
-    "staBFloorName": "B2站台层",
+    "ID": "ZRTSTF_SD_03",
+    "Name": "B2站台层",
     "NofFloor": "B2",
     "Flrpoints": [
       [
@@ -652,8 +652,8 @@
     "CreateBy": "639"
   },
   {
-    "staBFloorID": "ZRTSTF_SD_04",
-    "staBFloorName": "车站大堂",
+    "ID": "ZRTSTF_SD_04",
+    "Name": "车站大堂",
     "NofFloor": "1F",
     "Flrpoints": [
       [
@@ -699,8 +699,8 @@
     "CreateBy": "639"
   },
   {
-    "staBFloorID": "ZRTSTF_SD_05",
-    "staBFloorName": "2F候车厅",
+    "ID": "ZRTSTF_SD_05",
+    "Name": "2F候车厅",
     "NofFloor": "2F",
     "Flrpoints": [
       [
@@ -731,8 +731,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_SUD",
-    "staBuildingName": "溯东站",
+    "ID": "ZRTSTB_SUD",
+    "Name": "溯东站",
     "Conpoints": [
       [
         5417.5,
@@ -807,8 +807,8 @@
     "CreateBy": "639"
   },
   {
-    "staBFloorID": "ZRTSTF_QHC_01",
-    "staBFloorName": "地下主通道",
+    "ID": "ZRTSTF_QHC_01",
+    "Name": "地下主通道",
     "NofFloor": "B1",
     "Flrpoints": [
       [
@@ -859,8 +859,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_QHC",
-    "staBuildingName": "沁洄川站",
+    "ID": "ZRTSTB_QHC",
+    "Name": "沁洄川站",
     "Conpoints": [
       [
         5412.5,
@@ -903,8 +903,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_BT",
-    "staBuildingName": "北庭站",
+    "ID": "ZRTSTB_BT",
+    "Name": "北庭站",
     "Conpoints": [
       [
         7450.5,

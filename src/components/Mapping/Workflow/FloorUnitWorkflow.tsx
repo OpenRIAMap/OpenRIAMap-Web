@@ -35,8 +35,7 @@ type InfoForm = {
 
   // optional
   land?: string; // 所属大陆(一级)
-  uadm?: string; // 所属聚落(地标点)
-  uadmg?: string; // 所属聚落(区划)
+  admLevel1?: string; // 所属聚落(一级) -> tags.Adm
   pop?: string; // 相关成员
 };
 
@@ -201,12 +200,11 @@ export default function FloorUnitWorkflow(props: WorkflowComponentProps) {
     abbr: '',
     nomenclator: '',
     wiki: '',
-    
-    brief: '',buildingId: '',
+    brief: '',
+    buildingId: '',
     nofFloor: '',
     land: '',
-    uadm: '',
-    uadmg: '',
+    admLevel1: '',
     pop: '',
   });
   const [extItems, setExtItems] = useState<ExtensionItem[]>([]);
@@ -224,47 +222,38 @@ export default function FloorUnitWorkflow(props: WorkflowComponentProps) {
       filter: (fi: any) => {
         const cls = String(fi.Class ?? fi.class ?? '').trim();
         if (cls !== 'ISG') return false;
-        const kind = String(fi.PGonKind ?? fi.Kind ?? fi?.tags?.PGonKind ?? fi?.tags?.Kind ?? '').trim();
-        const skind = String(fi.PGonSKind ?? fi.SKind ?? fi?.tags?.PGonSKind ?? fi?.tags?.SKind ?? '').trim();
+        const kind = String(fi.Kind ?? fi.Kind ?? fi?.tags?.Kind ?? fi?.tags?.Kind ?? '').trim();
+        const skind = String(fi.SKind ?? fi.SKind ?? fi?.tags?.SKind ?? fi?.tags?.SKind ?? '').trim();
         return kind === 'NGF' && (skind === 'LAD' || skind === 'WTB');
       },
-      getId: (fi: any) => String(fi.PGonID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
-      getName: (fi: any) => String(fi.PGonName ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
+      getId: (fi: any) => String(fi.ID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
+      getName: (fi: any) => String(fi.Name ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
       formatOption: (name, id) => `${name}(${id})`,
     }),
     []
   );
 
-  const uadmLandmarkSearchCfg: SearchSelectConfig = useMemo(
-    () => ({
-      cacheKey: 'ISP_ADM_DBP_SHR',
-      filter: (fi: any) => {
-        const cls = String(fi.Class ?? fi.class ?? '').trim();
-        if (cls !== 'ISP') return false;
-        const kind = String(fi.PointKind ?? fi.Kind ?? fi?.tags?.PointKind ?? fi?.tags?.Kind ?? '').trim();
-        const skind = String(fi.PointSKind ?? fi.SKind ?? fi?.tags?.PointSKind ?? fi?.tags?.SKind ?? '').trim();
-        const sk2 = String(fi.PointSKind2 ?? fi.SKind2 ?? fi?.tags?.PointSKind2 ?? fi?.tags?.SKind2 ?? '').trim();
-        return kind === 'ADM' && skind === 'DBP' && sk2 === 'SHR';
-      },
-      getId: (fi: any) => String(fi.PointID ?? fi.pointID ?? '').trim(),
-      getName: (fi: any) => String(fi.PointName ?? fi.pointName ?? '').trim(),
-      formatOption: (name, id) => `${name}(${id})`,
-    }),
-    []
-  );
+  // NOTE: 旧版 UAdm / UAdmG 已合并为 tags.Adm（一级聚落文本）。
 
-  const uadmGSearchCfg: SearchSelectConfig = useMemo(
+  // ===== 所属建筑检索（BUD / STB） =====
+  const buildingSearchCfg: SearchSelectConfig = useMemo(
     () => ({
-      cacheKey: 'ISG_ADM_DBP_PLZ',
+      cacheKey: 'BUD_STB_BUILDING',
       filter: (fi: any) => {
         const cls = String(fi.Class ?? fi.class ?? '').trim();
-        if (cls !== 'ISG') return false;
-        const kind = String(fi.PGonKind ?? fi.Kind ?? fi?.tags?.PGonKind ?? fi?.tags?.Kind ?? '').trim();
-        const skind = String(fi.PGonSKind ?? fi.SKind ?? fi?.tags?.PGonSKind ?? fi?.tags?.SKind ?? '').trim();
-        return kind === 'ADM' && (skind === 'DBP' || skind === 'PLZ');
+        return cls === 'BUD' || cls === 'STB';
       },
-      getId: (fi: any) => String(fi.PGonID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
-      getName: (fi: any) => String(fi.PGonName ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
+      getId: (fi: any) => {
+        const cls = String(fi.Class ?? fi.class ?? '').trim();
+        if (cls === 'BUD') return String(fi.BuildingID ?? fi.buildingID ?? fi.buildingId ?? '').trim();
+        // STB uses staBuildingID
+        return String(fi.staBuildingID ?? fi.staBuildingId ?? fi.STBuilding ?? '').trim();
+      },
+      getName: (fi: any) => {
+        const cls = String(fi.Class ?? fi.class ?? '').trim();
+        if (cls === 'BUD') return String(fi.BuildingName ?? fi.buildingName ?? fi.Name ?? fi.name ?? '').trim();
+        return String(fi.Name ?? fi.Name ?? fi.Name ?? fi.Name ?? fi.name ?? '').trim();
+      },
       formatOption: (name, id) => `${name}(${id})`,
     }),
     []
@@ -371,11 +360,8 @@ export default function FloorUnitWorkflow(props: WorkflowComponentProps) {
       const land = String(info.land ?? '').trim();
       if (land) tags.push({ tagKey: 'Land', tagValue: land });
 
-      const uadm = String(info.uadm ?? '').trim();
-      if (uadm) tags.push({ tagKey: 'UAdm', tagValue: uadm });
-
-      const uadmg = String(info.uadmg ?? '').trim();
-      if (uadmg) tags.push({ tagKey: 'UAdmG', tagValue: uadmg });
+      const adm = String(info.admLevel1 ?? '').trim();
+      if (adm) tags.push({ tagKey: 'Adm', tagValue: adm });
 
       const pop = String(info.pop ?? '').trim();
       if (pop) tags.push({ tagKey: 'Pop', tagValue: pop });
@@ -386,11 +372,11 @@ export default function FloorUnitWorkflow(props: WorkflowComponentProps) {
         coords,
         editorId: creatorId.trim(),
         values: {
-          FloorID: floorId,
-          FloorName: String(info.name ?? '').trim(),
+          ID: floorId,
+          Name: String(info.name ?? '').trim(),
           NofFloor: String(info.nofFloor ?? '').trim(),
-          FloorKind: selected.kind,
-          FloorSKind: selected.skind,
+          Kind: selected.kind,
+          SKind: selected.skind,
           BuildingID: String(info.buildingId ?? '').trim(),
         },
         groupInfo: {
@@ -470,7 +456,14 @@ export default function FloorUnitWorkflow(props: WorkflowComponentProps) {
           <LabeledInput label="命名者（nomenclator）" value={info.nomenclator} placeholder="例如：YZ" onChange={(v) => setInfo((p) => ({ ...p, nomenclator: v }))} />
 
           <div className="grid grid-cols-2 gap-2">
-            <LabeledInput label="所属建筑（BuildingID）[必填]" value={info.buildingId} placeholder="例如：ZBUDNOMNOM_XXX" onChange={(v) => setInfo((p) => ({ ...p, buildingId: v }))} />
+            <WorkflowFeatureSearchSelect
+              bridge={bridge}
+              label="所属建筑（BuildingID）[必填]"
+              value={String(info.buildingId ?? '')}
+              placeholder="输入关键词检索：可匹配 BuildingName / Name / ID"
+              config={buildingSearchCfg}
+              onChange={(v) => setInfo((p) => ({ ...p, buildingId: v }))}
+            />
             <LabeledInput label="楼层（NofFloor）[必填]" value={info.nofFloor} placeholder="例如：B1 / 1 / 2" onChange={(v) => setInfo((p) => ({ ...p, nofFloor: v }))} />
           </div>
 
@@ -479,25 +472,15 @@ export default function FloorUnitWorkflow(props: WorkflowComponentProps) {
               bridge={bridge}
               label="所属地理单元（可选，将写入 tags.Land）"
               value={String(info.land ?? '')}
-              placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+              placeholder="输入关键词检索：可匹配 Name / ID"
               config={landUnitSearchCfg}
               onChange={(v) => setInfo((p) => ({ ...p, land: v }))}
             />
-            <WorkflowFeatureSearchSelect
-              bridge={bridge}
-              label="所属聚落(地标点)（可选，将写入 tags.UAdm）"
-              value={String(info.uadm ?? '')}
-              placeholder="输入关键词检索：可匹配 PointName / PointID"
-              config={uadmLandmarkSearchCfg}
-              onChange={(v) => setInfo((p) => ({ ...p, uadm: v }))}
-            />
-            <WorkflowFeatureSearchSelect
-              bridge={bridge}
-              label="所属聚落(区划)（可选，将写入 tags.UAdmG）"
-              value={String(info.uadmg ?? '')}
-              placeholder="输入关键词检索：可匹配 PGonName / PGonID"
-              config={uadmGSearchCfg}
-              onChange={(v) => setInfo((p) => ({ ...p, uadmg: v }))}
+            <LabeledInput
+              label="所属聚落(一级)（可选，将写入 tags.Adm）"
+              value={String(info.admLevel1 ?? '')}
+              placeholder="例如：鳕鱼鱼"
+              onChange={(v) => setInfo((p) => ({ ...p, admLevel1: v }))}
             />
             <LabeledInput label="相关成员（可选）" value={info.pop ?? ''} onChange={(v) => setInfo((p) => ({ ...p, pop: v }))} />
           </div>
@@ -620,7 +603,7 @@ export default function FloorUnitWorkflow(props: WorkflowComponentProps) {
       </div>
 
       <div className="mt-3 text-xs text-gray-600">
-        将写入：FloorID = {worldPrefix}FLR{selected?.kind ?? '...'}{selected?.skind ?? '...'}_{abbrNormalized}；BuildingID = {String(info.buildingId ?? '').trim() || '...'}；NofFloor = {String(info.nofFloor ?? '').trim() || '...'}
+        将写入：ID = {worldPrefix}FLR{selected?.kind ?? '...'}{selected?.skind ?? '...'}_{abbrNormalized}；BuildingID = {String(info.buildingId ?? '').trim() || '...'}；NofFloor = {String(info.nofFloor ?? '').trim() || '...'}
       </div>
     </div>
   );

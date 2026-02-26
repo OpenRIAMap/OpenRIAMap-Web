@@ -1,7 +1,7 @@
 [
   {
-    "plfRoundID": "ZRT13PFB_06",
-    "plfRoundName": "桐山站",
+    "ID": "ZRT13PFB_06",
+    "Name": "桐山站",
     "LineID": "ZRT13_01B",
     "Flrpoints": [
       [
@@ -69,8 +69,8 @@
     "CreateBy": "639"
   },
   {
-    "plfRoundID": "ZRT13PFB_05",
-    "plfRoundName": "白风站",
+    "ID": "ZRT13PFB_05",
+    "Name": "白风站",
     "LineID": "ZRT13_01B",
     "Flrpoints": [
       [
@@ -138,8 +138,8 @@
     "CreateBy": "639"
   },
   {
-    "plfRoundID": "ZRT13PFB_04",
-    "plfRoundName": "沙船站",
+    "ID": "ZRT13PFB_04",
+    "Name": "沙船站",
     "LineID": "ZRT13_01B",
     "Flrpoints": [
       [
@@ -207,8 +207,8 @@
     "CreateBy": "639"
   },
   {
-    "plfRoundID": "ZRT13PFB_03",
-    "plfRoundName": "狭原站",
+    "ID": "ZRT13PFB_03",
+    "Name": "狭原站",
     "LineID": "ZRT13_01B",
     "Flrpoints": [
       [
@@ -276,8 +276,8 @@
     "CreateBy": "639"
   },
   {
-    "plfRoundID": "ZRT13PFB_02_D",
-    "plfRoundName": "连西站-下行台",
+    "ID": "ZRT13PFB_02_D",
+    "Name": "连西站-下行台",
     "LineID": "ZRT13_01B_D",
     "Flrpoints": [
       [
@@ -308,8 +308,8 @@
     "CreateBy": "639"
   },
   {
-    "plfRoundID": "ZRT13PFB_02_U",
-    "plfRoundName": "连西站-上行台",
+    "ID": "ZRT13PFB_02_U",
+    "Name": "连西站-上行台",
     "LineID": "ZRT13_01B_U",
     "Flrpoints": [
       [
@@ -340,8 +340,8 @@
     "CreateBy": "639"
   },
   {
-    "plfRoundID": "ZRT13PFB_01_U",
-    "plfRoundName": "连东站-上行台",
+    "ID": "ZRT13PFB_01_U",
+    "Name": "连东站-上行台",
     "LineID": "ZRT13_01B_U",
     "Flrpoints": [
       [
@@ -372,8 +372,8 @@
     "CreateBy": "639"
   },
   {
-    "plfRoundID": "ZRT13PFB_01_D",
-    "plfRoundName": "连东站-下行台",
+    "ID": "ZRT13PFB_01_D",
+    "Name": "连东站-下行台",
     "LineID": "ZRT13_01B_D",
     "Flrpoints": [
       [

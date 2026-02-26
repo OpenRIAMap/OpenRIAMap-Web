@@ -1,7 +1,7 @@
 [
   {
-    "LineID": "ZRT7_01B_D",
-    "LineName": "溯铁7号线南海段-下行",
+    "ID": "ZRT7_01B_D",
+    "Name": "溯铁7号线南海段-下行",
     "bureau": "T",
     "line": "7",
     "color": "00A99D",

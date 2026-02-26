@@ -1,7 +1,7 @@
 [
   {
-    "LineID": "ZRTL1_01A",
-    "LineName": "星台联络线",
+    "ID": "ZRTL1_01A",
+    "Name": "星台联络线",
     "bureau": "T",
     "color": "63707E",
     "direction": 4,

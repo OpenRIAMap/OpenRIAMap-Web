@@ -402,7 +402,7 @@ visible: (r, ctx, store) => {
         const stations = (r.featureInfo as any)?.Stations;
         const n = Array.isArray(stations) ? stations.length : 0;
         if (n < 2) return '';
-        return String((r.featureInfo as any)?.staBuildingName ?? '').trim();
+        return String((r.featureInfo as any)?.Name ?? '').trim();
       },
       // 尽量固定在右侧（类似 STA 的“点+右侧文字”视觉）
       declutter: {
@@ -467,7 +467,7 @@ visible: (r, ctx, store) => {
       // - 楼层页面（ctx.inFloorView=true）时，为避免遮挡楼层 label，BUD/STB 的 label+dot 需要停止显示
       textFrom: (r, ctx) => {
         if (ctx.inFloorView) return '';
-        return String((r.featureInfo as any)?.BuildingName ?? '').trim();
+        return String((r.featureInfo as any)?.Name ?? '').trim();
       },
       declutter: {
         priority: 10,
@@ -535,7 +535,7 @@ visible: (r, ctx, store) => {
       styleKey: 'bubble-dark-14',
       minLevel: 4,
       placement: 'center',
-      textFrom: (r) => String((r.featureInfo as any)?.stationName ?? '').trim(),
+      textFrom: (r) => String((r.featureInfo as any)?.Name ?? '').trim(),
       offsetY: 0,
       withDot: false,
       declutter: {
@@ -606,7 +606,7 @@ label: {
       styleKey: 'bubble-dark-14',
   minLevel: 8, 
   placement: 'near',
-  textFrom: (r) => String((r.featureInfo as any)?.platformName ?? '').trim(),
+  textFrom: (r) => String((r.featureInfo as any)?.Name ?? '').trim(),
   offsetY: 10,
   withDot: true,
   declutter: {
@@ -675,7 +675,7 @@ label: {
   // 类 STA：中心点（dot）+ 右侧文字（candidates:['E']）
   withDot: true,
   textFrom: (r) => {
-    const name = String((r.featureInfo as any)?.staBFloorName ?? (r.featureInfo as any)?.FloorName ?? '').trim();
+    const name = String((r.featureInfo as any)?.Name ?? '').trim();
     if (name) return name;
     return fmtFloorLabel((r.featureInfo as any)?.[DEFAULT_FLOOR_VIEW.floorSelectorField]);
   },
@@ -747,7 +747,7 @@ label: {
   // 类 STA：中心点（dot）+ 右侧文字（candidates:['E']）
   withDot: true,
   textFrom: (r) => {
-    const name = String((r.featureInfo as any)?.staBFloorName ?? (r.featureInfo as any)?.FloorName ?? '').trim();
+    const name = String((r.featureInfo as any)?.Name ?? '').trim();
     if (name) return name;
     return fmtFloorLabel((r.featureInfo as any)?.[DEFAULT_FLOOR_VIEW.floorSelectorField]);
   },
@@ -795,7 +795,7 @@ labelClick: {
       styleKey: 'bubble-dark-14',
         placement: 'near',
         minLevel: 6,
-        textFrom: (r) => String((r.featureInfo as any)?.staBuildingPointName ?? (r.featureInfo as any)?.staBuildingName ?? (r.featureInfo as any)?.stationName ?? '').trim(),
+        textFrom: (r) => String((r.featureInfo as any)?.Name ?? '').trim(),
       },
     },
   },
@@ -828,7 +828,7 @@ labelClick: {
         styleKey: 'bubble-dark-14',
         minLevel: 4,
         placement: 'center',
-        textFrom: (r) => String((r.featureInfo as any)?.PointName ?? '').trim(),
+        textFrom: (r) => String((r.featureInfo as any)?.Name ?? '').trim(),
         offsetY: 0,
         withDot: false,
         declutter: {
@@ -876,7 +876,7 @@ labelClick: {
           styleKey: styleKey as any,
           placement: 'center',
           minLevel: 0,
-          textFrom: (rr) => String((rr.featureInfo as any)?.PLineName ?? '').trim(),
+          textFrom: (rr) => String((rr.featureInfo as any)?.Name ?? '').trim(),
           declutter: {
             priority: 10,
             minSpacingPx: 6,
@@ -1024,7 +1024,7 @@ labelClick: {
           styleKey: styleKey as any,
           placement: 'center',
           minLevel,
-          textFrom: (rr) => String((rr.featureInfo as any)?.PGonName ?? '').trim(),
+          textFrom: (rr) => String((rr.featureInfo as any)?.Name ?? '').trim(),
           declutter: {
             priority: 10,
             minSpacingPx: 6,
@@ -1093,7 +1093,9 @@ labelClick: {
   // ------------------------------
   {
     name: '交易点 TRP：STA 风格（绿色圆心，zoom>4）',
-    match: { Class: 'TRP', Type: 'Points' },
+    // TRP is always a point feature, but historical/imported data may have inconsistent Type values.
+    // Avoid hiding TRP after schema normalization by matching only by Class.
+    match: { Class: 'TRP' },
     zoom: [5, 99],
     symbol: {
       pane: 'ria-point-top',
@@ -1113,7 +1115,8 @@ labelClick: {
       styleKey: 'bubble-dark-14',
         minLevel: 5,
         placement: 'center',
-        textFrom: (r) => String((r.featureInfo as any)?.TRPointName ?? (r.featureInfo as any)?.Name ?? '').trim(),
+        // New normalized schema: self name is always `Name`
+        textFrom: (r) => String((r.featureInfo as any)?.Name ?? '').trim(),
         declutter: {
           priority: 10,
           minSpacingPx: 6,
@@ -1160,7 +1163,7 @@ labelClick: {
       styleKey: 'bubble-dark-14',
         minLevel: 5,
         placement: 'center',
-        textFrom: (r) => String((r.featureInfo as any)?.TPPointName ?? (r.featureInfo as any)?.Name ?? '').trim(),
+        textFrom: (r) => String((r.featureInfo as any)?.Name ?? '').trim(),
         declutter: {
           priority: 10,
           minSpacingPx: 6,
@@ -1207,7 +1210,7 @@ labelClick: {
       styleKey: 'bubble-dark-14',
         minLevel: 5,
         placement: 'center',
-        textFrom: (r) => String((r.featureInfo as any)?.TPPointName ?? (r.featureInfo as any)?.Name ?? '').trim(),
+        textFrom: (r) => String((r.featureInfo as any)?.Name ?? '').trim(),
         declutter: {
           priority: 10,
           minSpacingPx: 6,

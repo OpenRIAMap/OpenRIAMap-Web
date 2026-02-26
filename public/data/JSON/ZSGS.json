@@ -1,9 +1,9 @@
 [
   {
-    "TRPointID": "ZTRPNOMNOM_ZSGS",
-    "TRPointName": "制石高手",
-    "TRPointKind": "NOM",
-    "TRPointSKind": "NOM",
+    "ID": "ZTRPNOMNOM_ZSGS",
+    "Name": "制石高手",
+    "Kind": "NOM",
+    "SKind": "NOM",
     "Interaction": "右键点击",
     "Situation": "ON",
     "elevation": 71,

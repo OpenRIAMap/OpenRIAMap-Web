@@ -1,7 +1,7 @@
 [
   {
-    "LineID": "ZRT13_01B",
-    "LineName": "溯铁13号线大陆段",
+    "ID": "ZRT13_01B",
+    "Name": "溯铁13号线大陆段",
     "bureau": "T",
     "line": "13",
     "color": "63707E",

@@ -313,10 +313,11 @@ export default function TradePointWorkflow(props: WorkflowComponentProps) {
       cacheKey: 'trp_land',
       filter: (fi) =>
         fi?.Class === 'ISG' &&
-        matchAllowed(fi, ['PGonKind', 'PGonkind', 'Kind'], ['NGF']) &&
-        matchAllowed(fi, ['PGonSKind', 'PGonSkind', 'PointSKind', 'SKind'], ['LAD', 'WTB']),
-      getId: (fi) => readFirst(fi, ['PGonID', 'id']),
-      getName: (fi) => readFirst(fi, ['PGonName', 'name']),
+        matchAllowed(fi, ['Kind'], ['NGF']) &&
+        matchAllowed(fi, ['SKind'], ['LAD', 'WTB']),
+      // 新规范：所有要素 self 主键/主名均为 ID / Name
+      getId: (fi) => readFirst(fi, ['ID']),
+      getName: (fi) => readFirst(fi, ['Name']),
       formatOption: (name, id) => `${name}(${id})`,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -328,11 +329,11 @@ export default function TradePointWorkflow(props: WorkflowComponentProps) {
       cacheKey: 'trp_uadm',
       filter: (fi) =>
         fi?.Class === 'ISP' &&
-        matchAllowed(fi, ['PointKind', 'Pointkind', 'Kind'], ['ADM']) &&
-        matchAllowed(fi, ['PointSKind', 'PointSkind', 'SKind'], ['DBP']) &&
-        matchAllowed(fi, ['PointSKind2', 'PointSkind2', 'SKind2'], ['SHR']),
-      getId: (fi) => readFirst(fi, ['PointID', 'id']),
-      getName: (fi) => readFirst(fi, ['PointName', 'name']),
+        matchAllowed(fi, ['Kind'], ['ADM']) &&
+        matchAllowed(fi, ['SKind'], ['DBP']) &&
+        matchAllowed(fi, ['SKind2'], ['SHR']),
+      getId: (fi) => readFirst(fi, ['ID']),
+      getName: (fi) => readFirst(fi, ['Name']),
       formatOption: (name, id) => `${name}(${id})`,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -344,10 +345,10 @@ export default function TradePointWorkflow(props: WorkflowComponentProps) {
       cacheKey: 'trp_uadmg',
       filter: (fi) =>
         fi?.Class === 'ISG' &&
-        matchAllowed(fi, ['PGonKind', 'PGonkind', 'Kind'], ['ADM']) &&
-        matchAllowed(fi, ['PGonSKind', 'PGonSkind', 'SKind'], ['DBP', 'PLZ']),
-      getId: (fi) => readFirst(fi, ['PGonID', 'id']),
-      getName: (fi) => readFirst(fi, ['PGonName', 'name']),
+        matchAllowed(fi, ['Kind'], ['ADM']) &&
+        matchAllowed(fi, ['SKind'], ['DBP', 'PLZ']),
+      getId: (fi) => readFirst(fi, ['ID']),
+      getName: (fi) => readFirst(fi, ['Name']),
       formatOption: (name, id) => `${name}(${id})`,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -481,10 +482,15 @@ export default function TradePointWorkflow(props: WorkflowComponentProps) {
         coords: [{ x: p0.x, z: p0.z, y: p0.y }],
         editorId: creatorId.trim(),
         values: {
-          TRPointID: trpId,
-          TRPointName: String(info.name ?? '').trim(),
-          TRPointKind: kind,
-          TRPointSKind: skind,
+          // ===== New normalized self schema =====
+          // self 主键/主名：ID / Name
+          // 三元分类：Kind / SKind / SKind2
+          // 其他外键字段保持原名（此处无外键）
+          ID: trpId,
+          Name: String(info.name ?? '').trim(),
+          Kind: kind,
+          SKind: skind,
+          SKind2: '',
           Situation: String(info.situation ?? '').trim(),
           Interaction: String(info.interaction ?? '').trim(),
           elevation: elevation ?? '',
@@ -570,7 +576,7 @@ export default function TradePointWorkflow(props: WorkflowComponentProps) {
           <WorkflowFeatureSearchSelect
             bridge={bridgeRef.current}
             label="所属地理单元（可选，将写入 tags.Land）"
-            placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+            placeholder="输入关键词检索：可匹配 Name / ID"
             value={String(info.landId ?? '')}
             config={landUnitSearchCfg}
             onChange={(v) => setInfo((p) => ({ ...p, landId: v }))}
@@ -579,7 +585,7 @@ export default function TradePointWorkflow(props: WorkflowComponentProps) {
           <WorkflowFeatureSearchSelect
             bridge={bridgeRef.current}
             label="所属聚落(地标点)（可选，将写入 tags.UAdm）"
-            placeholder="输入关键词检索：可匹配 PointName / PointID"
+            placeholder="输入关键词检索：可匹配 Name / ID"
             value={String(info.uadmId ?? '')}
             config={uadmLandmarkSearchCfg}
             onChange={(v) => setInfo((p) => ({ ...p, uadmId: v }))}
@@ -588,7 +594,7 @@ export default function TradePointWorkflow(props: WorkflowComponentProps) {
           <WorkflowFeatureSearchSelect
             bridge={bridgeRef.current}
             label="所属聚落(区划)（可选，将写入 tags.UAdmG）"
-            placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+            placeholder="输入关键词检索：可匹配 Name / ID"
             value={String(info.uadmgId ?? '')}
             config={uadmGSearchCfg}
             onChange={(v) => setInfo((p) => ({ ...p, uadmgId: v }))}

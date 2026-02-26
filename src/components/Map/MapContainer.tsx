@@ -14,6 +14,7 @@ import { WorldSwitcher } from './WorldSwitcher';
 import { SearchBar, type SearchResult } from '../Search/SearchBar';
 import { getMatchingRuleButtonIds } from '../Rules/ButtonRule/buttonRuleFilter';
 import { NavigationPanel } from '../Navigation/NavigationPanel';
+import { AttributeQueryPanel } from '../AttributeQuery/AttributeQueryPanel';
 import { LineDetailCard } from '../LineDetail/LineDetailCard';
 import { PointDetailCard } from '../PointDetail/PointDetailCard';
 import { PlayerDetailCard } from '../PlayerDetail/PlayerDetailCard';
@@ -40,7 +41,7 @@ import { formatGridNumber, snapWorldPointByMode } from '@/components/Mapping/Gri
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
 
-// 导航“图上选取”使用：由 MapContainer 统一派发地图点击事件
+// ===== 导航“图上选取”：MapContainer 统一派发地图点击事件 =====
 type MapClickWorldPointEventDetail = {
   worldId: string;
   point: { x: number; y: number; z: number };
@@ -66,16 +67,13 @@ function MapContainer() {
   // 从 cookie 读取初始设置
   const savedSettings = loadMapSettings();
   const [currentWorld, setCurrentWorld] = useState(savedSettings?.currentWorld ?? 'zth');
-  const currentWorldRef = useRef<string>(savedSettings?.currentWorld ?? 'zth');
-  useEffect(() => {
-    currentWorldRef.current = currentWorld;
-  }, [currentWorld]);
   const [showRailway, setShowRailway] = useState(savedSettings?.showRailway ?? true);
   const [showLandmark, setShowLandmark] = useState(savedSettings?.showLandmark ?? true);
   const [showPlayers, setShowPlayers] = useState(savedSettings?.showPlayers ?? true);
   const [dimBackground, setDimBackground] = useState(savedSettings?.dimBackground ?? false);
   const [mapStyle, setMapStyle] = useState<MapStyle>(savedSettings?.mapStyle ?? 'default');
   const [showNavigation, setShowNavigation] = useState(false);
+  const [showAttributeQuery, setShowAttributeQuery] = useState(false);
   const [showLinesPage, setShowLinesPage] = useState(false);
   const [showPlayersPage, setShowPlayersPage] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
@@ -104,23 +102,12 @@ function MapContainer() {
   const [measuringCloseSignal, setMeasuringCloseSignal] = useState(0);
   const [measureToolsCloseSignal, setMeasureToolsCloseSignal] = useState(0);
 
-  // 是否有任意测绘模块处于激活状态（用于禁用导航图上选点）
-  const [isMeasuringActive, setIsMeasuringActive] = useState(false);
-  const isMeasuringActiveRef = useRef(false);
-  const measuringActiveBySourceRef = useRef<Record<string, boolean>>({});
-
-  useEffect(() => {
-    isMeasuringActiveRef.current = isMeasuringActive;
-  }, [isMeasuringActive]);
-
+  // 测绘激活态：用于禁止导航图选点（由 MeasuringModule / Mtools 派发）
+  const measuringActiveRef = useRef(false);
   useEffect(() => {
     const handler = (ev: Event) => {
-      const ce = ev as CustomEvent<{ active?: boolean; source?: string }>;
-      const active = Boolean(ce?.detail?.active);
-      const source = String(ce?.detail?.source ?? 'unknown');
-      measuringActiveBySourceRef.current[source] = active;
-      const anyActive = Object.values(measuringActiveBySourceRef.current).some(Boolean);
-      setIsMeasuringActive(anyActive);
+      const ce = ev as CustomEvent<{ active?: boolean }>;
+      measuringActiveRef.current = Boolean(ce?.detail?.active);
     };
     window.addEventListener('ria:measuringActiveChanged', handler as any);
     return () => window.removeEventListener('ria:measuringActiveChanged', handler as any);
@@ -134,6 +121,7 @@ const [panelZIndexes, setPanelZIndexes] = useState<Record<string, number>>({
   info: 1000,
   navigation: 1001,
   navigation2: 1001,
+  attributeQuery: 1001,
   help: 1000,
   ruler: 1001,
   mapStyle: 1001,
@@ -651,6 +639,27 @@ const flushCoord = () => {
   rafId = null;
 };
 
+    // 导航“图上选取”使用：由 MapContainer 统一派发地图点击事件
+    // 注意：只派发世界坐标；具体吸附/写入由 NavigationPanel 处理
+    map.on('click', (e: L.LeafletMouseEvent) => {
+      try {
+        if (measuringActiveRef.current) return;
+        const proj = projectionRef.current;
+        if (!proj) return;
+        const p = proj.latLngToLocation(e.latlng, 64);
+        window.dispatchEvent(
+          new CustomEvent<MapClickWorldPointEventDetail>('ria:mapClickWorldPoint', {
+            detail: {
+              worldId: currentWorld,
+              point: { x: p.x, y: p.y, z: p.z },
+            },
+          })
+        );
+      } catch (err) {
+        console.warn('[mapClickWorldPoint] dispatch failed', err);
+      }
+    });
+
 const handleMouseMove = (e: L.LeafletMouseEvent) => {
   const proj = projectionRef.current;
   if (!proj) return;
@@ -668,24 +677,6 @@ const handleMouseMove = (e: L.LeafletMouseEvent) => {
 
 map.on('mousemove', handleMouseMove);
 
-// 统一派发地图点击（用于导航“图上选取”）
-const handleMapClick = (e: L.LeafletMouseEvent) => {
-  const proj = projectionRef.current;
-  if (!proj) return;
-  // 测绘模块激活时，不派发导航取点事件（避免与测绘交互冲突）
-  if (isMeasuringActiveRef.current) return;
-
-  const worldCoord = proj.latLngToLocation(e.latlng, 64);
-  const snapped = snapWorldPointByMode({ x: worldCoord.x, z: worldCoord.z });
-  const detail: MapClickWorldPointEventDetail = {
-    worldId: currentWorldRef.current,
-    point: { x: snapped.x, y: 64, z: snapped.z },
-  };
-  window.dispatchEvent(new CustomEvent('ria:mapClickWorldPoint', { detail }));
-};
-
-map.on('click', handleMapClick);
-
 
     leafletMapRef.current = map;
     setMapReady(true);
@@ -693,7 +684,6 @@ map.on('click', handleMapClick);
     // 清理函数
     return () => {
       map.off('mousemove', handleMouseMove);
-      map.off('click', handleMapClick);
       if (rafId !== null) window.cancelAnimationFrame(rafId);
       if (leafletMapRef.current) {
         leafletMapRef.current.remove();
@@ -779,6 +769,7 @@ map.on('click', handleMapClick);
         {/* 工具栏 */}
         <Toolbar
           onNavigationClick={() => { setShowNavigation(true); bringToFront('navigation'); }}
+          onAttributeQueryClick={() => { setShowAttributeQuery(true); bringToFront('attributeQuery'); }}
           onLinesClick={() => setShowLinesPage(true)}
           onPlayersClick={() => { setShowPlayersPage(true); bringToFront('players'); }}
           onHelpClick={() => { setShowAbout(true); bringToFront('about'); }}
@@ -814,6 +805,17 @@ map.on('click', handleMapClick);
                 const latLng = proj.locationToLatLng(coord.x, coord.y || 64, coord.z);
                 map.setView(latLng, 5);
               }}
+            />
+          )}
+
+          {/* 按属性查询（手机端：保持原有的流式布局） */}
+          {showAttributeQuery && (
+            <AttributeQueryPanel
+              worldId={currentWorld}
+              onSelect={(r) => {
+                handleSearchSelect(r);
+              }}
+              onClose={() => setShowAttributeQuery(false)}
             />
           )}
 
@@ -949,6 +951,24 @@ map.on('click', handleMapClick);
               const latLng = proj.locationToLatLng(coord.x, coord.y || 64, coord.z);
               map.setView(latLng, 5);
             }}
+          />
+        </DraggablePanel>
+      )}
+
+      {/* 按属性查询面板 */}
+      {showAttributeQuery && (
+        <DraggablePanel
+          id="attributeQuery"
+          defaultPosition={{ x: 16, y: 180 }}
+          zIndex={panelZIndexes.attributeQuery}
+          onFocus={() => bringToFront('attributeQuery')}
+        >
+          <AttributeQueryPanel
+            worldId={currentWorld}
+            onSelect={(r) => {
+              handleSearchSelect(r);
+            }}
+            onClose={() => setShowAttributeQuery(false)}
           />
         </DraggablePanel>
       )}

@@ -1,10 +1,10 @@
 [  
   {
-    "PGonID": "ZNGFLADISD_GLLD",
-    "PGonName": "格陵兰岛",
-    "PGonKind": "NGF",
-    "PGonSKind": "LAD",
-    "PGonSKind2": "ISD",
+    "ID": "ZNGFLADISD_GLLD",
+    "Name": "格陵兰岛",
+    "Kind": "NGF",
+    "SKind": "LAD",
+    "SKind2": "ISD",
     "Situation": "ON",
     "Conpoints": [
       [

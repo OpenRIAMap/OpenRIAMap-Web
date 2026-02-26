@@ -1,7 +1,7 @@
 [
   {
-    "platformID": "ZRT13PLF_01_D",
-    "platformName": "连东站-1站台",
+    "ID": "ZRT13PLF_01_D",
+    "Name": "连东站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -25,8 +25,8 @@
     "CreateBy": "639"
   },
   {
-    "platformID": "ZRT13PLF_01_U",
-    "platformName": "连东站-2站台",
+    "ID": "ZRT13PLF_01_U",
+    "Name": "连东站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -58,8 +58,8 @@
     "CreateBy": "639"
   },
   {
-    "stationID": "ZRT13STA_01",
-    "stationName": "连东站",
+    "ID": "ZRT13STA_01",
+    "Name": "连东站",
     "coordinate": {
       "x": 1828.5,
       "z": 7057.5
@@ -79,8 +79,8 @@
     "CreateBy": "639"
   },
   {
-    "platformID": "ZRT13PLF_02_D",
-    "platformName": "连西站-1站台",
+    "ID": "ZRT13PLF_02_D",
+    "Name": "连西站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -104,8 +104,8 @@
     "CreateBy": "639"
   },
   {
-    "platformID": "ZRT13PLF_02_U",
-    "platformName": "连西站-2站台",
+    "ID": "ZRT13PLF_02_U",
+    "Name": "连西站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -129,8 +129,8 @@
     "CreateBy": "639"
   },
   {
-    "stationID": "ZRT13STA_02",
-    "stationName": "连西站",
+    "ID": "ZRT13STA_02",
+    "Name": "连西站",
     "coordinate": {
       "x": 1558.5,
       "z": 7057.5
@@ -150,8 +150,8 @@
     "CreateBy": "639"
   },
   {
-    "platformID": "ZRT13PLF_03_D",
-    "platformName": "狭原站-1站台",
+    "ID": "ZRT13PLF_03_D",
+    "Name": "狭原站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -175,8 +175,8 @@
     "CreateBy": "639"
   },
   {
-    "platformID": "ZRT13PLF_03_U",
-    "platformName": "狭原站-2站台",
+    "ID": "ZRT13PLF_03_U",
+    "Name": "狭原站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -200,8 +200,8 @@
     "CreateBy": "639"
   },
   {
-    "stationID": "ZRT13STA_03",
-    "stationName": "狭原站",
+    "ID": "ZRT13STA_03",
+    "Name": "狭原站",
     "coordinate": {
       "x": 1441.5,
       "z": 7691.5
@@ -221,8 +221,8 @@
     "CreateBy": "639"
   },
   {
-    "platformID": "ZRT13PLF_04_D",
-    "platformName": "沙船站-1站台",
+    "ID": "ZRT13PLF_04_D",
+    "Name": "沙船站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -246,8 +246,8 @@
     "CreateBy": "639"
   },
   {
-    "platformID": "ZRT13PLF_04_U",
-    "platformName": "沙船站-2站台",
+    "ID": "ZRT13PLF_04_U",
+    "Name": "沙船站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -271,8 +271,8 @@
     "CreateBy": "639"
   },
   {
-    "stationID": "ZRT13STA_04",
-    "stationName": "沙船站",
+    "ID": "ZRT13STA_04",
+    "Name": "沙船站",
     "coordinate": {
       "x": 1150.5,
       "z": 8436.5
@@ -292,8 +292,8 @@
     "CreateBy": "639"
   },
   {
-    "platformID": "ZRT13PLF_05_D",
-    "platformName": "白风站-1站台",
+    "ID": "ZRT13PLF_05_D",
+    "Name": "白风站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -317,8 +317,8 @@
     "CreateBy": "639"
   },
   {
-    "platformID": "ZRT13PLF_05_U",
-    "platformName": "白风站-2站台",
+    "ID": "ZRT13PLF_05_U",
+    "Name": "白风站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -342,8 +342,8 @@
     "CreateBy": "639"
   },
   {
-    "stationID": "ZRT13STA_05",
-    "stationName": "白风站",
+    "ID": "ZRT13STA_05",
+    "Name": "白风站",
     "coordinate": {
       "x": 1150.5,
       "z": 9412.5
@@ -363,8 +363,8 @@
     "CreateBy": "639"
   },
   {
-    "platformID": "ZRT13PLF_06_D",
-    "platformName": "桐山站-1站台",
+    "ID": "ZRT13PLF_06_D",
+    "Name": "桐山站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -388,8 +388,8 @@
     "CreateBy": "639"
   },
   {
-    "platformID": "ZRT13PLF_06_U",
-    "platformName": "桐山站-2站台",
+    "ID": "ZRT13PLF_06_U",
+    "Name": "桐山站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -413,8 +413,8 @@
     "CreateBy": "639"
   },
   {
-    "stationID": "ZRT13STA_06",
-    "stationName": "桐山站",
+    "ID": "ZRT13STA_06",
+    "Name": "桐山站",
     "coordinate": {
       "x": 817.5,
       "z": 9730.5
@@ -434,8 +434,8 @@
     "CreateBy": "639"
   },
   {
-    "platformID": "ZRTL1PLF_01_D",
-    "platformName": "连东东分离口",
+    "ID": "ZRTL1PLF_01_D",
+    "Name": "连东东分离口",
     "Situation": true,
     "Connect": false,
     "coordinate": {
@@ -467,8 +467,8 @@
     "CreateBy": "639"
   },
   {
-    "platformID": "ZRTL1PLF_02_D",
-    "platformName": "星台南接入口",
+    "ID": "ZRTL1PLF_02_D",
+    "Name": "星台南接入口",
     "Situation": true,
     "Connect": false,
     "coordinate": {

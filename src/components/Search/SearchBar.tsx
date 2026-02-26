@@ -16,8 +16,9 @@ import { loadRailNewIndex, passLineBooleanFilters, type RailNewIndex } from '@/c
 import {
   isRuleBlacklisted,
   getRulePriorityIndex,
-  getRuleCategoryName,
+  getRuleCategoryLabelWithParent,
   getRuleDisplayName,
+  buildBuildingNameIndex,
 } from '@/components/Search/searchRuleTables';
 
 // NOTE: blacklist & priority tables are now shared in searchRuleTables.ts
@@ -156,11 +157,11 @@ export function SearchBar({ stations, landmarks, lines, worldId, onSelect, onLin
     };
 
     if (cls === 'PLF') {
-      collectFromPlf(String(r?.meta?.idValue ?? fi?.platformID ?? fi?.platformId ?? ''));
+      collectFromPlf(String(r?.meta?.idValue ?? fi?.ID ?? ''));
     } else if (cls === 'PFB') {
-      collectFromPlf(String(fi?.platformID ?? fi?.platformId ?? ''));
+      collectFromPlf(String(fi?.ID ?? ''));
     } else if (cls === 'STA') {
-      const stationId = String(r?.meta?.idValue ?? fi?.stationID ?? fi?.stationId ?? '').trim();
+      const stationId = String(r?.meta?.idValue ?? fi?.ID ?? '').trim();
       const sta = stationId ? railIndex.stas.get(stationId) : undefined;
       for (const pid of (sta?.platformIds ?? [])) collectFromPlf(pid);
     } else if (cls === 'STB' || cls === 'SBP') {
@@ -338,6 +339,7 @@ export function SearchBar({ stations, landmarks, lines, worldId, onSelect, onLin
     // 搜索 Rules（当前世界预加载池；包含临时挂载启用数据；不包含“被更新挂载替换而暂时停用”的记录）
     // - 这里只做模糊检索（name/id）；点击后由 MapContainer 负责聚焦/缩放 & 发事件给 RuleDrivenLayer 打开信息卡。
     const rulePool = getRuleSearchPool(worldId);
+    const buildingNameIndex = rulePool.length ? buildBuildingNameIndex(rulePool) : null;
     if (rulePool.length) {
       for (const r of rulePool) {
         const fi: any = r?.featureInfo ?? {};
@@ -361,7 +363,7 @@ export function SearchBar({ stations, landmarks, lines, worldId, onSelect, onLin
           type: 'rule',
           name: dn.name,
           coord: center,
-          extra: getRuleCategoryName(r),
+          extra: getRuleCategoryLabelWithParent(r, buildingNameIndex),
           ruleRecord: r,
         });
       }

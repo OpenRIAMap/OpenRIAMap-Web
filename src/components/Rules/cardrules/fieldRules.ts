@@ -203,27 +203,27 @@ function buildTypeRow(feature: FeatureRecord): CardRow {
     value: typeName,
     usedPaths: [
       // 字段解析接口：Kind/SKind/SKind2 三元组（面/线/点）
-      'PGonKind',
-      'PGonSKind',
-      'PGonSKind2',
-      'PLineKind',
-      'PLineSKind',
-      'PLineSKind2',
-      'PointKind',
-      'PointSKind',
-      'PointSKind2',
       'Kind',
       'SKind',
       'SKind2',
-      'tags.PGonKind',
-      'tags.PGonSKind',
-      'tags.PGonSKind2',
-      'tags.PLineKind',
-      'tags.PLineSKind',
-      'tags.PLineSKind2',
-      'tags.PointKind',
-      'tags.PointSKind',
-      'tags.PointSKind2',
+      'Kind',
+      'SKind',
+      'SKind2',
+      'Kind',
+      'SKind',
+      'SKind2',
+      'Kind',
+      'SKind',
+      'SKind2',
+      'tags.Kind',
+      'tags.SKind',
+      'tags.SKind2',
+      'tags.Kind',
+      'tags.SKind',
+      'tags.SKind2',
+      'tags.Kind',
+      'tags.SKind',
+      'tags.SKind2',
       'tags.Kind',
       'tags.SKind',
       'tags.SKind2',
@@ -588,7 +588,7 @@ export const FIELD_RULES: FieldRule[] = [
     match: { Kind: 'PLF' },
     rows: (feature, railIndex) => {
       const fi: any = feature?.featureInfo ?? {};
-      const plfId = String(feature?.meta?.idValue ?? fi?.platformID ?? fi?.platformId ?? '').trim();
+      const plfId = String(feature?.meta?.idValue ?? fi?.ID ?? fi?.platformId ?? '').trim();
 
       // 严格语义：仅展示“该 PLF 自身包含的线路”，并应用 lines[] 布尔过滤（如 Avaliable=false 视为不包含）
       const lineRefs: Array<{ id: string; flags?: Record<string, boolean> }> = [];
@@ -603,7 +603,7 @@ export const FIELD_RULES: FieldRule[] = [
         const raw = fi?.lines ?? fi?.Lines ?? fi?.LINES ?? [];
         const arr = Array.isArray(raw) ? raw : [];
         for (const x of arr) {
-          const id = String(x?.ID ?? x?.LineID ?? x?.lineID ?? x?.id ?? x ?? '').trim();
+          const id = String(x?.ID ?? x?.ID ?? x?.lineID ?? x?.id ?? x ?? '').trim();
           if (!id) continue;
           // 兜底侧只取布尔字段用于过滤
           const flags: Record<string, boolean> = {};
@@ -834,7 +834,7 @@ export function pickFeatureDisplayName(feature?: FeatureRecord | null): string {
   if (!feature) return '';
   const fi: any = feature.featureInfo ?? {};
 
-  const direct = pickFirstString(fi, ['Name', 'name', 'PGonName', 'PLineName', 'PointName', 'staName']);
+  const direct = pickFirstString(fi, ['Name', 'name', 'Name', 'Name', 'Name', 'staName']);
   if (direct) return direct;
 
   for (const k of Object.keys(fi)) {

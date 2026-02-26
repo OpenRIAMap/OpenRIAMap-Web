@@ -70,6 +70,7 @@ import RailwayWorkflow from '@/components/Mapping/Workflow/RailwayWorkflow';
 import StationWorkflow from '@/components/Mapping/Workflow/StationWorkflow';
 import NaturalLandWorkflow from '@/components/Mapping/Workflow/NaturalLandWorkflow';
 import NaturalLandSurfaceWorkflow from '@/components/Mapping/Workflow/NaturalLandSurfaceWorkflow';
+import RoadWorkflow from '@/components/Mapping/Workflow/RoadWorkflow';
 import NaturalWaterbodyWorkflow from '@/components/Mapping/Workflow/NaturalWaterbodyWorkflow';
 import NaturalWaterwayWorkflow from '@/components/Mapping/Workflow/NaturalWaterwayWorkflow';
 import NaturalBoundaryWorkflow from '@/components/Mapping/Workflow/NaturalBoundaryWorkflow';
@@ -2884,6 +2885,7 @@ const workflowRegistry: WorkflowRegistry = {
   tpp_point: TeleportPointWorkflow,
   wrp_point: WarpPointWorkflow,
   trp_point: TradePointWorkflow,
+  rod_road: RoadWorkflow,
   ngf_land: NaturalLandWorkflow,
   ngf_lis: NaturalLandSurfaceWorkflow,
   ngf_wtb: NaturalWaterbodyWorkflow,
@@ -3625,6 +3627,7 @@ const rightDockNode = (
     >
       <option value="railway">铁路</option>
       <option value="station">车站和站台</option>
+      <option value="rod_road">道路</option>
       <option value="tpp_point">传送点</option>
       <option value="wrp_point">Warp点</option>
       <option value="trp_point">交易点</option>

@@ -77,9 +77,9 @@ export type RailNewIndex = {
   plfs: Map<string, RailPlf>;
   rles: Map<string, RailRle>;
   buildings: Map<string, RailBuilding>;
-  /** STA.stationID -> STB/SBP ids */
+  /** STA.ID -> STB/SBP ids */
   stationToBuildings: Map<string, Set<string>>;
-  /** STB/SBP id -> STA.stationID */
+  /** STB/SBP id -> STA.ID */
   buildingToStations: Map<string, Set<string>>;
 };
 
@@ -131,21 +131,21 @@ function pickId(obj: any): string {
       'Id',
       'id',
       // STA
-      'stationID',
+      'ID',
       'stationId',
       'StationID',
       'StationId',
       // PLF
-      'platformID',
+      'ID',
       'platformId',
       // RLE
-      'LineID',
+      'ID',
       'lineID',
       'lineId',
       // STB/SBP
       'staBuildingID',
       'staBuildingId',
-      'staBuildingPointID',
+      'staBuildingID',
       'staBuildingPointId',
       'buildingID',
       'buildingId',
@@ -276,15 +276,15 @@ function parseSta(all: any[]): Map<string, RailSta> {
   const out = new Map<string, RailSta>();
   for (const it of all) {
     if (str(it?.Class) !== 'STA') continue;
-    const id = str(it.stationID ?? it.stationId ?? it.ID ?? it.id);
+    const id = str(it.ID);
     if (!id) continue;
-    const name = str(it.stationName ?? it.name ?? it.Name ?? id) || id;
+    const name = str(it.Name ?? id) || id;
 
     const platformsArr = it.platforms ?? it.Platforms ?? it.PLFS ?? it.PLFs ?? [];
     const platformIds: string[] = [];
     if (Array.isArray(platformsArr)) {
       for (const p of platformsArr) {
-        const pid = str(p?.ID ?? p?.platformID ?? p?.platformId ?? p);
+        const pid = str(p?.ID ?? p);
         if (pid) platformIds.push(pid);
       }
     }
@@ -302,7 +302,7 @@ function parsePlf(all: any[]): Map<string, RailPlf> {
   const out = new Map<string, RailPlf>();
   for (const it of all) {
     if (str(it?.Class) !== 'PLF') continue;
-    const id = str(it.platformID ?? it.platformId ?? it.ID ?? it.id);
+    const id = str(it.ID);
     if (!id) continue;
     const Connect = asBool(it.Connect, true);
 
@@ -310,7 +310,7 @@ function parsePlf(all: any[]): Map<string, RailPlf> {
     const lines: RailLineRef[] = [];
     if (Array.isArray(linesRaw)) {
       for (const lr of linesRaw) {
-        const lid = str(lr?.ID ?? lr?.LineID ?? lr?.lineID ?? lr?.id ?? lr);
+        const lid = str(lr?.ID ?? lr);
         if (!lid) continue;
         lines.push({
           id: lid,
@@ -331,25 +331,25 @@ function parseRle(all: any[]): Map<string, RailRle> {
   for (const it of all) {
     if (str(it?.Class) !== 'RLE') continue;
 
-    // 兼容：RLE 的主键在不同文件中可能是 LineID 或 ID
-    const idPrimary = str(it.LineID ?? it.lineID ?? it.lineId ?? '');
+    // RLE 主键统一为 ID
+    const idPrimary = str(it.ID ?? '');
     const idAlt = str(it.ID ?? it.Id ?? it.id ?? '');
     const id = idPrimary || idAlt;
     if (!id) continue;
 
     const nameRaw =
-      it.LineName ??
+      it.Name ??
       it.lineName ??
       it.line_name ??
       it.Name ??
       it.name ??
       it.title ??
       it.Title ??
-      it.tags?.LineName ??
+      it.tags?.Name ??
       it.tags?.lineName ??
       it.tags?.Name ??
       it.tags?.name ??
-      it.extensions?.LineName ??
+      it.extensions?.Name ??
       it.extensions?.lineName ??
       it.extensions?.Name ??
       it.extensions?.name ??
@@ -405,7 +405,7 @@ function parseBuildings(all: any[]): Map<string, RailBuilding> {
     const ids: string[] = [];
     if (Array.isArray(g)) {
       for (const x of g) {
-        const id = str(x?.ID ?? x?.id ?? x?.stationID ?? x?.stationId ?? x);
+        const id = str(x?.ID ?? x);
         if (id) ids.push(id);
       }
     }
@@ -419,9 +419,9 @@ function parseBuildings(all: any[]): Map<string, RailBuilding> {
     const id =
       cls === 'SBP'
         ? str(
-            it.staBuildingPointID ??
+            it.staBuildingID ??
               it.staBuildingPointId ??
-              it.stationID ??
+              it.ID ??
               it.stationId ??
               it.staBuildingID ??
               it.staBuildingId ??
@@ -442,9 +442,9 @@ function parseBuildings(all: any[]): Map<string, RailBuilding> {
     const name =
       cls === 'SBP'
         ? str(
-            it.staBuildingPointName ??
-              it.stationName ??
-              it.staBuildingName ??
+            it.Name ??
+              it.Name ??
+              it.Name ??
               it.buildingName ??
               it.BuildingName ??
               it.name ??
@@ -452,7 +452,7 @@ function parseBuildings(all: any[]): Map<string, RailBuilding> {
               id
           )
         : str(
-            it.staBuildingName ??
+            it.Name ??
               it.buildingName ??
               it.BuildingName ??
               it.name ??

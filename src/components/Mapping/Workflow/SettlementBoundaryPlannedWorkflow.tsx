@@ -218,11 +218,11 @@ export default function SettlementBoundaryPlannedWorkflow(props: WorkflowCompone
     () => ({
       cacheKey: 'ADM_ANY',
       filter: (fi: any) => {
-        const kind = String(fi.PGonKind ?? fi.PLineKind ?? fi.PointKind ?? fi.Kind ?? fi?.tags?.Kind ?? '').trim();
+        const kind = String(fi.Kind ?? fi.Kind ?? fi.Kind ?? fi.Kind ?? fi?.tags?.Kind ?? '').trim();
         return kind === 'ADM';
       },
-      getId: (fi: any) => String(fi.PGonID ?? fi.PLineID ?? fi.PointID ?? '').trim(),
-      getName: (fi: any) => String(fi.PGonName ?? fi.PLineName ?? fi.PointName ?? '').trim(),
+      getId: (fi: any) => String(fi.ID ?? fi.ID ?? fi.ID ?? '').trim(),
+      getName: (fi: any) => String(fi.Name ?? fi.Name ?? fi.Name ?? '').trim(),
       formatOption: (name, id) => `${name}(${id})`,
     }),
     []
@@ -234,12 +234,12 @@ export default function SettlementBoundaryPlannedWorkflow(props: WorkflowCompone
       filter: (fi: any) => {
         const cls = String(fi.Class ?? fi.class ?? '').trim();
         if (cls !== 'ISG') return false;
-        const kind = String(fi.PGonKind ?? fi.Kind ?? fi?.tags?.PGonKind ?? fi?.tags?.Kind ?? '').trim();
-        const skind = String(fi.PGonSKind ?? fi.SKind ?? fi?.tags?.PGonSKind ?? fi?.tags?.SKind ?? '').trim();
+        const kind = String(fi.Kind ?? fi.Kind ?? fi?.tags?.Kind ?? fi?.tags?.Kind ?? '').trim();
+        const skind = String(fi.SKind ?? fi.SKind ?? fi?.tags?.SKind ?? fi?.tags?.SKind ?? '').trim();
         return kind === 'NGF' && (skind === 'LAD' || skind === 'WTB');
       },
-      getId: (fi: any) => String(fi.PGonID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
-      getName: (fi: any) => String(fi.PGonName ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
+      getId: (fi: any) => String(fi.ID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
+      getName: (fi: any) => String(fi.Name ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
       formatOption: (name, id) => `${name}(${id})`,
     }),
     []
@@ -346,11 +346,11 @@ export default function SettlementBoundaryPlannedWorkflow(props: WorkflowCompone
         coords,
         editorId: creatorId.trim(),
         values: {
-          PGonID: pgonId,
-          PGonName: String(info.name ?? '').trim(),
-          PGonKind: kind,
-          PGonSKind: skind,
-          PGonSKind2: info.skind2,
+          ID: pgonId,
+          Name: String(info.name ?? '').trim(),
+          Kind: kind,
+          SKind: skind,
+          SKind2: info.skind2,
         },
         groupInfo: {
           tags,
@@ -448,7 +448,7 @@ export default function SettlementBoundaryPlannedWorkflow(props: WorkflowCompone
             bridge={bridge}
             label="所属地理单元（可选，将写入 tags.Land）"
             value={String(info.land ?? '')}
-            placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+            placeholder="输入关键词检索：可匹配 Name / ID"
             config={landUnitSearchCfg}
             onChange={(v) => setInfo((prev) => ({ ...prev, land: v }))}
           />
@@ -615,7 +615,7 @@ export default function SettlementBoundaryPlannedWorkflow(props: WorkflowCompone
         <div className="text-xs text-gray-700">
           将生成：
           <div className="mt-1 font-mono text-xs break-all">
-            PGonID = {worldPrefix}{kind}{skind}{info.skind2 || '...'}_{abbrNormalized || '...'}
+            ID = {worldPrefix}{kind}{skind}{info.skind2 || '...'}_{abbrNormalized || '...'}
           </div>
         </div>
 

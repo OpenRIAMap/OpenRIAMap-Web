@@ -8,7 +8,7 @@ import AppButton from '@/components/ui/AppButton';
  *
  * 页面结构：
  * 1) 填写者
- * 2) 基础信息（bureau / line / section / stationNo / stationName）
+ * 2) 基础信息（bureau / line / section / stationNo / Name）
  * 3) 车站总建筑（STB polygon，可跳过；离开后不可回退）
  * 4) 车站轮廓（PFB polygon，可从 STB 导入坐标）
  * 5) 下行站台（PLF point + 状态/线路组，可添加多线路）
@@ -23,7 +23,7 @@ type BaseForm = {
   lineNo: string;
   sectionCode: string;
   stationNo: string;
-  stationName: string;
+  Name: string;
 };
 
 type LineEntry = {
@@ -202,7 +202,7 @@ export default function StationWorkflow(props: WorkflowComponentProps) {
     lineNo: '',
     sectionCode: '',
     stationNo: '',
-    stationName: '',
+    Name: '',
   });
 
   // World
@@ -256,7 +256,7 @@ export default function StationWorkflow(props: WorkflowComponentProps) {
   // STA
   const [stbIdManual, setStbIdManual] = useState('');
 
-  // 线路 ID：用于 PFB LineID、PLF lines[0].ID
+  // 线路 ID：用于 PFB ID、PLF lines[0].ID
   const lineIdRef = useMemo(() => {
     const bureau = String(base.bureau ?? '').trim();
     const lineNo = String(base.lineNo ?? '').trim();
@@ -359,8 +359,8 @@ export default function StationWorkflow(props: WorkflowComponentProps) {
     const lineNo = String(base.lineNo ?? '').trim();
     const section = String(base.sectionCode ?? '').trim();
     const stationNo = String(base.stationNo ?? '').trim();
-    const stationName = String(base.stationName ?? '').trim();
-    if (!bureau || !lineNo || !section || !stationNo || !stationName) return;
+    const Name = String(base.Name ?? '').trim();
+    if (!bureau || !lineNo || !section || !stationNo || !Name) return;
 
     // 已经离开过 STB 页面，则不允许回退到 STB：直接去 PFB
     setStep(stbFinalized ? 'pfb' : 'stb');
@@ -395,15 +395,15 @@ export default function StationWorkflow(props: WorkflowComponentProps) {
 
     const bureau = String(base.bureau ?? '').trim();
     const buildingId = `${worldPrefix}R${bureau}STB_${abbr}`;
-    const buildingName = String(base.stationName ?? '').trim();
+    const buildingName = String(base.Name ?? '').trim();
 
     const res = b.commitFeature({
       subType: '车站建筑',
       mode: 'polygon',
       coords: pts,
       values: {
-        staBuildingID: buildingId,
-        staBuildingName: buildingName,
+        ID: buildingId,
+        Name: buildingName,
       },
       groupInfo: {},
       editorId: String(creatorId ?? '').trim(),
@@ -428,25 +428,25 @@ export default function StationWorkflow(props: WorkflowComponentProps) {
     const pts = b.getTempPoints() ?? [];
     if (pts.length < 3) return;
 
-    if (!nonEmpty(base.bureau) || !nonEmpty(base.lineNo) || !nonEmpty(base.stationNo) || !nonEmpty(base.stationName)) {
+    if (!nonEmpty(base.bureau) || !nonEmpty(base.lineNo) || !nonEmpty(base.stationNo) || !nonEmpty(base.Name)) {
       alert('基础信息不完整。');
       return;
     }
     if (!lineIdRef) {
-      alert('无法生成 LineID（请检查路局代码/线路编号/区段代码）。');
+      alert('无法生成 ID（请检查路局代码/线路编号/区段代码）。');
       return;
     }
 
     const id = `${worldPrefix}R${String(base.bureau).trim()}${String(base.lineNo).trim()}PFB_${String(base.stationNo).trim()}`;
-    const name = String(base.stationName ?? '').trim();
+    const name = String(base.Name ?? '').trim();
 
     const res = b.commitFeature({
       subType: '站台轮廓',
       mode: 'polygon',
       coords: pts,
       values: {
-        plfRoundID: id,
-        plfRoundName: name,
+        ID: id,
+        Name: name,
         LineID: lineIdRef,
       },
       groupInfo: {},
@@ -497,15 +497,15 @@ export default function StationWorkflow(props: WorkflowComponentProps) {
     }
 
     const id = `${worldPrefix}R${String(base.bureau).trim()}${String(base.lineNo).trim()}PLF_${String(base.stationNo).trim()}_D`;
-    const name = `${String(base.stationName).trim()}-${no}站台`;
+    const name = `${String(base.Name).trim()}-${no}站台`;
 
     const res = b.commitFeature({
       subType: '站台',
       mode: 'point',
       coords: pts,
       values: {
-        platformID: id,
-        platformName: name,
+        ID: id,
+        Name: name,
         Situation: !!plfSituationDown,
         Connect: !!plfConnectDown,
       },
@@ -542,15 +542,15 @@ export default function StationWorkflow(props: WorkflowComponentProps) {
     }
 
     const id = `${worldPrefix}R${String(base.bureau).trim()}${String(base.lineNo).trim()}PLF_${String(base.stationNo).trim()}_U`;
-    const name = `${String(base.stationName).trim()}-${no}站台`;
+    const name = `${String(base.Name).trim()}-${no}站台`;
 
     const res = b.commitFeature({
       subType: '站台',
       mode: 'point',
       coords: pts,
       values: {
-        platformID: id,
-        platformName: name,
+        ID: id,
+        Name: name,
         Situation: !!plfSituationUp,
         Connect: !!plfConnectUp,
       },
@@ -577,7 +577,7 @@ export default function StationWorkflow(props: WorkflowComponentProps) {
     if (pts.length < 1) return;
 
     if (!stationId) {
-      alert('基础信息不完整：无法生成 stationID。');
+      alert('基础信息不完整：无法生成 ID。');
       return;
     }
     if (!plfDownId || !plfUpId) {
@@ -596,8 +596,8 @@ export default function StationWorkflow(props: WorkflowComponentProps) {
       mode: 'point',
       coords: pts,
       values: {
-        stationID: stationId,
-        stationName: String(base.stationName ?? '').trim(),
+        ID: stationId,
+        Name: String(base.Name ?? '').trim(),
         STBuilding: building,
       },
       groupInfo: {
@@ -643,7 +643,7 @@ export default function StationWorkflow(props: WorkflowComponentProps) {
       nonEmpty(base.lineNo) &&
       nonEmpty(base.sectionCode) &&
       nonEmpty(base.stationNo) &&
-      nonEmpty(base.stationName);
+      nonEmpty(base.Name);
 
     return (
       <div className="p-3">
@@ -680,8 +680,8 @@ export default function StationWorkflow(props: WorkflowComponentProps) {
 
           <LabeledInput
             label="车站名"
-            value={base.stationName}
-            onChange={(v) => setBase((p) => ({ ...p, stationName: v }))}
+            value={base.Name}
+            onChange={(v) => setBase((p) => ({ ...p, Name: v }))}
             placeholder="例如：西直门"
           />
 
@@ -771,7 +771,7 @@ export default function StationWorkflow(props: WorkflowComponentProps) {
             </AppButton>
           ) : null}
 
-          <div className="text-xs opacity-70">保存后将输出到图层管理：plfRoundID={pfbId || '(自动生成)'}。</div>
+          <div className="text-xs opacity-70">保存后将输出到图层管理：ID={pfbId || '(自动生成)'}。</div>
         </div>
       </div>
     );
@@ -1154,7 +1154,7 @@ export default function StationWorkflow(props: WorkflowComponentProps) {
           )}
 
           <div className="text-xs opacity-70">
-            stationID：{stationId || '(自动生成)'}；platforms：{plfDownId || '(D未生成)'} / {plfUpId || '(U未生成)'}
+            ID：{stationId || '(自动生成)'}；platforms：{plfDownId || '(D未生成)'} / {plfUpId || '(U未生成)'}
           </div>
         </div>
       </div>

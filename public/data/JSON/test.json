@@ -1,9 +1,9 @@
 [
   {
-    "BuildingID": "Test1",
-    "BuildingName": "北溯工-测试",
-    "BuildingKind": "IDS",
-    "BuildingSKind": "OLD",
+    "ID": "Test1",
+    "Name": "北溯工-测试",
+    "Kind": "IDS",
+    "SKind": "OLD",
     "Situation": "OFF",
     "Conpoints": [
       [
@@ -199,11 +199,11 @@
     "CreateBy": "639"
   },
   {
-    "FloorID": "FLRtest",
-    "FloorName": "测试楼层",
+    "ID": "FLRtest",
+    "Name": "测试楼层",
     "NofFloor": "B1",
-    "FloorKind": "T",
-    "FloorSKind": "T",
+    "Kind": "T",
+    "SKind": "T",
     "BuildingID": "Test1",
     "Situation": "OFF",
     "Flrpoints": [
@@ -236,11 +236,11 @@
   }
 ,
   {
-    "FloorID": "TEST2",
-    "FloorName": "自动熔炉组（废弃）",
+    "ID": "TEST2",
+    "Name": "自动熔炉组（废弃）",
     "NofFloor": "1F",
-    "FloorKind": "T",
-    "FloorSKind": "T",
+    "Kind": "T",
+    "SKind": "T",
     "BuildingID": "Test1",
     "Flrpoints": [
       [
@@ -271,11 +271,11 @@
     "CreateBy": "639"
   },
   {
-    "FloorID": "Test3",
-    "FloorName": "刷石机（已废弃）",
+    "ID": "Test3",
+    "Name": "刷石机（已废弃）",
     "NofFloor": "1F",
-    "FloorKind": "TTS",
-    "FloorSKind": "TTS",
+    "Kind": "TTS",
+    "SKind": "TTS",
     "BuildingID": "Test1",
     "Flrpoints": [
       [
@@ -306,11 +306,11 @@
     "CreateBy": "639"
   },
   {
-    "FloorID": "Test4",
-    "FloorName": "刷轨机",
+    "ID": "Test4",
+    "Name": "刷轨机",
     "NofFloor": "1F",
-    "FloorKind": "TTS",
-    "FloorSKind": "TTS",
+    "Kind": "TTS",
+    "SKind": "TTS",
     "BuildingID": "Test1",
     "Flrpoints": [
       [
@@ -341,11 +341,11 @@
     "CreateBy": "639"
   },
   {
-    "FloorID": "Test5",
-    "FloorName": "钓鱼机(已废弃)",
+    "ID": "Test5",
+    "Name": "钓鱼机(已废弃)",
     "NofFloor": "2F",
-    "FloorKind": "TTS",
-    "FloorSKind": "TTS",
+    "Kind": "TTS",
+    "SKind": "TTS",
     "BuildingID": "Test1",
     "Situation": "OFF",
     "Flrpoints": [

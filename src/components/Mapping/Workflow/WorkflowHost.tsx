@@ -15,6 +15,7 @@ export type WorkflowKey =
   | 'tpp_point'
   | 'wrp_point'
   | 'trp_point'
+  | 'rod_road'
   | 'ngf_land'
   | 'ngf_lis'
   | 'ngf_wtb'

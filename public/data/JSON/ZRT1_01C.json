@@ -1,7 +1,7 @@
 [
   {
-    "LineID": "ZRT1_01C",
-    "LineName": "溯铁1号线北延段",
+    "ID": "ZRT1_01C",
+    "Name": "溯铁1号线北延段",
     "bureau": "T",
     "line": "1",
     "color": "ED1C24",

@@ -11,7 +11,7 @@ import AppCard from '@/components/ui/AppCard';
 interface LineDetailCardProps {
   line: ParsedLine;
   onClose: () => void;
-  onStationClick?: (stationName: string, coord: { x: number; y: number; z: number }) => void;
+  onStationClick?: (Name: string, coord: { x: number; y: number; z: number }) => void;
 }
 
 export function LineDetailCard({ line, onClose, onStationClick }: LineDetailCardProps) {

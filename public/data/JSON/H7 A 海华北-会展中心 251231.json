@@ -1,7 +1,7 @@
 [
   {
-    "LineID": "ZRH7_A_01",
-    "LineName": "海华7号线",
+    "ID": "ZRH7_A_01",
+    "Name": "海华7号线",
     "bureau": "H",
     "line": "7",
     "color": "7f00ff",
@@ -62,8 +62,8 @@
     "CreateBy": "HyperBird_"
   },
   {
-    "LineID": "ZRH7_A_01_D",
-    "LineName": "海华7号线-下行",
+    "ID": "ZRH7_A_01_D",
+    "Name": "海华7号线-下行",
     "bureau": "H",
     "line": "7",
     "color": "7f00ff",
@@ -154,8 +154,8 @@
     "CreateBy": "HyperBird_"
   },
   {
-    "LineID": "ZRH7_A_01_U",
-    "LineName": "海华7号线-上行",
+    "ID": "ZRH7_A_01_U",
+    "Name": "海华7号线-上行",
     "bureau": "H",
     "line": "7",
     "color": "7f00ff",

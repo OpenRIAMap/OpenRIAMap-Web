@@ -1,10 +1,10 @@
 [
   {
-    "PGonID": "ZADMDBZL2_BLUC",
-    "PGonName": "白霖联盟文化区",
-    "PGonKind": "ADM",
-    "PGonSKind": "DBZ",
-    "PGonSKind2": "L2",
+    "ID": "ZADMDBZL2_BLUC",
+    "Name": "白霖联盟文化区",
+    "Kind": "ADM",
+    "SKind": "DBZ",
+    "SKind2": "L2",
     "Conpoints": [
       [
         4762,

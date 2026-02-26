@@ -217,12 +217,12 @@ export default function SettlementBoundaryLineWorkflow(props: WorkflowComponentP
       filter: (fi: any) => {
         const cls = String(fi.Class ?? fi.class ?? '').trim();
         if (cls !== 'ISG') return false;
-        const kind = String(fi.PGonKind ?? fi.Kind ?? fi?.tags?.PGonKind ?? fi?.tags?.Kind ?? '').trim();
-        const skind = String(fi.PGonSKind ?? fi.SKind ?? fi?.tags?.PGonSKind ?? fi?.tags?.SKind ?? '').trim();
+        const kind = String(fi.Kind ?? fi.Kind ?? fi?.tags?.Kind ?? fi?.tags?.Kind ?? '').trim();
+        const skind = String(fi.SKind ?? fi.SKind ?? fi?.tags?.SKind ?? fi?.tags?.SKind ?? '').trim();
         return kind === 'NGF' && (skind === 'LAD' || skind === 'WTB');
       },
-      getId: (fi: any) => String(fi.PGonID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
-      getName: (fi: any) => String(fi.PGonName ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
+      getId: (fi: any) => String(fi.ID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
+      getName: (fi: any) => String(fi.Name ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
       formatOption: (name, id) => `${name}(${id})`,
     }),
     []
@@ -240,11 +240,11 @@ export default function SettlementBoundaryLineWorkflow(props: WorkflowComponentP
         if (!Array.isArray(pts) || pts.length < 3) return false;
 
         const tags = (fi as any)?.tags ?? (fi as any)?.Tags ?? {};
-        const kind = String((fi as any).PGonKind ?? (fi as any).Kind ?? tags.PGonKind ?? tags.Kind ?? '').trim();
+        const kind = String((fi as any).Kind ?? (fi as any).Kind ?? tags.Kind ?? tags.Kind ?? '').trim();
         return kind === 'ADM';
       },
-      getId: (fi: any) => String(fi.PGonID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
-      getName: (fi: any) => String(fi.PGonName ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
+      getId: (fi: any) => String(fi.ID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
+      getName: (fi: any) => String(fi.Name ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
       formatOption: (name, id) => `${name}(${id})`,
     }),
     []
@@ -365,11 +365,11 @@ export default function SettlementBoundaryLineWorkflow(props: WorkflowComponentP
         coords,
         editorId: creatorId.trim(),
         values: {
-          PLineID: plineId,
-          PLineName: String(info.name ?? '').trim(),
-          PLineKind: kind,
-          PLineSKind: skind,
-          PLineSKind2: skind2,
+          ID: plineId,
+          Name: String(info.name ?? '').trim(),
+          Kind: kind,
+          SKind: skind,
+          SKind2: skind2,
         },
         groupInfo: {
           tags,
@@ -467,7 +467,7 @@ export default function SettlementBoundaryLineWorkflow(props: WorkflowComponentP
             bridge={bridge}
             label="所属地理单元（可选，将写入 tags.Land）"
             value={String(info.land ?? '')}
-            placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+            placeholder="输入关键词检索：可匹配 Name / ID"
             config={landUnitSearchCfg}
             onChange={(v) => setInfo((prev) => ({ ...prev, land: v }))}
           />
@@ -476,7 +476,7 @@ export default function SettlementBoundaryLineWorkflow(props: WorkflowComponentP
 	            bridge={bridge}
 	            label="边界1（可选，将写入 tags.BAdm1）"
 	            value={String(info.badm1 ?? '')}
-	            placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+	            placeholder="输入关键词检索：可匹配 Name / ID"
 	            config={admBoundarySearchCfg}
 	            onChange={(v) => setInfo((prev) => ({ ...prev, badm1: v }))}
 	          />
@@ -485,7 +485,7 @@ export default function SettlementBoundaryLineWorkflow(props: WorkflowComponentP
 	            bridge={bridge}
 	            label="边界2（可选，将写入 tags.BAdm2）"
 	            value={String(info.badm2 ?? '')}
-	            placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+	            placeholder="输入关键词检索：可匹配 Name / ID"
 	            config={admBoundarySearchCfg}
 	            onChange={(v) => setInfo((prev) => ({ ...prev, badm2: v }))}
 	          />
@@ -628,7 +628,7 @@ export default function SettlementBoundaryLineWorkflow(props: WorkflowComponentP
         <div className="text-xs text-gray-700">
           将生成：
           <div className="mt-1 font-mono text-xs break-all">
-            PLineID = {worldPrefix}{kind}
+            ID = {worldPrefix}{kind}
             {selected?.skind || '...'}
             {selected?.skind2 || '...'}_{abbrNormalized || '...'}
           </div>

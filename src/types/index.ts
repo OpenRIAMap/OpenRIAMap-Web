@@ -54,7 +54,7 @@ export interface SpecialCase {
 
 // 车站数据
 export interface Station {
-  stationName: string;
+  Name: string;
   lines: LineInfo[];
   specialCases?: SpecialCase[];
 }

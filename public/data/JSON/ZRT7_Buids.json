@@ -1,7 +1,7 @@
 [
   {
-    "plfRoundID": "ZRT7PFB_01",
-    "plfRoundName": "花森北山站",
+    "ID": "ZRT7PFB_01",
+    "Name": "花森北山站",
     "LineID": "ZRT7_01A",
     "Flrpoints": [
       [
@@ -31,8 +31,8 @@
     "CreateTime": "20251225"
   },
   {
-    "staBuildingID": "ZRTSTB_HSBS",
-    "staBuildingName": "花森北山站",
+    "ID": "ZRTSTB_HSBS",
+    "Name": "花森北山站",
     "Conpoints": [
       [
         6131.5,
@@ -67,8 +67,8 @@
     "CreateTime": "20251225"
   },
   {
-    "plfRoundID": "ZRT7PFB_02",
-    "plfRoundName": "花森居前站",
+    "ID": "ZRT7PFB_02",
+    "Name": "花森居前站",
     "LineID": "ZRT7_01A",
     "Flrpoints": [
       [
@@ -98,8 +98,8 @@
     "CreateTime": "20251225"
   },
   {
-    "staBuildingID": "ZRTSTB_HSJQ",
-    "staBuildingName": "花森居前站",
+    "ID": "ZRTSTB_HSJQ",
+    "Name": "花森居前站",
     "Conpoints": [
       [
         6129.5,
@@ -134,8 +134,8 @@
     "CreateTime": "20251225"
   },
   {
-    "plfRoundID": "ZRT7PFB_03",
-    "plfRoundName": "花森站",
+    "ID": "ZRT7PFB_03",
+    "Name": "花森站",
     "LineID": "ZRT7_01A",
     "Flrpoints": [
       [
@@ -166,8 +166,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_HS",
-    "staBuildingName": "花森站",
+    "ID": "ZRTSTB_HS",
+    "Name": "花森站",
     "Conpoints": [
       [
         6049.5,
@@ -223,8 +223,8 @@
     "CreateBy": "639"
   },
   {
-    "plfRoundID": "ZRT7PFB_04",
-    "plfRoundName": "北岿站",
+    "ID": "ZRT7PFB_04",
+    "Name": "北岿站",
     "LineID": "ZRT7_01A",
     "Flrpoints": [
       [
@@ -255,8 +255,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_BG",
-    "staBuildingName": "北岿站",
+    "ID": "ZRTSTB_BG",
+    "Name": "北岿站",
     "Conpoints": [
       [
         5673.5,
@@ -292,8 +292,8 @@
     "CreateBy": "639"
   },
   {
-    "plfRoundID": "ZRT7PFB_05",
-    "plfRoundName": "沁洄川站",
+    "ID": "ZRT7PFB_05",
+    "Name": "沁洄川站",
     "LineID": "ZRT7_01A",
     "Flrpoints": [
       [
@@ -326,8 +326,8 @@
     "ModifityBy": "639"
   },
   {
-    "plfRoundID": "ZRT7PFB_06",
-    "plfRoundName": "溯东站",
+    "ID": "ZRT7PFB_06",
+    "Name": "溯东站",
     "LineID": "ZRT7_01A",
     "Flrpoints": [
       [

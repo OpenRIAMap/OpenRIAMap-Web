@@ -1,10 +1,10 @@
 [
   {
-    "WRPointID": "ZWRPNOMNOM_ZDMT",
+    "ID": "ZWRPNOMNOM_ZDMT",
     "WRPointI2D": "zdmt",
-    "WRPointName": "主岛码头",
-    "WRPointKind": "NOM",
-    "WRPointSKind": "NOM",
+    "Name": "主岛码头",
+    "Kind": "NOM",
+    "SKind": "NOM",
     "hub": "zthspawn",
     "elevation": 0,
     "coordinate": {
@@ -20,11 +20,11 @@
     "CreateBy": "123"
   },
   {
-    "WRPointID": "ZWRPNOMNOM_NHNJ",
+    "ID": "ZWRPNOMNOM_NHNJ",
     "WRPointI2D": "nhnj",
-    "WRPointName": "南海鸟居",
-    "WRPointKind": "NOM",
-    "WRPointSKind": "NOM",
+    "Name": "南海鸟居",
+    "Kind": "NOM",
+    "SKind": "NOM",
     "elevation": 0,
     "coordinate": {
       "x": -104.2,
@@ -39,11 +39,11 @@
     "CreateBy": "123"
   },
   {
-    "WRPointID": "ZWRPNOMNOM_XYSS",
+    "ID": "ZWRPNOMNOM_XYSS",
     "WRPointI2D": "xyss",
-    "WRPointName": "鳕鱼神社",
-    "WRPointKind": "NOM",
-    "WRPointSKind": "NOM",
+    "Name": "鳕鱼神社",
+    "Kind": "NOM",
+    "SKind": "NOM",
     "elevation": 0,
     "coordinate": {
       "x": -1630.5,
@@ -58,11 +58,11 @@
     "CreateBy": "123"
   },
   {
-    "WRPointID": "ZWRPNOMNOM_XYPNJ",
+    "ID": "ZWRPNOMNOM_XYPNJ",
     "WRPointI2D": "xypnj",
-    "WRPointName": "鳕鱼贫鸟居",
-    "WRPointKind": "NOM",
-    "WRPointSKind": "NOM",
+    "Name": "鳕鱼贫鸟居",
+    "Kind": "NOM",
+    "SKind": "NOM",
     "elevation": 0,
     "coordinate": {
       "x": -558.4,
@@ -77,11 +77,11 @@
     "CreateBy": "123"
   },
   {
-    "WRPointID": "ZWRPNOMNOM_CYGY",
+    "ID": "ZWRPNOMNOM_CYGY",
     "WRPointI2D": "cygy",
-    "WRPointName": "朝阳工业",
-    "WRPointKind": "NOM",
-    "WRPointSKind": "NOM",
+    "Name": "朝阳工业",
+    "Kind": "NOM",
+    "SKind": "NOM",
     "elevation": 0,
     "coordinate": {
       "x": 9199.5,

@@ -1,5 +1,5 @@
 import type React from 'react';
-import { Building2, Leaf, Map, Home, Train, Zap, ShoppingCart } from 'lucide-react';
+import { Building2, Leaf, Map, Home, Train, Zap, ShoppingCart, Route } from 'lucide-react';
 
 /**
  * 规则图层“分组开关”配置
@@ -52,6 +52,13 @@ export const RULE_BUTTON_DEFS: RuleButtonDef[] = [
     criteria: { Class: ['RLE','STA', 'STB', 'PLF', 'PFB', 'SBP', 'STF'] },
   },
   {
+    id: 'road',
+    label: '道路',
+    tone: 'gray',
+    icon: <Route className="w-5 h-5" />,
+    criteria: { Class: ['ROD'] },
+  },
+  {
     id: 'natural_geo',
     label: '自然地理',
     tone: 'green',
@@ -102,7 +109,7 @@ export const RULE_BUTTON_DEFS: RuleButtonDef[] = [
  */
 export const RULE_BUTTON_POLICY = {
   /** 同时开启的最大按钮数（<=0 视为不限制） */
-  maxActive: 6,
+  maxActive: 0,
 };
 
 /**

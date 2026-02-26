@@ -30,7 +30,7 @@ function pickAnyName(obj: any): string {
     obj.name ??
     obj.StaName ??
     obj.StationName ??
-    obj.LineName ??
+    obj.Name ??
     obj.PlatformName ??
     obj.BuildingName;
   if (direct != null && String(direct).trim()) return String(direct).trim();

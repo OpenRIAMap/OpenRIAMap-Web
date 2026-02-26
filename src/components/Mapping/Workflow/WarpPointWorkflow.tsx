@@ -12,7 +12,7 @@ import WorkflowFeatureSearchSelect, { type SearchSelectConfig } from './Workflow
  * - 仅点要素：第 3 页为“起点坐标”并写入 coordinate/elevation
  *
  * 关键字段：
- * - WRPointID = WorldPrefix + 'WRP' + Kind + SKind + '_' + abbr
+ * - ID = WorldPrefix + 'WRP' + Kind + SKind + '_' + abbr
  * - WRPointI2D = “服内Warp名”（必填）
  * - tags: Land/UAdm/UAdmG
  * - extensions: link.wiki
@@ -196,12 +196,12 @@ export default function WarpPointWorkflow(props: WorkflowComponentProps) {
       filter: (fi: any) => {
         const cls = String(fi.Class ?? fi.class ?? '').trim();
         if (cls !== 'ISG') return false;
-        const kind = String(fi.PGonKind ?? fi.Kind ?? fi?.tags?.PGonKind ?? fi?.tags?.Kind ?? '').trim();
-        const skind = String(fi.PGonSKind ?? fi.SKind ?? fi?.tags?.PGonSKind ?? fi?.tags?.SKind ?? '').trim();
+        const kind = String(fi.Kind ?? fi.Kind ?? fi?.tags?.Kind ?? fi?.tags?.Kind ?? '').trim();
+        const skind = String(fi.SKind ?? fi.SKind ?? fi?.tags?.SKind ?? fi?.tags?.SKind ?? '').trim();
         return kind === 'NGF' && (skind === 'LAD' || skind === 'WTB');
       },
-      getId: (fi: any) => String(fi.PGonID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
-      getName: (fi: any) => String(fi.PGonName ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
+      getId: (fi: any) => String(fi.ID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
+      getName: (fi: any) => String(fi.Name ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
       formatOption: (name, id) => `${name}(${id})`,
     }),
     []
@@ -213,13 +213,13 @@ export default function WarpPointWorkflow(props: WorkflowComponentProps) {
       filter: (fi: any) => {
         const cls = String(fi.Class ?? fi.class ?? '').trim();
         if (cls !== 'ISP') return false;
-        const kind = String(fi.PointKind ?? fi.Kind ?? fi?.tags?.PointKind ?? fi?.tags?.Kind ?? '').trim();
-        const skind = String(fi.PointSKind ?? fi.SKind ?? fi?.tags?.PointSKind ?? fi?.tags?.SKind ?? '').trim();
-        const sk2 = String(fi.PointSKind2 ?? fi.SKind2 ?? fi?.tags?.PointSKind2 ?? fi?.tags?.SKind2 ?? '').trim();
+        const kind = String(fi.Kind ?? fi.Kind ?? fi?.tags?.Kind ?? fi?.tags?.Kind ?? '').trim();
+        const skind = String(fi.SKind ?? fi.SKind ?? fi?.tags?.SKind ?? fi?.tags?.SKind ?? '').trim();
+        const sk2 = String(fi.SKind2 ?? fi.SKind2 ?? fi?.tags?.SKind2 ?? fi?.tags?.SKind2 ?? '').trim();
         return kind === 'ADM' && skind === 'DBP' && sk2 === 'SHR';
       },
-      getId: (fi: any) => String(fi.PointID ?? fi.pointID ?? '').trim(),
-      getName: (fi: any) => String(fi.PointName ?? fi.pointName ?? '').trim(),
+      getId: (fi: any) => String(fi.ID ?? fi.pointID ?? '').trim(),
+      getName: (fi: any) => String(fi.Name ?? fi.pointName ?? '').trim(),
       formatOption: (name, id) => `${name}(${id})`,
     }),
     []
@@ -231,12 +231,12 @@ export default function WarpPointWorkflow(props: WorkflowComponentProps) {
       filter: (fi: any) => {
         const cls = String(fi.Class ?? fi.class ?? '').trim();
         if (cls !== 'ISG') return false;
-        const kind = String(fi.PGonKind ?? fi.Kind ?? fi?.tags?.PGonKind ?? fi?.tags?.Kind ?? '').trim();
-        const skind = String(fi.PGonSKind ?? fi.SKind ?? fi?.tags?.PGonSKind ?? fi?.tags?.SKind ?? '').trim();
+        const kind = String(fi.Kind ?? fi.Kind ?? fi?.tags?.Kind ?? fi?.tags?.Kind ?? '').trim();
+        const skind = String(fi.SKind ?? fi.SKind ?? fi?.tags?.SKind ?? fi?.tags?.SKind ?? '').trim();
         return kind === 'ADM' && (skind === 'DBP' || skind === 'PLZ');
       },
-      getId: (fi: any) => String(fi.PGonID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
-      getName: (fi: any) => String(fi.PGonName ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
+      getId: (fi: any) => String(fi.ID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
+      getName: (fi: any) => String(fi.Name ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
       formatOption: (name, id) => `${name}(${id})`,
     }),
     []
@@ -334,11 +334,11 @@ export default function WarpPointWorkflow(props: WorkflowComponentProps) {
         coords: [{ x: p0.x, z: p0.z, y: p0.y }],
         editorId: creatorId.trim(),
         values: {
-          WRPointID: wrId,
+          ID: wrId,
           WRPointI2D: String(info.wrpI2D ?? '').trim(),
-          WRPointName: String(info.name ?? '').trim(),
-          WRPointKind: kind,
-          WRPointSKind: skind,
+          Name: String(info.name ?? '').trim(),
+          Kind: kind,
+          SKind: skind,
           hub: String(info.hub ?? '').trim() || '',
           elevation: elevation ?? '',
         },
@@ -404,8 +404,8 @@ export default function WarpPointWorkflow(props: WorkflowComponentProps) {
             </select>
           </label>
 
-          <LabeledInput label="Warp点名称（WRPointName）" value={info.name} placeholder="例如：主城-中心" onChange={(v) => setInfo((s) => ({ ...s, name: v }))} />
-          <LabeledInput label="字符简称（用于组装 WRPointID）" value={info.abbr} placeholder="例如：MAIN1" onChange={(v) => setInfo((s) => ({ ...s, abbr: v }))} />
+          <LabeledInput label="Warp点名称（Name）" value={info.name} placeholder="例如：主城-中心" onChange={(v) => setInfo((s) => ({ ...s, name: v }))} />
+          <LabeledInput label="字符简称（用于组装 ID）" value={info.abbr} placeholder="例如：MAIN1" onChange={(v) => setInfo((s) => ({ ...s, abbr: v }))} />
 
           <LabeledInput
             label="服内Warp名（必填，将写入 WRPointI2D）"
@@ -434,7 +434,7 @@ export default function WarpPointWorkflow(props: WorkflowComponentProps) {
             bridge={bridge}
             label="所属地理单元（可选，写入 tags.Land）"
             value={String(info.land ?? '')}
-            placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+            placeholder="输入关键词检索：可匹配 Name / ID"
             config={landUnitSearchCfg}
             onChange={(v) => setInfo((s) => ({ ...s, land: v }))}
           />
@@ -442,7 +442,7 @@ export default function WarpPointWorkflow(props: WorkflowComponentProps) {
             bridge={bridge}
             label="所属聚落(地标点)（可选，写入 tags.UAdm）"
             value={String(info.uadm ?? '')}
-            placeholder="输入关键词检索：可匹配 PointName / PointID"
+            placeholder="输入关键词检索：可匹配 Name / ID"
             config={uadmLandmarkSearchCfg}
             onChange={(v) => setInfo((s) => ({ ...s, uadm: v }))}
           />
@@ -450,7 +450,7 @@ export default function WarpPointWorkflow(props: WorkflowComponentProps) {
             bridge={bridge}
             label="所属聚落(区划)（可选，写入 tags.UAdmG）"
             value={String(info.uadmg ?? '')}
-            placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+            placeholder="输入关键词检索：可匹配 Name / ID"
             config={uadmGSearchCfg}
             onChange={(v) => setInfo((s) => ({ ...s, uadmg: v }))}
           />

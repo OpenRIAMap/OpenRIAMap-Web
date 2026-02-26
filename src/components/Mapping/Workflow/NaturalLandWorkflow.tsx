@@ -300,11 +300,11 @@ export default function NaturalLandWorkflow(props: WorkflowComponentProps) {
         coords,
         editorId: creatorId.trim(),
         values: {
-          PGonID: pgonId,
-          PGonName: String(info.name ?? '').trim(),
-          PGonKind: kind,
-          PGonSKind: skind,
-          PGonSKind2: info.skind2,
+          ID: pgonId,
+          Name: String(info.name ?? '').trim(),
+          Kind: kind,
+          SKind: skind,
+          SKind2: info.skind2,
         },
         groupInfo: {
           tags: [
@@ -540,7 +540,7 @@ export default function NaturalLandWorkflow(props: WorkflowComponentProps) {
         <div className="text-xs text-gray-700">
           将生成：
           <div className="mt-1 font-mono text-xs break-all">
-            PGonID = {worldPrefix}{kind}{skind}{info.skind2 || '...'}_{abbrNormalized || '...'}
+            ID = {worldPrefix}{kind}{skind}{info.skind2 || '...'}_{abbrNormalized || '...'}
           </div>
         </div>
 

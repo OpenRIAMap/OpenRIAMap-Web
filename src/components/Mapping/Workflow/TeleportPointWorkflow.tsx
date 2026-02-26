@@ -19,7 +19,7 @@ import WorkflowFeatureSearchSelect, { type SearchSelectConfig } from './Workflow
  * 4) 目标点坐标（point，写入 TGTcoordinate + TGTelevation）
  *
  * 字段组合：
- * - TPPointID = WorldPrefix + 'TPP' + Kind + SKind + '_' + abbr
+ * - ID = WorldPrefix + 'TPP' + Kind + SKind + '_' + abbr
  * - tags: Land/UAdm/UAdmG
  * - extensions: link.wiki
  * - hub: 直属字段（非 tags）
@@ -142,7 +142,7 @@ async function loadWarpPool(worldId: string): Promise<WarpOption[]> {
       if (cls !== 'WRP') continue;
 
       const i2d = String((item as any).WRPointI2D ?? (item as any).wrPointI2D ?? '').trim();
-      const name = String((item as any).WRPointName ?? (item as any).wrPointName ?? i2d).trim();
+      const name = String((item as any).Name ?? (item as any).Name ?? i2d).trim();
       if (!i2d || !name) continue;
       out.push({ i2d, name });
     }
@@ -279,12 +279,12 @@ export default function TeleportPointWorkflow(props: WorkflowComponentProps) {
       filter: (fi: any) => {
         const cls = String(fi.Class ?? fi.class ?? '').trim();
         if (cls !== 'ISG') return false;
-        const kind = String(fi.PGonKind ?? fi.Kind ?? fi?.tags?.PGonKind ?? fi?.tags?.Kind ?? '').trim();
-        const skind = String(fi.PGonSKind ?? fi.SKind ?? fi?.tags?.PGonSKind ?? fi?.tags?.SKind ?? '').trim();
+        const kind = String(fi.Kind ?? fi.Kind ?? fi?.tags?.Kind ?? fi?.tags?.Kind ?? '').trim();
+        const skind = String(fi.SKind ?? fi.SKind ?? fi?.tags?.SKind ?? fi?.tags?.SKind ?? '').trim();
         return kind === 'NGF' && (skind === 'LAD' || skind === 'WTB');
       },
-      getId: (fi: any) => String(fi.PGonID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
-      getName: (fi: any) => String(fi.PGonName ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
+      getId: (fi: any) => String(fi.ID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
+      getName: (fi: any) => String(fi.Name ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
       formatOption: (name, id) => `${name}(${id})`,
     }),
     []
@@ -296,13 +296,13 @@ export default function TeleportPointWorkflow(props: WorkflowComponentProps) {
       filter: (fi: any) => {
         const cls = String(fi.Class ?? fi.class ?? '').trim();
         if (cls !== 'ISP') return false;
-        const kind = String(fi.PointKind ?? fi.Kind ?? fi?.tags?.PointKind ?? fi?.tags?.Kind ?? '').trim();
-        const skind = String(fi.PointSKind ?? fi.SKind ?? fi?.tags?.PointSKind ?? fi?.tags?.SKind ?? '').trim();
-        const sk2 = String(fi.PointSKind2 ?? fi.SKind2 ?? fi?.tags?.PointSKind2 ?? fi?.tags?.SKind2 ?? '').trim();
+        const kind = String(fi.Kind ?? fi.Kind ?? fi?.tags?.Kind ?? fi?.tags?.Kind ?? '').trim();
+        const skind = String(fi.SKind ?? fi.SKind ?? fi?.tags?.SKind ?? fi?.tags?.SKind ?? '').trim();
+        const sk2 = String(fi.SKind2 ?? fi.SKind2 ?? fi?.tags?.SKind2 ?? fi?.tags?.SKind2 ?? '').trim();
         return kind === 'ADM' && skind === 'DBP' && sk2 === 'SHR';
       },
-      getId: (fi: any) => String(fi.PointID ?? fi.pointID ?? '').trim(),
-      getName: (fi: any) => String(fi.PointName ?? fi.pointName ?? '').trim(),
+      getId: (fi: any) => String(fi.ID ?? fi.pointID ?? '').trim(),
+      getName: (fi: any) => String(fi.Name ?? fi.pointName ?? '').trim(),
       formatOption: (name, id) => `${name}(${id})`,
     }),
     []
@@ -310,16 +310,16 @@ export default function TeleportPointWorkflow(props: WorkflowComponentProps) {
 
   const uadmGSearchCfg: SearchSelectConfig = useMemo(
     () => ({
-      cacheKey: 'ISG_ADM_DBP_PLZ',
+      cacheKey: 'ISG_ADM_DBZ_PLZ',
       filter: (fi: any) => {
         const cls = String(fi.Class ?? fi.class ?? '').trim();
         if (cls !== 'ISG') return false;
-        const kind = String(fi.PGonKind ?? fi.Kind ?? fi?.tags?.PGonKind ?? fi?.tags?.Kind ?? '').trim();
-        const skind = String(fi.PGonSKind ?? fi.SKind ?? fi?.tags?.PGonSKind ?? fi?.tags?.SKind ?? '').trim();
-        return kind === 'ADM' && (skind === 'DBP' || skind === 'PLZ');
+        const kind = String(fi.Kind ?? fi.Kind ?? fi?.tags?.Kind ?? fi?.tags?.Kind ?? '').trim();
+        const skind = String(fi.SKind ?? fi.SKind ?? fi?.tags?.SKind ?? fi?.tags?.SKind ?? '').trim();
+        return kind === 'ADM' && (skind === 'DBZ' || skind === 'PLZ');
       },
-      getId: (fi: any) => String(fi.PGonID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
-      getName: (fi: any) => String(fi.PGonName ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
+      getId: (fi: any) => String(fi.ID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
+      getName: (fi: any) => String(fi.Name ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
       formatOption: (name, id) => `${name}(${id})`,
     }),
     []
@@ -421,7 +421,7 @@ export default function TeleportPointWorkflow(props: WorkflowComponentProps) {
 
       const i2d = String((fi as any).WRPointI2D ?? (fi as any).wrPointI2D ?? '').trim();
       const name = String(
-        (fi as any).WRPointName ?? (fi as any).wrPointName ?? (fi as any).Name ?? (fi as any).name ?? i2d
+        (fi as any).Name ?? (fi as any).Name ?? (fi as any).Name ?? (fi as any).name ?? i2d
       ).trim();
       if (!i2d) continue;
       out.push({ i2d, name: name || i2d });
@@ -550,10 +550,10 @@ export default function TeleportPointWorkflow(props: WorkflowComponentProps) {
         coords: [{ x: p0.x, z: p0.z, y: p0.y }],
         editorId: creatorId.trim(),
         values: {
-          TPPointID: tpId,
-          TPPointName: String(info.name ?? '').trim(),
-          TPPointKind: kind,
-          TPPointSKind: skind,
+          ID: tpId,
+          Name: String(info.name ?? '').trim(),
+          Kind: kind,
+          SKind: skind,
           hub: String(info.hub ?? '').trim() || '',
           elevation: elevation ?? '',
           TGTWarp: tgtWarpI2D,
@@ -617,10 +617,10 @@ const commit = () => {
         coords: [{ x: srcPoint.x, z: srcPoint.z, y: srcPoint.y }],
         editorId: creatorId.trim(),
         values: {
-          TPPointID: tpId,
-          TPPointName: String(info.name ?? '').trim(),
-          TPPointKind: kind,
-          TPPointSKind: skind,
+          ID: tpId,
+          Name: String(info.name ?? '').trim(),
+          Kind: kind,
+          SKind: skind,
           // SKind2 预留
           hub: String(info.hub ?? '').trim() || '',
           TGT_x: pTgt.x,
@@ -736,7 +736,7 @@ const commit = () => {
             bridge={bridge}
             label="所属地理单元（可选，将写入 tags.Land）"
             value={String(info.land ?? '')}
-            placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+            placeholder="输入关键词检索：可匹配 Name / ID"
             config={landUnitSearchCfg}
             onChange={(v) => setInfo((prev) => ({ ...prev, land: v }))}
           />
@@ -745,7 +745,7 @@ const commit = () => {
             bridge={bridge}
             label="所属聚落(地标点)（可选，将写入 tags.UAdm）"
             value={String(info.uadm ?? '')}
-            placeholder="输入关键词检索：可匹配 PointName / PointID"
+            placeholder="输入关键词检索：可匹配 Name / ID"
             config={uadmLandmarkSearchCfg}
             onChange={(v) => setInfo((prev) => ({ ...prev, uadm: v }))}
           />
@@ -754,7 +754,7 @@ const commit = () => {
             bridge={bridge}
             label="所属聚落(区划)（可选，将写入 tags.UAdmG）"
             value={String(info.uadmg ?? '')}
-            placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+            placeholder="输入关键词检索：可匹配 Name / ID"
             config={uadmGSearchCfg}
             onChange={(v) => setInfo((prev) => ({ ...prev, uadmg: v }))}
           />
@@ -772,7 +772,7 @@ const commit = () => {
             <input
               className="w-full border p-1 rounded text-sm"
               value={String(info.tgtWarpText ?? '')}
-              placeholder="输入关键词检索：可匹配 WRPointName 或 WRPointI2D"
+              placeholder="输入关键词检索：可匹配 Name 或 WRPointI2D"
               onChange={(e) => {
                 const v = e.target.value;
                 setInfo((prev) => ({

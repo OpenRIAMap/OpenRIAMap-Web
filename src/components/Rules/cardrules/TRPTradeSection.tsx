@@ -39,9 +39,9 @@ function resolveImgSrc(raw: any): string {
 }
 
 function buildTrpTypeLabel(fi: any): string {
-  const kind = String(fi?.TRPointKind ?? fi?.Kind ?? fi?.PointKind ?? fi?.kind ?? '').trim();
-  const skind = String(fi?.TRPointSKind ?? fi?.SKind ?? fi?.PointSKind ?? fi?.skind ?? '').trim();
-  const skind2 = String(fi?.TRPointSKind2 ?? fi?.SKind2 ?? fi?.PointSKind2 ?? fi?.skind2 ?? '').trim();
+  const kind = String(fi?.Kind ?? fi?.Kind ?? fi?.Kind ?? fi?.kind ?? '').trim();
+  const skind = String(fi?.SKind ?? fi?.SKind ?? fi?.SKind ?? fi?.skind ?? '').trim();
+  const skind2 = String(fi?.SKind2 ?? fi?.SKind2 ?? fi?.SKind2 ?? fi?.skind2 ?? '').trim();
   const hit = WORKFLOW_FEATURE_CATALOG.find(
     (e) => e.classCode === 'TRP' && e.kind === kind && e.skind === skind && String(e.skind2 ?? '') === skind2,
   );
@@ -207,62 +207,114 @@ export default function TRPTradeSection({ feature, onTryTriggerLabelClickById }:
       <div className="px-3 py-2 border-t border-black/10">
         <div className="text-xs font-semibold text-gray-800 mb-2">交易列表</div>
 
-        <div className="rounded-md border border-black/10 overflow-hidden">
+                <div className="rounded-md border border-black/10 overflow-hidden">
           <div
             ref={tradeRef}
             className="overflow-x-auto overflow-y-hidden"
             onWheel={onTradeWheel}
             onMouseDown={(e) => e.stopPropagation()}
           >
-            {/* table min width to trigger horizontal scroll when card is narrow */}
-            <div className="min-w-[640px]">
-              <div className="grid grid-cols-[minmax(260px,2fr)_56px_minmax(260px,2fr)_56px] gap-2 px-2 py-2 bg-black/5 text-[11px] font-semibold text-gray-700">
-                <div className="whitespace-normal">提供的物品</div>
-                <div className="text-right">数量</div>
-                <div className="whitespace-normal">获得的物品</div>
-                <div className="text-right">数量</div>
-              </div>
+            <table className="w-max min-w-full table-auto text-[11px]">
+              <colgroup>
+                <col />
+                <col style={{ width: '5ch' }} />
+                <col />
+                <col style={{ width: '5ch' }} />
+              </colgroup>
 
-              {trades.length > 0 ? (
-                trades.map((t, idx) => {
-                  const offers = t.offers.length > 0 ? t.offers : [{ Name: '（空）' } as any];
-                  const receives = t.receives.length > 0 ? t.receives : [{ Name: '（空）' } as any];
-                  const lines = Math.max(offers.length, receives.length);
-                  return (
-                    <div key={`${t.key}-${idx}`} className="border-t border-black/10">
-                      <div className="px-2 py-2">
-                        <div className="space-y-2">
-                          {Array.from({ length: lines }).map((_, li) => {
-                            const o = offers[li];
-                            const r = receives[li];
-                            return (
-                              <div
-                                key={`${t.key}-line-${li}`}
-                                className="grid grid-cols-[minmax(260px,2fr)_56px_minmax(260px,2fr)_56px] gap-2 items-center"
-                              >
-                                <div className="min-w-0">{o ? <TrpItemLine item={o} /> : <div className="text-xs text-gray-400">—</div>}</div>
-                                <div className="text-xs text-gray-800 text-right tabular-nums">{o?.Count ?? ''}</div>
-                                <div className="min-w-0">{r ? <TrpItemLine item={r} /> : <div className="text-xs text-gray-400">—</div>}</div>
-                                <div className="text-xs text-gray-800 text-right tabular-nums">{r?.Count ?? ''}</div>
-                              </div>
-                            );
-                          })}
+              <thead className="bg-black/5 text-gray-700">
+                <tr className="border-b border-black/10">
+                  <th className="text-left font-semibold px-2 py-2">提供的物品</th>
+                  <th className="text-center font-semibold px-2 py-2">
+                    <span className="inline-flex items-center justify-center rounded-md border border-slate-500 px-1 py-1 leading-none min-w-[4ch] justify-center">
+                      数量
+                    </span>
+                  </th>
+                  <th className="text-left font-semibold px-2 py-2">获得的物品</th>
+                  <th className="text-center font-semibold px-2 py-2">
+                    <span className="inline-flex items-center justify-center rounded-md border border-slate-500 px-1 py-1 leading-none min-w-[4ch] justify-center">
+                      数量
+                    </span>
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody className="bg-white text-gray-800">
+                {trades.length > 0 ? (
+                  trades.map((t, idx) => {
+                    const offers = t.offers.length > 0 ? t.offers : ([null] as any[]);
+                    const receives = t.receives.length > 0 ? t.receives : ([null] as any[]);
+                    const lines = Math.max(offers.length, receives.length);
+
+                    const renderQty = (v: any) => {
+                      const s = String(v ?? '').trim();
+                      const empty = !s;
+                      return (
+                        <div
+                          className={[
+                            'h-[42px] w-full rounded-xl bg-black/5',
+                            'flex items-center justify-center tabular-nums',
+                            empty ? 'text-gray-400' : 'text-gray-900',
+                          ].join(' ')}
+                        >
+                          {empty ? '—' : s}
                         </div>
-                      </div>
+                      );
+                    };
 
-                      {/* note row */}
-                      {nonEmpty(t.note) ? (
-                        <div className="px-2 pb-3 -mt-1 text-[11px] text-gray-600 break-words whitespace-pre-wrap">{t.note}</div>
-                      ) : (
-                        <div className="h-2" />
-                      )}
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="px-3 py-4 text-[11px] text-gray-500">（未找到 Trade 列表）</div>
-              )}
-            </div>
+                    const renderEmptyItem = () => (
+                      <div className="h-[42px] w-full flex items-center justify-center text-gray-400">—</div>
+                    );
+
+                    return (
+                      <>
+                        {Array.from({ length: lines }).map((_, li) => {
+                          const o = offers[li] ?? null;
+                          const r = receives[li] ?? null;
+                          return (
+                            <tr key={`${t.key}-${idx}-line-${li}`} className={li === 0 ? 'border-t border-black/10' : ''}>
+                              <td className="px-2 py-2 align-middle">
+                                <div className="min-w-0" style={{ maxWidth: 'calc(42px + 10ch + 24px)' }}>
+                                  {o ? <TrpItemLine item={o} /> : renderEmptyItem()}
+                                </div>
+                              </td>
+                              <td className="px-2 py-2 align-middle text-center">{renderQty(o?.Count)}</td>
+                              <td className="px-2 py-2 align-middle">
+                                <div className="min-w-0" style={{ maxWidth: 'calc(42px + 10ch + 24px)' }}>
+                                  {r ? <TrpItemLine item={r} /> : renderEmptyItem()}
+                                </div>
+                              </td>
+                              <td className="px-2 py-2 align-middle text-center">{renderQty(r?.Count)}</td>
+                            </tr>
+                          );
+                        })}
+
+                        {nonEmpty(t.note) ? (
+                          <tr key={`${t.key}-${idx}-note`} className="border-b border-black/10">
+                            <td colSpan={4} className="px-2 pb-3 -mt-1 text-[11px] text-gray-600 break-words whitespace-pre-wrap">
+                              <div className="flex items-stretch gap-2">
+                                <div className="w-[3px] rounded bg-black/20" />
+                                <div className="min-w-0">{t.note}</div>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : (
+                          <tr key={`${t.key}-${idx}-sp`} className="border-b border-black/10">
+                            <td colSpan={4} className="h-2" />
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={4} className="px-3 py-4 text-[11px] text-gray-500">
+                      （未找到 Trade 列表）
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>

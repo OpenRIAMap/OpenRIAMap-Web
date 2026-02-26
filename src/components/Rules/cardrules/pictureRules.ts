@@ -77,30 +77,30 @@ export function extractKindTriplet(feature?: FeatureRecord | null): {
    *
    * 说明：通用要素集包含面(ISD/ISG...)、线(ISL)、点(ISP)。
    * 不同几何类型在 featureInfo 中使用不同字段命名（同时允许写入 tags 回退）：
-   * - 面（Polygon）：PGonKind / PGonSKind / PGonSKind2
-   * - 线（Polyline）：PLineKind / PLineSKind / PLineSKind2
-   * - 点（Point）：PointKind / PointSKind / PointSKind2
+   * - 面（Polygon）：Kind / SKind / SKind2
+   * - 线（Polyline）：Kind / SKind / SKind2
+   * - 点（Point）：Kind / SKind / SKind2
    * - 兼容旧/杂项：Kind / SKind / SKind2
    *
    * 后续如需新增解析来源（例如其它 workflow 写入字段），优先在此处集中扩展，
    * 避免在各处散落“只支持 PGon”的判断。
    */
 
-  // 兼容不同命名：Kind / PGonKind / PLineKind / PointKind / tags.* 等。
+  // 兼容不同命名：Kind / Kind / Kind / Kind / tags.* 等。
   // 重要：铁路 STA/STB/PLF/RLE 等对象通常没有 Kind 字段，而是使用 meta.Class / featureInfo.Class。
   // 因此这里必须做回退，否则目录规则与字段解析规则都不会命中。
   const Kind =
-    readString(fi, ['Kind', 'PGonKind', 'PLineKind', 'PointKind']) ||
-    readString(fi?.tags, ['Kind', 'PGonKind', 'PLineKind', 'PointKind']) ||
+    readString(fi, ['Kind', 'Kind', 'Kind', 'Kind']) ||
+    readString(fi?.tags, ['Kind', 'Kind', 'Kind', 'Kind']) ||
     readString(fi, ['Class']) ||
     String(feature?.meta?.Class ?? '').trim();
   const SKind =
-    readString(fi, ['SKind', 'PGonSKind', 'PLineSKind', 'PointSKind']) ||
-    readString(fi?.tags, ['SKind', 'PGonSKind', 'PLineSKind', 'PointSKind']) ||
+    readString(fi, ['SKind', 'SKind', 'SKind', 'SKind']) ||
+    readString(fi?.tags, ['SKind', 'SKind', 'SKind', 'SKind']) ||
     '';
   const SKind2 =
-    readString(fi, ['SKind2', 'PGonSKind2', 'PLineSKind2', 'PointSKind2']) ||
-    readString(fi?.tags, ['SKind2', 'PGonSKind2', 'PLineSKind2', 'PointSKind2']) ||
+    readString(fi, ['SKind2', 'SKind2', 'SKind2', 'SKind2']) ||
+    readString(fi?.tags, ['SKind2', 'SKind2', 'SKind2', 'SKind2']) ||
     '';
 
   return { Kind, SKind, SKind2 };

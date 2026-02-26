@@ -413,8 +413,8 @@ export default function RailwayWorkflow(props: WorkflowComponentProps) {
         : { startplf: startStation, endplf: endStation, swapped: false };
 
     const values: WorkflowCommitArgs['values'] = {
-      LineID: args.lineId,
-      LineName: args.lineName,
+      ID: args.lineId,
+      Name: args.lineName,
       bureau: String(info.bureau ?? '').trim(),
       line: String(info.lineNo ?? '').trim(),
       color: buildColor(),
@@ -915,7 +915,7 @@ if (step === 'branch') {
           </AppButton>
 
           <div className="text-xs opacity-70">
-            点击完成将：构建 LineID、输出展示线（dir=3；联络线=4；股道=5；支线=6；无方向联络线=7；其他=2），并按选择生成后续上下行线。
+            点击完成将：构建 ID、输出展示线（dir=3；联络线=4；股道=5；支线=6；无方向联络线=7；其他=2），并按选择生成后续上下行线。
           </div>
         </div>
       </div>

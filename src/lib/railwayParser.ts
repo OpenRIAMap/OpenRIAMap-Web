@@ -117,7 +117,7 @@ export function parseRailwayData(stations: Station[]): {
   // 线路索引: lineId -> { stations: Map<stationCode, stationInfo> }
   const lineIndex = new Map<string, Map<number, { name: string; coord: Coordinate; lineInfo: LineInfo }>>();
 
-  // 站点索引: stationName -> ParsedStation
+  // 站点索引: Name -> ParsedStation
   const stationIndex = new Map<string, ParsedStation>();
 
   // 第一遍：收集所有线路和站点信息
@@ -138,7 +138,7 @@ export function parseRailwayData(stations: Station[]): {
       }
 
       lineIndex.get(lineId)!.set(line.stationCode, {
-        name: station.stationName,
+        name: station.Name,
         coord: line.coord,
         lineInfo: line,
       });
@@ -146,10 +146,10 @@ export function parseRailwayData(stations: Station[]): {
 
     // 添加到站点索引（只有经过至少一条已开通线路的站点）
     if (lineIds.length > 0) {
-      if (!stationIndex.has(station.stationName)) {
+      if (!stationIndex.has(station.Name)) {
         const firstLine = station.lines.find(l => l.distance !== -1)!;
-        stationIndex.set(station.stationName, {
-          name: station.stationName,
+        stationIndex.set(station.Name, {
+          name: station.Name,
           coord: firstLine.coord,
           stationCode: firstLine.stationCode,
           isTransfer: lineIds.length > 1,
@@ -157,7 +157,7 @@ export function parseRailwayData(stations: Station[]): {
         });
       } else {
         // 更新换乘信息
-        const existing = stationIndex.get(station.stationName)!;
+        const existing = stationIndex.get(station.Name)!;
         existing.isTransfer = true;
         existing.lines = [...new Set([...existing.lines, ...lineIds])];
       }

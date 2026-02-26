@@ -32,6 +32,19 @@ type TeleportPoint = {
   tgt: Coordinate;
 };
 
+// 传送导航内部图缓存：避免每次点击都 O(n^2) 构建 kNN，导致“长期加载”观感
+type TeleportInternalGraphCache = {
+  key: string;
+  internalNodes: Coordinate[];
+  nodeIndex: Map<string, number>;
+  teleportEdges: Array<{ sId: number; tId: number; tpId: string; tpName: string }>;
+  hubSrcByHub: Map<string, number[]>;
+  neighborIdx: number[][];
+  builtAt: number;
+};
+
+const TELEPORT_GRAPH_CACHE: Record<string, TeleportInternalGraphCache | undefined> = {};
+
 export type TeleportNewSegment =
   | {
       kind: 'fly';
@@ -258,8 +271,8 @@ async function loadTeleportPoints(worldId: string, opt: {
   const out: TeleportPoint[] = [];
 
   for (const item of tppRaw) {
-    const id = String((item as any).TPPointID ?? (item as any).tpPointID ?? '').trim();
-    const name = String((item as any).TPPointName ?? (item as any).tpPointName ?? id).trim();
+    const id = String((item as any).ID ?? '').trim();
+    const name = String((item as any).Name ?? id).trim();
     const hub = String((item as any).hub ?? (item as any).tags?.hub ?? '').trim() || undefined;
 
     const c = (item as any).coordinate;
@@ -369,6 +382,12 @@ export async function computeTeleportNewPlanFromCoords(opt: NavigationTeleportCo
   const rawStart = normCoord(opt.startCoord);
   const endCoord = normCoord(opt.endCoord);
 
+  // 计算 dataSource key（用于内部图缓存）
+  const base = RULE_DATA_SOURCES[worldId];
+  const dsBaseUrl = opt.dataSourceOverride?.baseUrl ?? base?.baseUrl ?? '';
+  const dsFiles = (opt.filesOverride ?? opt.dataSourceOverride?.files ?? base?.files ?? []) as string[];
+  const dsKey = `${dsBaseUrl}::${(dsFiles ?? []).join('|')}`;
+
   const tps = await loadTeleportPoints(worldId, {
     dataSourceOverride: opt.dataSourceOverride,
     filesOverride: opt.filesOverride,
@@ -418,80 +437,98 @@ export async function computeTeleportNewPlanFromCoords(opt: NavigationTeleportCo
   }
 
   // ------------------------------
-  // build unique node list (src+tgt)
+  // build/reuse internal graph cache (unique nodes + kNN)
   // ------------------------------
 
-  const nodeIndex = new Map<string, number>();
-  const nodes: Coordinate[] = [];
-  const nodeAdd = (c: Coordinate) => {
-    const cc = normCoord(c);
-    const k = coordKey(cc);
-    const hit = nodeIndex.get(k);
-    if (hit !== undefined) return hit;
-    const id = nodes.length;
-    nodes.push(cc);
-    nodeIndex.set(k, id);
-    return id;
+  const graphKey = `${dsKey}::knn=${knn}`;
+  let g = TELEPORT_GRAPH_CACHE[worldId];
+
+  const rebuildGraph = () => {
+    const nodeIndex = new Map<string, number>();
+    const internalNodes: Coordinate[] = [];
+    const nodeAdd = (c: Coordinate) => {
+      const cc = normCoord(c);
+      const k = coordKey(cc);
+      const hit = nodeIndex.get(k);
+      if (hit !== undefined) return hit;
+      const id = internalNodes.length;
+      internalNodes.push(cc);
+      nodeIndex.set(k, id);
+      return id;
+    };
+
+    const teleportEdges: Array<{ sId: number; tId: number; tpId: string; tpName: string }> = [];
+    const hubSrcByHub = new Map<string, number[]>();
+
+    for (const tp of tps) {
+      const sId = nodeAdd(tp.src);
+      const tId = nodeAdd(tp.tgt);
+      teleportEdges.push({ sId, tId, tpId: tp.id, tpName: tp.name });
+      if (tp.hub) {
+        const arr = hubSrcByHub.get(tp.hub) ?? [];
+        arr.push(sId);
+        hubSrcByHub.set(tp.hub, arr);
+      }
+    }
+
+    // kNN neighbor indices (O(n^2) once, cached)
+    const internalCount = internalNodes.length;
+    const neighborIdx: number[][] = Array.from({ length: internalCount }, () => []);
+    for (let i = 0; i < internalCount; i++) {
+      const a = internalNodes[i];
+      const best: Array<{ d2: number; i: number }> = [];
+      for (let j = 0; j < internalCount; j++) {
+        if (i === j) continue;
+        const b = internalNodes[j];
+        const dx = a.x - b.x;
+        const dz = a.z - b.z;
+        const d2 = dx * dx + dz * dz;
+        insertBest(best, { d2, i: j }, knn);
+      }
+      neighborIdx[i] = best.map((x) => x.i);
+    }
+
+    const built: TeleportInternalGraphCache = {
+      key: graphKey,
+      internalNodes,
+      nodeIndex,
+      teleportEdges,
+      hubSrcByHub,
+      neighborIdx,
+      builtAt: Date.now(),
+    };
+    TELEPORT_GRAPH_CACHE[worldId] = built;
+    return built;
   };
 
-  // for hub start：需要快速找“hub 内所有 src 节点”
-  const hubSrcNodeIds: number[] = [];
-
-  for (const tp of tps) {
-    const sId = nodeAdd(tp.src);
-    const tId = nodeAdd(tp.tgt);
-    if (usedHub && tp.hub && tp.hub === usedHub) {
-      hubSrcNodeIds.push(sId);
-    }
-    // ensure both exist
-    void tId;
+  if (!g || g.key !== graphKey) {
+    g = rebuildGraph();
   }
 
-  const internalCount = nodes.length;
+  const internalNodes = g.internalNodes;
+  const internalCount = internalNodes.length;
+
   const S = internalCount;
   const E = internalCount + 1;
-  nodes.push(startCoord);
-  nodes.push(endCoord);
-
+  const nodes: Coordinate[] = [...internalNodes, startCoord, endCoord];
   const adj: Edge[][] = Array.from({ length: nodes.length }, () => []);
 
   // --- teleport edges
-  for (const tp of tps) {
-    const sId = nodeAdd(tp.src);
-    const tId = nodeAdd(tp.tgt);
-    adj[sId].push({
-      to: tId,
+  for (const te of g.teleportEdges) {
+    adj[te.sId].push({
+      to: te.tId,
       time: teleportCostSeconds,
       distance: 0,
       kind: 'teleport',
-      tpId: tp.id,
-      tpName: tp.name,
+      tpId: te.tpId,
+      tpName: te.tpName,
     });
   }
 
   // --- fly edges among internal nodes (kNN)
-  // NOTE: nodes 包含 S/E 的坐标，但这里只在 [0,internalCount) 内建 kNN
-  const internalNodes = nodes.slice(0, internalCount);
-
-  const neighborIdx: number[][] = Array.from({ length: internalCount }, () => []);
-
   for (let i = 0; i < internalCount; i++) {
     const a = internalNodes[i];
-    const best: Array<{ d2: number; i: number }> = [];
-    for (let j = 0; j < internalCount; j++) {
-      if (i === j) continue;
-      const b = internalNodes[j];
-      const dx = a.x - b.x;
-      const dz = a.z - b.z;
-      const d2 = dx * dx + dz * dz;
-      insertBest(best, { d2, i: j }, knn);
-    }
-    neighborIdx[i] = best.map((x) => x.i);
-  }
-
-  for (let i = 0; i < internalCount; i++) {
-    const a = internalNodes[i];
-    for (const j of neighborIdx[i]) {
+    for (const j of g.neighborIdx[i]) {
       const b = internalNodes[j];
       const d = dist2D(a, b);
       const t = d / flySpeed;
@@ -503,8 +540,11 @@ export async function computeTeleportNewPlanFromCoords(opt: NavigationTeleportCo
 
   // --- start / end connections
   const startCandidates = new Set<number>();
-  if (usedHub && hubSrcNodeIds.length) {
-    for (const id of hubSrcNodeIds) startCandidates.add(id);
+  if (usedHub) {
+    const hubIds = g.hubSrcByHub.get(usedHub);
+    if (hubIds?.length) {
+      for (const id of hubIds) startCandidates.add(id);
+    }
   }
   // also add nearest K for robustness
   for (const id of pickNearestK(internalNodes, startCoord, startK)) startCandidates.add(id);

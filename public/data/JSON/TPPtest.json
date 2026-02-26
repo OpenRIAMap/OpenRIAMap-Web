@@ -1,9 +1,9 @@
 [
   {
-    "TPPointID": "ZTPPNOMNOM_MLD-XYPNJ",
-    "TPPointName": "主岛->鳕鱼贫鸟居",
-    "TPPointKind": "NOM",
-    "TPPointSKind": "NOM",
+    "ID": "ZTPPNOMNOM_MLD-XYPNJ",
+    "Name": "主岛->鳕鱼贫鸟居",
+    "Kind": "NOM",
+    "SKind": "NOM",
     "hub": "zthspawn",
     "TGTWarp": "xypnj",
     "coordinate": {
@@ -20,10 +20,10 @@
     "CreateBy": "639"
   },
   {
-    "TPPointID": "ZTPPNOMNOM_MLD-XYSS",
-    "TPPointName": "主岛->鳕鱼神社",
-    "TPPointKind": "NOM",
-    "TPPointSKind": "NOM",
+    "ID": "ZTPPNOMNOM_MLD-XYSS",
+    "Name": "主岛->鳕鱼神社",
+    "Kind": "NOM",
+    "SKind": "NOM",
     "hub": "zthspawn",
     "TGTWarp": "xyss",
     "coordinate": {
@@ -40,10 +40,10 @@
     "CreateBy": "639"
   },
   {
-    "TPPointID": "ZTPPNOMNOM_MLD-NHNJ",
-    "TPPointName": "主岛->南海鸟居",
-    "TPPointKind": "NOM",
-    "TPPointSKind": "NOM",
+    "ID": "ZTPPNOMNOM_MLD-NHNJ",
+    "Name": "主岛->南海鸟居",
+    "Kind": "NOM",
+    "SKind": "NOM",
     "hub": "zthspawn",
     "TGTWarp": "nhnj",
     "coordinate": {
@@ -60,10 +60,10 @@
     "CreateBy": "639"
   },
   {
-    "TPPointID": "ZTPPNOMNOM_HHY-CYGY",
-    "TPPointName": "海华屿->朝阳工业",
-    "TPPointKind": "NOM",
-    "TPPointSKind": "NOM",
+    "ID": "ZTPPNOMNOM_HHY-CYGY",
+    "Name": "海华屿->朝阳工业",
+    "Kind": "NOM",
+    "SKind": "NOM",
     "TGTWarp": "cygy",
     "coordinate": {
       "x": 9389,

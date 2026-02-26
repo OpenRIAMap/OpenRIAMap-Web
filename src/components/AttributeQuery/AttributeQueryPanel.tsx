@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { X, Filter, Search } from 'lucide-react';
+import { X, Filter, Search, Plus, Trash2 } from 'lucide-react';
 import AppCard from '@/components/ui/AppCard';
 import AppButton from '@/components/ui/AppButton';
 
@@ -9,6 +9,27 @@ import { getValueByPath, pickIdFieldValue, type FeatureRecord } from '@/componen
 import type { SearchResult } from '@/components/Search/SearchBar';
 
 type Op = '=' | '!=' | '>' | '>=' | '<' | '<=';
+
+// Join with previous rows:
+// - 并：需要同时满足（交集）
+// - 或：满足任一条件（并集）
+type Join = 'UNION' | 'INTERSECT';
+
+type QueryRow = {
+  id: string;
+  join: Join; // 与上一行的组合方式（第一行 join 无意义）
+  field: string;
+  op: Op;
+  value: string;
+};
+
+const makeRow = (join: Join = 'INTERSECT'): QueryRow => ({
+  id: (globalThis as any).crypto?.randomUUID?.() ?? String(Date.now() + Math.random()),
+  join,
+  field: '',
+  op: '=',
+  value: '',
+});
 
 export function AttributeQueryPanel({
   worldId,
@@ -19,9 +40,7 @@ export function AttributeQueryPanel({
   onSelect: (r: SearchResult) => void;
   onClose: () => void;
 }) {
-  const [field, setField] = useState('');
-  const [op, setOp] = useState<Op>('=');
-  const [value, setValue] = useState('');
+  const [rows, setRows] = useState<QueryRow[]>([makeRow('INTERSECT')]);
   const [results, setResults] = useState<FeatureRecord[]>([]);
   const [searched, setSearched] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -35,9 +54,7 @@ export function AttributeQueryPanel({
   const pool = useMemo(() => getRuleSearchPool(worldId), [worldId]);
 
   const resetAll = () => {
-    setField('');
-    setOp('=');
-    setValue('');
+    setRows([makeRow('INTERSECT')]);
     setResults([]);
     setSearched(false);
   };
@@ -84,7 +101,7 @@ export function AttributeQueryPanel({
       }
     }
     if (!rawName) {
-      const commonKeys = ['Name', 'name', 'PointName', 'PGonName', 'PLineName', 'LineName', 'TRPointName', 'TPPointName', 'WRPointName'];
+      const commonKeys = ['Name', 'name', 'ID', 'id'];
       for (const k of commonKeys) {
         rawName = tryGetCI(k);
         if (rawName) break;
@@ -202,22 +219,53 @@ export function AttributeQueryPanel({
   };
 
   const runSearch = () => {
-    const f = field.trim();
-    const v = value.trim();
-    if (!f || !v) {
+    const cleaned = rows
+      .map((r) => ({ ...r, field: r.field.trim(), value: r.value.trim() }))
+      .filter((r) => r.field && r.value);
+
+    if (!cleaned.length) {
       setResults([]);
       setSearched(true);
       return;
     }
 
-    const out: FeatureRecord[] = [];
-    for (const r of pool) {
-      const fi: any = r?.featureInfo ?? {};
-      const raw = resolveFieldValue(fi, f);
-      if (!pass(raw, op, v)) continue;
-      out.push(r);
-      if (out.length >= 200) break; // 避免长列表卡顿
+    const calcOne = (row: QueryRow): FeatureRecord[] => {
+      const out: FeatureRecord[] = [];
+      for (const r of pool) {
+        const fi: any = r?.featureInfo ?? {};
+        const raw = resolveFieldValue(fi, row.field);
+        if (!pass(raw, row.op, row.value)) continue;
+        out.push(r);
+        if (out.length >= 2000) break; // 多行组合前允许更多候选，后续再裁剪
+      }
+      return out;
+    };
+
+    let current: Map<string, FeatureRecord> | null = null;
+
+    for (let i = 0; i < cleaned.length; i++) {
+      const row = cleaned[i];
+      const list = calcOne(row);
+      const m = new Map<string, FeatureRecord>();
+      for (const r of list) m.set(r.uid, r);
+
+      if (!current) {
+        current = m;
+        continue;
+      }
+
+      // 并：交集（必须同时满足）
+      // 或：并集（满足任一）
+      if (row.join === 'INTERSECT') {
+        for (const k of Array.from(current.keys())) {
+          if (!m.has(k)) current.delete(k);
+        }
+      } else {
+        for (const [k, v] of m) current.set(k, v);
+      }
     }
+
+    const out = current ? Array.from(current.values()).slice(0, 200) : [];
     setResults(out);
     setSearched(true);
   };
@@ -239,38 +287,77 @@ export function AttributeQueryPanel({
       </div>
 
       <div className="p-3 border-b">
-        <div className="grid grid-cols-12 gap-2 items-center">
-          <input
-            ref={inputRef}
-            className="col-span-5 px-2 py-1.5 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            placeholder="字段（如 Class / tags.Kind）"
-            value={field}
-            onChange={(e) => setField(e.target.value)}
-            onKeyDown={onKeyDown}
-          />
-          <select
-            className="col-span-2 px-2 py-1.5 border rounded text-sm bg-white"
-            value={op}
-            onChange={(e) => setOp(e.target.value as Op)}
-          >
-            <option value="=">=</option>
-            <option value="!=">!=</option>
-            <option value=">">&gt;</option>
-            <option value=">=">&gt;=</option>
-            <option value="<">&lt;</option>
-            <option value="<=">&lt;=</option>
-          </select>
-          <input
-            className="col-span-5 px-2 py-1.5 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            placeholder="值（字符串或数字）"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={onKeyDown}
-          />
+        <div className="space-y-2">
+          {rows.map((row, idx) => (
+            <div key={row.id} className="grid grid-cols-12 gap-2 items-center">
+              {idx === 0 ? (
+                <div className="col-span-2 text-[11px] text-gray-500">条件</div>
+              ) : (
+                <select
+                  className="col-span-2 px-2 py-1.5 border rounded text-sm bg-white"
+                  value={row.join}
+                  onChange={(e) =>
+                    setRows((p) => p.map((x) => (x.id === row.id ? { ...x, join: e.target.value as Join } : x)))
+                  }
+                  title="与上一行组合"
+                >
+                  <option value="INTERSECT">并</option>
+                  <option value="UNION">或</option>
+                </select>
+              )}
+
+              <input
+                ref={idx === 0 ? inputRef : undefined}
+                className="col-span-4 px-2 py-1.5 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                placeholder="字段（如 Class / tags.Kind）"
+                value={row.field}
+                onChange={(e) => setRows((p) => p.map((x) => (x.id === row.id ? { ...x, field: e.target.value } : x)))}
+                onKeyDown={onKeyDown}
+              />
+
+              <select
+                className="col-span-2 px-2 py-1.5 border rounded text-sm bg-white"
+                value={row.op}
+                onChange={(e) => setRows((p) => p.map((x) => (x.id === row.id ? { ...x, op: e.target.value as Op } : x)))}
+              >
+                <option value="=">=</option>
+                <option value="!=">!=</option>
+                <option value=">">&gt;</option>
+                <option value=">=">&gt;=</option>
+                <option value="<">&lt;</option>
+                <option value="<=">&lt;=</option>
+              </select>
+
+              <input
+                className="col-span-3 px-2 py-1.5 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                placeholder="值"
+                value={row.value}
+                onChange={(e) => setRows((p) => p.map((x) => (x.id === row.id ? { ...x, value: e.target.value } : x)))}
+                onKeyDown={onKeyDown}
+              />
+
+              <AppButton
+                onClick={() => setRows((p) => (p.length <= 1 ? p : p.filter((x) => x.id !== row.id)))}
+                className="col-span-1 p-1.5 border rounded bg-white hover:bg-gray-50 text-gray-600 disabled:opacity-50"
+                disabled={rows.length <= 1}
+                title="删除此行"
+              >
+                <Trash2 className="w-4 h-4" />
+              </AppButton>
+            </div>
+          ))}
         </div>
         <div className="flex items-center justify-between mt-2">
           <div className="text-[11px] text-gray-500">范围：当前世界预加载池（含临时挂载）</div>
           <div className="flex items-center gap-2">
+            <AppButton
+              onClick={() => setRows((p) => [...p, makeRow('INTERSECT')])}
+              className="px-2 py-1 text-xs border rounded bg-white hover:bg-gray-50 text-gray-600 flex items-center gap-1"
+              title="添加条件"
+            >
+              <Plus className="w-3 h-3" />
+              添加
+            </AppButton>
             <AppButton
               onClick={resetAll}
               className="px-2 py-1 text-xs border rounded bg-white hover:bg-gray-50 text-gray-600"

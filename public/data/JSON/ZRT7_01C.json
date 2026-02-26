@@ -1,7 +1,7 @@
 [
   {
-    "LineID": "ZRT7_01C",
-    "LineName": "溯铁7号线田北段",
+    "ID": "ZRT7_01C",
+    "Name": "溯铁7号线田北段",
     "bureau": "T",
     "line": "7",
     "color": "00A99D",

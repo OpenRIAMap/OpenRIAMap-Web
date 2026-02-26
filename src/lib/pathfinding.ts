@@ -7,7 +7,7 @@ import type { ParsedLine, Coordinate, Station, ParsedStation, Torii } from '@/ty
 
 // 路径节点
 interface PathNode {
-  stationName: string;
+  Name: string;
   lineId: string;
   coord: Coordinate;
 }
@@ -23,12 +23,12 @@ export interface PathResult {
 
 // 图节点
 interface GraphNode {
-  stationName: string;
+  Name: string;
   lineId: string;
   coord: Coordinate;
   stationCode: number;
   neighbors: Array<{
-    stationName: string;
+    Name: string;
     lineId: string;
     distance: number;
     isTransfer: boolean;  // 是否为换乘
@@ -37,13 +37,13 @@ interface GraphNode {
 
 // 特殊情况预处理结果
 interface SpecialCasesIndex {
-  // 方向限制: Map<"stationName@lineId", Set<"up"|"down">>
+  // 方向限制: Map<"Name@lineId", Set<"up"|"down">>
   blockedDirections: Map<string, Set<string>>;
-  // 未开通线路: Set<"stationName@lineId">
+  // 未开通线路: Set<"Name@lineId">
   unavailableLines: Set<string>;
-  // 越行: Map<"stationName@lineId", number> (下一站 stationCode)
+  // 越行: Map<"Name@lineId", number> (下一站 stationCode)
   overtakingMap: Map<string, number>;
-  // 贯通运行: Map<"stationName@lineId1", "lineId2">
+  // 贯通运行: Map<"Name@lineId1", "lineId2">
   throughTrainMap: Map<string, string>;
 }
 
@@ -63,7 +63,7 @@ function processSpecialCases(stations: Station[]): SpecialCasesIndex {
       switch (sc.type) {
         case 'directionNotAvaliable': {
           const lineId = `${sc.target.bureau}-${sc.target.line}`;
-          const key = `${station.stationName}@${lineId}`;
+          const key = `${station.Name}@${lineId}`;
           if (!blockedDirections.has(key)) {
             blockedDirections.set(key, new Set());
           }
@@ -73,14 +73,14 @@ function processSpecialCases(stations: Station[]): SpecialCasesIndex {
 
         case 'lineNotAvaliable': {
           const lineId = `${sc.target.bureau}-${sc.target.line}`;
-          const key = `${station.stationName}@${lineId}`;
+          const key = `${station.Name}@${lineId}`;
           unavailableLines.add(key);
           break;
         }
 
         case 'lineOvertaking': {
           const lineId = `${sc.target.bureau}-${sc.target.line}`;
-          const key = `${station.stationName}@${lineId}`;
+          const key = `${station.Name}@${lineId}`;
           if (sc.target.stationCode !== undefined) {
             overtakingMap.set(key, sc.target.stationCode);
           }
@@ -90,8 +90,8 @@ function processSpecialCases(stations: Station[]): SpecialCasesIndex {
         case 'throughTrain': {
           const lineId1 = `${sc.target.bureau1}-${sc.target.line1}`;
           const lineId2 = `${sc.target.bureau2}-${sc.target.line2}`;
-          throughTrainMap.set(`${station.stationName}@${lineId1}`, lineId2);
-          throughTrainMap.set(`${station.stationName}@${lineId2}`, lineId1);
+          throughTrainMap.set(`${station.Name}@${lineId1}`, lineId2);
+          throughTrainMap.set(`${station.Name}@${lineId2}`, lineId1);
           break;
         }
       }
@@ -131,7 +131,7 @@ export function buildRailwayGraph(
 
       // 添加到图
       graph.set(nodeKey, {
-        stationName: station.name,
+        Name: station.name,
         lineId: line.lineId,
         coord: station.coord,
         stationCode: station.stationCode,
@@ -179,7 +179,7 @@ export function buildRailwayGraph(
             distance = calculateDistance(station.coord, prev.coord);
           }
           node.neighbors.push({
-            stationName: prev.name,
+            Name: prev.name,
             lineId: line.lineId,
             distance,
             isTransfer: false,
@@ -203,7 +203,7 @@ export function buildRailwayGraph(
               if (graph.has(targetKey)) {
                 const distance = calculateDistance(station.coord, targetStation.coord);
                 node.neighbors.push({
-                  stationName: targetStation.name,
+                  Name: targetStation.name,
                   lineId: line.lineId,
                   distance,
                   isTransfer: false,
@@ -220,7 +220,7 @@ export function buildRailwayGraph(
               distance = calculateDistance(station.coord, next.coord);
             }
             node.neighbors.push({
-              stationName: next.name,
+              Name: next.name,
               lineId: line.lineId,
               distance,
               isTransfer: false,
@@ -240,7 +240,7 @@ export function buildRailwayGraph(
           const isThroughTrain = specialCases.throughTrainMap.get(nodeKey) === other.lineId;
 
           node.neighbors.push({
-            stationName: station.name,
+            Name: station.name,
             lineId: other.lineId,
             distance: 0,
             isTransfer: !isThroughTrain,  // 贯通运行不算换乘
@@ -280,10 +280,10 @@ export function findShortestPath(
   const endNodes: string[] = [];
 
   for (const [key, node] of graph) {
-    if (node.stationName === startStation) {
+    if (node.Name === startStation) {
       startNodes.push(key);
     }
-    if (node.stationName === endStation) {
+    if (node.Name === endStation) {
       endNodes.push(key);
     }
   }
@@ -353,7 +353,7 @@ export function findShortestPath(
       while (key) {
         const node = graph.get(key)!;
         path.unshift({
-          stationName: node.stationName,
+          Name: node.Name,
           lineId: node.lineId,
           coord: node.coord,
         });
@@ -377,7 +377,7 @@ export function findShortestPath(
 
     // 遍历邻居
     for (const neighbor of current.neighbors) {
-      const neighborKey = `${neighbor.stationName}@${neighbor.lineId}`;
+      const neighborKey = `${neighbor.Name}@${neighbor.lineId}`;
 
       if (visited.has(neighborKey)) continue;
 
@@ -433,7 +433,7 @@ export function simplifyPath(path: PathNode[]): Array<{
 
   let currentSegment = {
     lineId: path[0].lineId,
-    stations: [path[0].stationName],
+    stations: [path[0].Name],
     startCoord: path[0].coord,
     endCoord: path[0].coord,
   };
@@ -443,8 +443,8 @@ export function simplifyPath(path: PathNode[]): Array<{
 
     if (node.lineId === currentSegment.lineId) {
       // 同一线路，添加站点
-      if (node.stationName !== currentSegment.stations[currentSegment.stations.length - 1]) {
-        currentSegment.stations.push(node.stationName);
+      if (node.Name !== currentSegment.stations[currentSegment.stations.length - 1]) {
+        currentSegment.stations.push(node.Name);
         currentSegment.endCoord = node.coord;
       }
     } else {
@@ -452,7 +452,7 @@ export function simplifyPath(path: PathNode[]): Array<{
       segments.push(currentSegment);
       currentSegment = {
         lineId: node.lineId,
-        stations: [node.stationName],
+        stations: [node.Name],
         startCoord: node.coord,
         endCoord: node.coord,
       };

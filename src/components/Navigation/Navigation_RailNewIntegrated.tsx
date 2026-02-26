@@ -71,7 +71,8 @@ export type TransferType =
   | 'throughRun'
   | 'mergeMainline'
   | 'leaveMainline'
-  | 'enterConnector';
+  | 'enterConnector'
+  | 'interComponentFly';
 
 export type RailNewStaBuildingSearchItem = {
   id: string;
@@ -197,6 +198,44 @@ export type NavigationRailComputeOptions = {
    */
   normalSamePlatformTransferCost?: number;
 
+  // ------------------------------
+  // 跨断网（Inter-component）补偿：可调参数
+  // - 仅在“同一车站建体所在铁路图不可达”时启用
+  // - 未来大网逐步连通后，该路径会自然退化为“几乎不用”
+  // ------------------------------
+
+  /** 启用跨断网补偿（默认 true；若你想严格只允许同网，可设为 false） */
+  interCompEnabled?: boolean;
+
+  /** 每个组件门户站数量（默认 9；按你的规则分配为临近组件门户 + 内部距离门户） */
+  interCompPortalCount?: number;
+
+  /** 寻找每个组件的临近组件数量上限（默认 7） */
+  interCompMaxNearComponents?: number;
+
+  /** 跨组件飞行速度（blocks/s；默认 40，等价于你常用鞘翅速度） */
+  interCompFlySpeed?: number;
+
+  /** 跨组件固定惩罚（秒；默认 25） */
+  interCompPenaltySeconds?: number;
+
+  /**
+   * 内部距离门户：外圈候选比例（0~1，默认 0.2）
+   * - 先取“离组件质心最远”的 top 比例站体作为候选，再在候选里按“离已有门户距离和最大”挑选
+   * - 目的：避免选到极端角落导致不稳定
+   */
+  interCompInternalRingRatio?: number;
+
+  /**
+   * 大循环让出主线程的频率（默认 200）
+   * - 当站体/组件很多时，避免浏览器长时间无响应
+   * - 若你配合 UI 进度条，这个参数也会影响进度刷新频率
+   */
+  interCompProgressYieldEvery?: number;
+
+  /** 可选：进度回调（用于 UI 展示；不传则静默运行） */
+  onProgress?: (info: { stage: string; progress: number }) => void;
+
   /**
    * 计算用文件范畴接口：覆盖 RULE_DATA_SOURCES
    * - 不传则使用 RULE_DATA_SOURCES[worldId]
@@ -234,6 +273,10 @@ const RULE_ITEMS_PENDING = new Map<string, Promise<RawItem[]>>();
 const RULE_PARSED_CACHE = new Map<string, RuleParsedBundle>();
 
 type Sta = {
+  /** 新规范：车站主键 */
+  ID: string;
+  /** 新规范：车站名称 */
+  Name: string;
   stationID: string;
   stationName: string;
   coordinate: Coordinate;
@@ -697,9 +740,9 @@ function parseSta(all: RawItem[]): Map<string, Sta> {
   const out = new Map<string, Sta>();
   for (const it of all) {
     if (str(it?.Class) !== 'STA') continue;
-    const stationID = str(it.stationID ?? it.stationId ?? it.ID ?? it.id);
+    const stationID = str(it.ID);
     if (!stationID) continue;
-    const stationName = str(it.stationName ?? it.name ?? stationID);
+    const stationName = str(it.Name ?? stationID);
     const c = toCoord(it.coordinate);
     if (!c) continue;
 
@@ -719,12 +762,21 @@ function parseSta(all: RawItem[]): Map<string, Sta> {
     const platformIds: string[] = [];
     if (Array.isArray(platformsArr)) {
       for (const p of platformsArr) {
-        const pid = str(p?.ID ?? p?.platformID ?? p?.platformId ?? p);
+        const pid = str(p?.ID ?? p);
         if (pid) platformIds.push(pid);
       }
     }
 
-    out.set(stationID, { stationID, stationName, coordinate: c, platformIds, STBuilding });
+    // 同时写入新规范字段（ID/Name），以便下游逻辑统一读取。
+    out.set(stationID, {
+      ID: stationID,
+      Name: stationName,
+      stationID,
+      stationName,
+      coordinate: c,
+      platformIds,
+      STBuilding,
+    });
   }
   return out;
 }
@@ -733,7 +785,7 @@ function parsePlf(all: RawItem[]): Map<string, Plf> {
   const out = new Map<string, Plf>();
   for (const it of all) {
     if (str(it?.Class) !== 'PLF') continue;
-    const platformID = str(it.platformID ?? it.platformId ?? it.ID ?? it.id);
+    const platformID = str(it.ID);
     if (!platformID) continue;
 
     const c = toCoord(it.coordinate);
@@ -746,7 +798,7 @@ function parsePlf(all: RawItem[]): Map<string, Plf> {
     const lines: PlfLineRef[] = [];
     if (Array.isArray(linesRaw)) {
       for (const lr of linesRaw) {
-        const ID = str(lr?.ID ?? lr?.LineID ?? lr?.lineID ?? lr?.id);
+        const ID = str(lr?.ID ?? lr);
         if (!ID) continue;
         lines.push({
           ID,
@@ -766,7 +818,7 @@ function parsePlf(all: RawItem[]): Map<string, Plf> {
 
     out.set(platformID, {
       platformID,
-      platformName: str(it.platformName ?? it.name ?? ''),
+      platformName: str(it.Name ?? ''),
       coordinate: c,
       Situation,
       Connect,
@@ -800,9 +852,9 @@ function parseRle(all: RawItem[]): Map<string, Rle> {
   const out = new Map<string, Rle>();
   for (const it of all) {
     if (str(it?.Class) !== 'RLE') continue;
-    const lineId = str(it.LineID ?? it.lineID ?? it.lineId ?? it.ID ?? it.id);
+    const lineId = str(it.ID);
     if (!lineId) continue;
-    const lineName = str(it.LineName ?? it.lineName ?? it.name ?? lineId);
+    const lineName = str(it.Name ?? lineId);
     const color = normalizeCssColor(str(it.color), '#3b82f6');
     const direction = Number.isFinite(Number(it.direction)) ? Number(it.direction) : 0;
     const bureau = it.bureau ? str(it.bureau) : undefined;
@@ -835,7 +887,7 @@ function parseBuildings(all: RawItem[]): Map<string, Building> {
     const ids: string[] = [];
     if (Array.isArray(g)) {
       for (const x of g) {
-        const id = str(x?.ID ?? x?.id ?? x?.stationID ?? x?.stationId ?? x);
+        const id = str(x?.ID ?? x);
         if (id) ids.push(id);
       }
     }
@@ -851,7 +903,7 @@ function parseBuildings(all: RawItem[]): Map<string, Building> {
         ? str(
             it.staBuildingPointID ??
               it.staBuildingPointId ??
-              it.stationID ??
+              it.ID ??
               it.stationId ??
               // 过渡期兜底：部分旧数据可能仍使用 staBuildingID
               it.staBuildingID ??
@@ -874,7 +926,7 @@ function parseBuildings(all: RawItem[]): Map<string, Building> {
       cls === 'SBP'
         ? str(
             it.staBuildingPointName ??
-              it.stationName ??
+              it.Name ??
               it.staBuildingName ??
               it.buildingName ??
               it.BuildingName ??
@@ -1706,7 +1758,7 @@ function reconstructEdges(prev: Map<NodeKey, Prev>, goal: NodeKey): Edge[] {
 function stationNameOfPlatform(platformId: string, stas: Map<string, Sta>, platformToStation: Map<string, string>): string {
   const sid = platformToStation.get(platformId);
   if (!sid) return '';
-  return stas.get(sid)?.stationName ?? '';
+  return stas.get(sid)?.Name ?? stas.get(sid)?.stationName ?? "";
 }
 
 function buildRailPlanOutput(args: {
@@ -1905,6 +1957,469 @@ function buildRailPlanOutput(args: {
   };
 }
 
+
+// ------------------------------
+// 跨断网（Inter-component）补偿：组件/门户/超图构建与查询
+// - 仅在“同一车站建体所在铁路图不可达”时启用（computeRailPlanBetweenBuildings 内部判断）
+// ------------------------------
+
+type InterCompStageInfo = { stage: string; progress: number };
+
+type InterCompSuperEdge = {
+  fromComp: number;
+  toComp: number;
+  fromPortalBuildingId: string;
+  toPortalBuildingId: string;
+  distance: number;
+  costSeconds: number;
+};
+
+type InterCompPrepared = {
+  cacheKey: string;
+
+  compOfNode: Map<NodeKey, number>;
+  buildingToComp: Map<string, number>;
+
+  compCentroid: Map<number, Coordinate>;
+  compNearList: Map<number, number[]>;
+
+  compPortals: Map<number, string[]>; // buildingId list（优先 STB；不足时可被 SBP 补齐）
+  superAdj: Map<number, InterCompSuperEdge[]>;
+};
+
+const INTERCOMP_CACHE = new Map<string, InterCompPrepared>();
+const INTERCOMP_PENDING = new Map<string, Promise<InterCompPrepared>>();
+
+const yieldToMain = () => new Promise<void>((r) => setTimeout(r, 0));
+
+function reportProgress(opt: NavigationRailComputeOptions | undefined, info: InterCompStageInfo) {
+  try {
+    opt?.onProgress?.(info);
+  } catch {
+    // ignore
+  }
+}
+
+function averageCoord(list: Coordinate[]): Coordinate {
+  if (!list.length) return { x: 0, y: 0, z: 0 };
+  let sx = 0;
+  let sy = 0;
+  let sz = 0;
+  for (const c of list) {
+    sx += c.x;
+    sy += c.y;
+    sz += c.z;
+  }
+  return { x: sx / list.length, y: sy / list.length, z: sz / list.length };
+}
+
+// NOTE: 之前的 topKInsert 在此版本中不再需要；保留会触发 TS6133（unused）。
+
+async function prepareInterComponentRouting(opt: NavigationRailComputeOptions, args: {
+  cacheKey: string;
+  graph: Graph;
+  buildings: Map<string, Building>;
+  buildingPlatforms: Map<string, string[]>;
+}): Promise<InterCompPrepared> {
+  const enabled = opt.interCompEnabled ?? true;
+  if (!enabled) {
+    // 仍返回一个空结构，便于调用侧统一处理
+    const empty: InterCompPrepared = {
+      cacheKey: args.cacheKey,
+      compOfNode: new Map(),
+      buildingToComp: new Map(),
+      compCentroid: new Map(),
+      compNearList: new Map(),
+      compPortals: new Map(),
+      superAdj: new Map(),
+    };
+    return empty;
+  }
+
+  const cached = INTERCOMP_CACHE.get(args.cacheKey);
+  if (cached) return cached;
+
+  const pending = INTERCOMP_PENDING.get(args.cacheKey);
+  if (pending) return pending;
+
+  const promise = (async (): Promise<InterCompPrepared> => {
+    const portalCount = Math.max(1, Math.floor(opt.interCompPortalCount ?? 9));
+    const maxNear = Math.max(1, Math.floor(opt.interCompMaxNearComponents ?? 7));
+    const flySpeed = Math.max(1e-6, opt.interCompFlySpeed ?? 40);
+    const penaltySeconds = Math.max(0, opt.interCompPenaltySeconds ?? 25);
+    const ringRatio = Math.min(1, Math.max(0, opt.interCompInternalRingRatio ?? 0.2));
+    const yieldEvery = Math.max(20, Math.floor(opt.interCompProgressYieldEvery ?? 200));
+
+    reportProgress(opt, { stage: 'build-undirected', progress: 0.02 });
+
+    // 1) 构建无向邻接（只用于连通分量，不参与路径代价）
+    // 注意：这里**刻意排除 kind==='walk' 的边**，避免“站内步行/换乘步行”等非铁路边
+    // 误把本应脱网的两个铁路子网连成同一组件，导致跨网补偿永远不触发。
+    // 组件的定义应尽量贴近“铁路可达性”（ride/上下车/同台换乘/并入离开等）。
+    const undirected = new Map<NodeKey, NodeKey[]>();
+    let edgeCount = 0;
+    for (const [from, es] of args.graph.edgesFrom.entries()) {
+      if (!undirected.has(from)) undirected.set(from, []);
+      for (const e of es) {
+        if (e.kind === 'walk') continue;
+        const to = e.to;
+        if (!undirected.has(to)) undirected.set(to, []);
+        undirected.get(from)!.push(to);
+        undirected.get(to)!.push(from);
+        edgeCount++;
+        if (edgeCount % yieldEvery === 0) await yieldToMain();
+      }
+    }
+
+    // 2) 连通分量
+    reportProgress(opt, { stage: 'components', progress: 0.10 });
+
+    const compOfNode = new Map<NodeKey, number>();
+    let compId = 0;
+    let visitedCount = 0;
+    for (const n of undirected.keys()) {
+      if (compOfNode.has(n)) continue;
+      const q: NodeKey[] = [n];
+      compOfNode.set(n, compId);
+      while (q.length) {
+        const cur = q.pop()!;
+        const nbrs = undirected.get(cur) ?? [];
+        for (const nb of nbrs) {
+          if (!compOfNode.has(nb)) {
+            compOfNode.set(nb, compId);
+            q.push(nb);
+          }
+        }
+        visitedCount++;
+        if (visitedCount % yieldEvery === 0) await yieldToMain();
+      }
+      compId++;
+    }
+
+    // 3) building -> comp
+    reportProgress(opt, { stage: 'building->component', progress: 0.18 });
+
+    const buildingToComp = new Map<string, number>();
+    let bCount = 0;
+    for (const [bid, pids] of args.buildingPlatforms.entries()) {
+      const pid = pids?.[0];
+      if (!pid) continue;
+      const node = platformNode(pid);
+      const c = compOfNode.get(node);
+      if (c !== undefined) buildingToComp.set(bid, c);
+      bCount++;
+      if (bCount % yieldEvery === 0) await yieldToMain();
+    }
+
+    // 4) 每组件站体集合（门户对象优先 STB；不足时允许 SBP 兜底补齐）
+    reportProgress(opt, { stage: 'component-stations', progress: 0.28 });
+
+    const compStationsSTB = new Map<number, string[]>();
+    const compStationsAny = new Map<number, string[]>();
+
+    for (const [bid, c] of buildingToComp.entries()) {
+      const b = args.buildings.get(bid);
+      if (!b) continue;
+      if (!compStationsAny.has(c)) compStationsAny.set(c, []);
+      compStationsAny.get(c)!.push(bid);
+      if (b.kind === 'STB') {
+        if (!compStationsSTB.has(c)) compStationsSTB.set(c, []);
+        compStationsSTB.get(c)!.push(bid);
+      }
+    }
+
+    // 5) 组件质心（按 STB；若无 STB 则按 Any）
+    reportProgress(opt, { stage: 'component-centroid', progress: 0.35 });
+
+    const compCentroid = new Map<number, Coordinate>();
+    for (let c = 0; c < compId; c++) {
+      const stbs = compStationsSTB.get(c) ?? [];
+      const any = compStationsAny.get(c) ?? [];
+      const list = (stbs.length ? stbs : any).map((bid) => args.buildings.get(bid)!.representativePoint);
+      compCentroid.set(c, averageCoord(list));
+      if (c % 5 === 0) await yieldToMain();
+    }
+
+    // 6) 组件临近列表（top maxNear）
+    reportProgress(opt, { stage: 'component-near-list', progress: 0.45 });
+
+    const compNearList = new Map<number, number[]>();
+    for (let c = 0; c < compId; c++) {
+      const cc = compCentroid.get(c)!;
+      const ds: Array<{ id: number; d: number }> = [];
+      for (let j = 0; j < compId; j++) {
+        if (j === c) continue;
+        const dj = distXZ(cc, compCentroid.get(j)!);
+        ds.push({ id: j, d: dj });
+      }
+      ds.sort((a, b) => a.d - b.d);
+      compNearList.set(c, ds.slice(0, maxNear).map((x) => x.id));
+      if (c % 3 === 0) await yieldToMain();
+    }
+
+    // 7) 门户站选择（每组件 portalCount）
+    reportProgress(opt, { stage: 'select-portals', progress: 0.60 });
+
+    const compPortals = new Map<number, string[]>();
+    for (let c = 0; c < compId; c++) {
+      const centroidC = compCentroid.get(c)!;
+      const near = compNearList.get(c) ?? [];
+      const stbs = compStationsSTB.get(c) ?? [];
+      const any = compStationsAny.get(c) ?? [];
+      const stations = stbs.length ? stbs : any; // 门户优先 STB；不足时允许 SBP 兜底
+      if (!stations.length) {
+        compPortals.set(c, []);
+        continue;
+      }
+
+      // --- 名额分配：保证至少 1 个内部距离门户 ---
+      const m = Math.max(1, Math.min(near.length || 1, maxNear));
+      const internalMin = 1;
+      const nearSlots = Math.max(0, portalCount - internalMin);
+      const base = Math.min(3, Math.floor(nearSlots / m));
+      let rem = nearSlots - base * m;
+
+      const quotas: number[] = [];
+      for (let i = 0; i < m; i++) {
+        const q = base + (rem > 0 ? 1 : 0);
+        if (rem > 0) rem--;
+        quotas.push(q);
+      }
+
+      // --- 先取临近组件门户 ---
+      const picked: string[] = [];
+      const pickedSet = new Set<string>();
+
+      for (let i = 0; i < m; i++) {
+        const nc = near[i] ?? near[0];
+        const centroidN = compCentroid.get(nc)!;
+        const quota = Math.min(3, Math.max(0, quotas[i] ?? 0));
+        if (quota <= 0) continue;
+
+        const sorted = stations
+          .map((bid) => ({ bid, d: distXZ(args.buildings.get(bid)!.representativePoint, centroidN) }))
+          .sort((a, b) => a.d - b.d);
+
+        let got = 0;
+        for (const s of sorted) {
+          if (pickedSet.has(s.bid)) continue;
+          picked.push(s.bid);
+          pickedSet.add(s.bid);
+          got++;
+          if (got >= quota) break;
+        }
+      }
+
+      // --- 内部距离门户：补齐剩余 ---
+      let need = Math.max(0, portalCount - picked.length);
+      if (need > 0) {
+        // 外圈候选：离质心最远的 top ringRatio
+        const candidates = stations
+          .filter((bid) => !pickedSet.has(bid))
+          .map((bid) => {
+            const pt = args.buildings.get(bid)!.representativePoint;
+            return { bid, dc: distXZ(pt, centroidC), pt };
+          })
+          .sort((a, b) => b.dc - a.dc);
+
+        const takeN = Math.max(1, Math.floor(candidates.length * ringRatio));
+        const ring = candidates.slice(0, Math.max(takeN, Math.min(30, candidates.length)));
+
+        // 逐个贪心挑：score = dc + sum(dist to picked)
+        while (need > 0 && ring.length) {
+          let bestIdx = 0;
+          let bestScore = -Infinity;
+          for (let i = 0; i < ring.length; i++) {
+            const r = ring[i];
+            let sum = 0;
+            for (const pbid of picked) {
+              sum += distXZ(r.pt, args.buildings.get(pbid)!.representativePoint);
+            }
+            const score = r.dc + sum;
+            if (score > bestScore) {
+              bestScore = score;
+              bestIdx = i;
+            }
+          }
+          const chosen = ring.splice(bestIdx, 1)[0];
+          picked.push(chosen.bid);
+          pickedSet.add(chosen.bid);
+          need--;
+        }
+      }
+
+      compPortals.set(c, picked.slice(0, portalCount));
+      if (c % 2 === 0) await yieldToMain();
+    }
+
+    // 8) 构建组件超图：仅连向“临近组件”，对门户做 9x9 brute-force
+    reportProgress(opt, { stage: 'build-supergraph', progress: 0.78 });
+
+    const superAdj = new Map<number, InterCompSuperEdge[]>();
+    for (let c = 0; c < compId; c++) superAdj.set(c, []);
+    for (let c = 0; c < compId; c++) {
+      const portalsA = compPortals.get(c) ?? [];
+      if (!portalsA.length) continue;
+      const near = compNearList.get(c) ?? [];
+      for (const nb of near) {
+        const portalsB = compPortals.get(nb) ?? [];
+        if (!portalsB.length) continue;
+
+        let bestD = Infinity;
+        let bestA = portalsA[0];
+        let bestB = portalsB[0];
+        for (const a of portalsA) {
+          const pa = args.buildings.get(a)!.representativePoint;
+          for (const b of portalsB) {
+            const pb = args.buildings.get(b)!.representativePoint;
+            const d = distXZ(pa, pb);
+            if (d < bestD) {
+              bestD = d;
+              bestA = a;
+              bestB = b;
+            }
+          }
+        }
+
+        const costSeconds = bestD / flySpeed + penaltySeconds;
+
+        superAdj.get(c)!.push({
+          fromComp: c,
+          toComp: nb,
+          fromPortalBuildingId: bestA,
+          toPortalBuildingId: bestB,
+          distance: bestD,
+          costSeconds,
+        });
+        // 飞行可视为双向
+        superAdj.get(nb)!.push({
+          fromComp: nb,
+          toComp: c,
+          fromPortalBuildingId: bestB,
+          toPortalBuildingId: bestA,
+          distance: bestD,
+          costSeconds,
+        });
+      }
+      if (c % 2 === 0) await yieldToMain();
+    }
+
+    reportProgress(opt, { stage: 'ready', progress: 1 });
+
+    const prepared: InterCompPrepared = {
+      cacheKey: args.cacheKey,
+      compOfNode,
+      buildingToComp,
+      compCentroid,
+      compNearList,
+      compPortals,
+      superAdj,
+    };
+
+    INTERCOMP_CACHE.set(args.cacheKey, prepared);
+    return prepared;
+  })();
+
+  INTERCOMP_PENDING.set(args.cacheKey, promise);
+
+  try {
+    const out = await promise;
+    return out;
+  } finally {
+    INTERCOMP_PENDING.delete(args.cacheKey);
+  }
+}
+
+function dijkstraComponents(prep: InterCompPrepared, startComp: number, goalComp: number) {
+  // 小规模组件图：用朴素 Dijkstra 即可
+  const dist = new Map<number, number>();
+  const prev = new Map<number, { from: number; edge: InterCompSuperEdge }>();
+  const visited = new Set<number>();
+
+  dist.set(startComp, 0);
+
+  while (true) {
+    // find min unvisited
+    let cur: number | null = null;
+    let best = Infinity;
+    for (const [k, v] of dist.entries()) {
+      if (visited.has(k)) continue;
+      if (v < best) {
+        best = v;
+        cur = k;
+      }
+    }
+    if (cur === null) break;
+    if (cur === goalComp) break;
+    visited.add(cur);
+
+    const es = prep.superAdj.get(cur) ?? [];
+    for (const e of es) {
+      const nd = best + e.costSeconds;
+      const old = dist.get(e.toComp);
+      if (old === undefined || nd < old) {
+        dist.set(e.toComp, nd);
+        prev.set(e.toComp, { from: cur, edge: e });
+      }
+    }
+  }
+
+  if (!dist.has(goalComp)) return null;
+
+  const edges: InterCompSuperEdge[] = [];
+  let cur = goalComp;
+  while (cur !== startComp) {
+    const p = prev.get(cur);
+    if (!p) break;
+    edges.push(p.edge);
+    cur = p.from;
+  }
+  edges.reverse();
+  return { costSeconds: dist.get(goalComp)!, edges };
+}
+
+async function computeRailPlanWithinGraph(args: {
+  mode: RailSearchMode;
+  graph: Graph;
+  rideInfo: Map<NodeKey, RideNodeInfo>;
+  stas: Map<string, Sta>;
+  platformToStation: Map<string, string>;
+  buildingPlatforms: Map<string, string[]>;
+  startBuildingId: string;
+  endBuildingId: string;
+}): Promise<NavRailPlan | null> {
+  const startPlatforms = args.buildingPlatforms.get(args.startBuildingId) ?? [];
+  const endPlatforms = new Set(args.buildingPlatforms.get(args.endBuildingId) ?? []);
+
+  if (!startPlatforms.length || !endPlatforms.size) return null;
+
+  const startNodes = startPlatforms.map(platformNode);
+  const isGoal = (n: NodeKey) => n.startsWith('P:') && endPlatforms.has(n.slice(2));
+
+  const { goal, prev, dist } = dijkstra(args.graph, startNodes, isGoal, args.mode);
+  if (!goal) return null;
+
+  const edges = reconstructEdges(prev, goal);
+  const ds = dist.get(goal)!;
+  const built = buildRailPlanOutput({
+    edges,
+    rideInfo: args.rideInfo,
+    stas: args.stas,
+    platformToStation: args.platformToStation,
+  });
+
+  return {
+    ok: true,
+    mode: args.mode,
+    totalDistance: ds.distance,
+    totalTimeSeconds: ds.time,
+    transferCount: ds.transfers,
+    segments: built.segments,
+    overlay: built.overlay,
+    usedLineChips: built.usedLineChips,
+  };
+}
+
 // ------------------------------
 // 主入口：计算两车站建筑之间铁路方案
 // ------------------------------
@@ -1976,6 +2491,148 @@ export async function computeRailPlanBetweenBuildings(opt: NavigationRailCompute
   const { goal, prev, dist } = dijkstra(graph, startNodes, isGoal, mode);
 
   if (!goal) {
+    // ------------------------------
+    // 跨断网补偿：同一铁路图不可达时，尝试“组件超图 + 门户站飞行连接”
+    // - 仅对 rail_new 生效；不影响其它模式
+    // ------------------------------
+    const interEnabled = opt.interCompEnabled ?? true;
+    if (interEnabled) {
+      const { cacheKey } = resolveRuleSource(opt.worldId, opt);
+
+      const prep = await prepareInterComponentRouting(opt, {
+        cacheKey,
+        graph,
+        buildings,
+        buildingPlatforms,
+      });
+
+      const startComp = prep.buildingToComp.get(startBuilding.id);
+      const endComp = prep.buildingToComp.get(endBuilding.id);
+
+      if (startComp !== undefined && endComp !== undefined && startComp !== endComp) {
+        const compPath = dijkstraComponents(prep, startComp, endComp);
+
+        if (compPath && compPath.edges.length) {
+          const flySpeed = Math.max(1e-6, opt.interCompFlySpeed ?? 40);
+          const penaltySeconds = Math.max(0, opt.interCompPenaltySeconds ?? 25);
+
+          const stitchedSegments: Array<NavRailSegmentRail | NavRailSegmentTransfer> = [];
+          const stitchedOverlay: RouteOverlaySegment[] = [];
+          const stitchedAllCoords: Coordinate[] = [];
+          const usedLineChips: Array<{ lineName: string; color: string }> = [];
+          const usedChipKey = new Set<string>();
+
+          let totalDistance = 0;
+          let totalTimeSeconds = 0;
+          let transferCount = 0;
+
+          let currentBuildingId = startBuilding.id;
+
+          const appendPlan = (p: NavRailPlan) => {
+            for (const seg of p.segments) stitchedSegments.push(seg);
+            for (const os of p.overlay.segments) stitchedOverlay.push(os);
+            for (const c of p.overlay.allCoords) stitchedAllCoords.push(c);
+
+            totalDistance += p.totalDistance;
+            totalTimeSeconds += p.totalTimeSeconds;
+            transferCount += p.transferCount;
+
+            for (const chip of p.usedLineChips) {
+              const k = `${chip.lineName}@@${chip.color}`;
+              if (!usedChipKey.has(k)) {
+                usedChipKey.add(k);
+                usedLineChips.push(chip);
+              }
+            }
+          };
+
+          for (const e of compPath.edges) {
+            // 组件内：currentBuildingId -> e.fromPortalBuildingId
+            const sub = await computeRailPlanWithinGraph({
+              mode,
+              graph,
+              rideInfo,
+              stas,
+              platformToStation,
+              buildingPlatforms,
+              startBuildingId: currentBuildingId,
+              endBuildingId: e.fromPortalBuildingId,
+            });
+
+            if (!sub) {
+              // 组件级可达，但站级（方向/上落客）不可达：回退到原失败提示
+              break;
+            }
+
+            appendPlan(sub);
+
+            // 跨组件：门户 -> 门户（飞行段 + 固定惩罚）
+            const fromB = buildings.get(e.fromPortalBuildingId);
+            const toB = buildings.get(e.toPortalBuildingId);
+            if (!fromB || !toB) break;
+
+            const p0 = fromB.representativePoint;
+            const p1 = toB.representativePoint;
+
+            const physical = e.distance / flySpeed;
+
+            stitchedSegments.push({
+              kind: 'transfer',
+              transferType: 'interComponentFly',
+              atStation: '(跨网飞行)',
+              fromLineName: undefined,
+              toLineName: undefined,
+              distance: e.distance,
+              timeSeconds: physical,
+              countsAsTransfer: true,
+            });
+
+            stitchedOverlay.push({
+              kind: 'transfer',
+              coords: [p0, p1],
+              color: '#9ca3af',
+              dashed: true,
+              transferType: 'interComponentFly',
+            });
+            stitchedAllCoords.push(p0, p1);
+
+            totalDistance += e.distance;
+            totalTimeSeconds += physical + penaltySeconds;
+            transferCount += 1;
+
+            currentBuildingId = e.toPortalBuildingId;
+          }
+
+          // 最后一段：currentBuildingId -> endBuilding.id
+          const last = await computeRailPlanWithinGraph({
+            mode,
+            graph,
+            rideInfo,
+            stas,
+            platformToStation,
+            buildingPlatforms,
+            startBuildingId: currentBuildingId,
+            endBuildingId: endBuilding.id,
+          });
+
+          if (last) {
+            appendPlan(last);
+
+            return {
+              ok: true,
+              mode,
+              totalDistance,
+              totalTimeSeconds,
+              transferCount,
+              segments: stitchedSegments,
+              overlay: { segments: stitchedOverlay, allCoords: stitchedAllCoords },
+              usedLineChips,
+            };
+          }
+        }
+      }
+    }
+
     return {
       ok: false,
       reason:

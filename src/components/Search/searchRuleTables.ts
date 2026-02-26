@@ -115,6 +115,61 @@ export function getRuleCategoryName(r: FeatureRecord): string {
   return fallback[cls] ?? cls;
 }
 
+/**
+ * Build an index from building-like IDs to their display names.
+ * - BUD: ID
+ * - STB: ID
+ *
+ * Used to render FLR/STF as: "类型（从属建筑名）" in SearchBar/Navigation.
+ */
+export function buildBuildingNameIndex(rulePool: FeatureRecord[]): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const r of rulePool ?? []) {
+    const fi: any = r?.featureInfo ?? {};
+    const cls = String(r?.meta?.Class ?? fi?.Class ?? '').trim();
+    if (cls !== 'BUD' && cls !== 'STB') continue;
+
+    const dn = getRuleDisplayName(r);
+    if (!dn.name) continue;
+
+    if (cls === 'BUD') {
+      const id = String(fi?.ID ?? dn.idValue ?? '').trim();
+      if (id) m.set(id, dn.name);
+    } else {
+      const id = String(fi?.ID ?? dn.idValue ?? '').trim();
+      if (id) m.set(id, dn.name);
+    }
+  }
+  return m;
+}
+
+/**
+ * For FLR/STF, append parent building name if available:
+ *   "楼层（XX建筑）" / "楼层（XX车站）"
+ */
+export function getRuleCategoryLabelWithParent(
+  r: FeatureRecord,
+  buildingNameIndex?: Map<string, string> | null,
+): string {
+  const base = getRuleCategoryName(r);
+  if (!buildingNameIndex) return base;
+  const fi: any = r?.featureInfo ?? {};
+  const cls = String(r?.meta?.Class ?? fi?.Class ?? '').trim();
+
+  if (cls === 'FLR') {
+    const bid = String(fi?.BuildingID ?? fi?.buildingID ?? fi?.buildingId ?? '').trim();
+    const bname = bid ? (buildingNameIndex.get(bid) || '') : '';
+    // Use ASCII parentheses to avoid overly long full-width rendering.
+    return bname ? `${base}(${bname})` : base;
+  }
+  if (cls === 'STF') {
+    const bid = String(fi?.staBuildingID ?? fi?.staBuildingId ?? fi?.STBuilding ?? fi?.BuildingID ?? '').trim();
+    const bname = bid ? (buildingNameIndex.get(bid) || '') : '';
+    return bname ? `${base}(${bname})` : base;
+  }
+  return base;
+}
+
 export function getRuleDisplayName(r: FeatureRecord): { name: string; rawName: string; idValue: string; idField: string } {
   const fi: any = r?.featureInfo ?? {};
   const tags: any = (fi?.tags ?? fi?.Tags ?? {}) as any;
@@ -160,22 +215,10 @@ export function getRuleDisplayName(r: FeatureRecord): { name: string; rawName: s
   // 2) 常见字段兜底
   if (!rawName) {
     const commonKeys = [
-      'PointName',
-      'PGonName',
-      'PLineName',
-      'LineName',
       'lineName',
-      'platformName',
-      'plfRoundName',
-      'TRPointName',
-      'TPPointName',
-      'WRPointName',
-      'stationName',
-      'staBuildingName',
-      'staBuildingPointName',
-      'staBFloorName',
+      'Name',
+      'Name',
       'BuildingName',
-      'FloorName',
       'Name',
       'name',
     ];
@@ -213,8 +256,8 @@ export function getRuleDisplayName(r: FeatureRecord): { name: string; rawName: s
 
 /**
  * Extract Kind/SKind/SKind2 triplet with the same compatibility logic as SearchBar.
- * - BUD: BuildingKind/BuildingSKind
- * - FLR/STF: FloorKind/FloorSKind
+ * - BUD: Kind/SKind
+ * - FLR/STF: Kind/SKind
  * - Otherwise: Point/PLine/PGon* fields based on geometry type, falling back to Kind/SKind/SKind2.
  */
 export function extractKindTriplet(r: FeatureRecord): { kind: string; skind: string; skind2: string } {
@@ -224,15 +267,15 @@ export function extractKindTriplet(r: FeatureRecord): { kind: string; skind: str
 
   if (cls === 'BUD') {
     return {
-      kind: String(fi.BuildingKind ?? tags.BuildingKind ?? fi.Kind ?? tags.Kind ?? '').trim(),
-      skind: String(fi.BuildingSKind ?? tags.BuildingSKind ?? fi.SKind ?? tags.SKind ?? '').trim(),
+      kind: String(fi.Kind ?? tags.Kind ?? '').trim(),
+      skind: String(fi.SKind ?? tags.SKind ?? '').trim(),
       skind2: String(fi.SKind2 ?? tags.SKind2 ?? '').trim(),
     };
   }
   if (cls === 'FLR' || cls === 'STF') {
     return {
-      kind: String(fi.FloorKind ?? tags.FloorKind ?? fi.Kind ?? tags.Kind ?? '').trim(),
-      skind: String(fi.FloorSKind ?? tags.FloorSKind ?? fi.SKind ?? tags.SKind ?? '').trim(),
+      kind: String(fi.Kind ?? tags.Kind ?? '').trim(),
+      skind: String(fi.SKind ?? tags.SKind ?? '').trim(),
       skind2: String(fi.SKind2 ?? tags.SKind2 ?? '').trim(),
     };
   }

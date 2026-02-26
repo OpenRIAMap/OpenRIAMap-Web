@@ -1,7 +1,7 @@
 [
   {
-    "LineID": "ZRT4_01B_U",
-    "LineName": "溯铁4号线北庭段-上行",
+    "ID": "ZRT4_01B_U",
+    "Name": "溯铁4号线北庭段-上行",
     "bureau": "T",
     "line": "4",
     "color": "FFD700",

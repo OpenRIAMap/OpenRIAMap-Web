@@ -27,9 +27,9 @@ export default function TRPFeatureInteractionCard(props: FeatureCardCommonProps)
       'interaction',
       'Situation',
       'situation',
-      'TRPointKind',
-      'TRPointSKind',
-      'TRPointSKind2',
+      'Kind',
+      'SKind',
+      'SKind2',
     ]);
     const filtered = all.filter((r) => {
       const label = String((r as any)?.label ?? '').trim();

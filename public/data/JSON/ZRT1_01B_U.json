@@ -1,7 +1,7 @@
 [
   {
-    "LineID": "ZRT1_01B_U",
-    "LineName": "溯铁1号线白霖段-上行",
+    "ID": "ZRT1_01B_U",
+    "Name": "溯铁1号线白霖段-上行",
     "bureau": "T",
     "line": "1",
     "color": "ED1C24",

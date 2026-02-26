@@ -19,7 +19,7 @@ export const DEFAULT_FLOOR_VIEW: FloorViewConfig = {
   buildingClass: 'STB',
   floorClass: 'STF',
   buildingFloorRefField: 'ID',
-  floorRefTargetField: 'staBFloorID',
+  floorRefTargetField: 'ID',
   floorSelectorField: 'NofFloor',
 };
 

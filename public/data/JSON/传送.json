@@ -1,10 +1,10 @@
 [
   {
-    "WRPointID": "ZWRPNOMNOM_hhy",
+    "ID": "ZWRPNOMNOM_hhy",
     "WRPointI2D": "h海南n",
-    "WRPointName": "海华屿",
-    "WRPointKind": "NOM",
-    "WRPointSKind": "NOM",
+    "Name": "海华屿",
+    "Kind": "NOM",
+    "SKind": "NOM",
     "elevation": 68,
     "coordinate": {
       "x": 9388.5,
@@ -25,11 +25,11 @@
     "CreateBy": "Aut_moon_white"
   },
   {
-    "WRPointID": "ZWRPNOMNOM_cygy",
+    "ID": "ZWRPNOMNOM_cygy",
     "WRPointI2D": "zygy朝阳工业",
-    "WRPointName": "朝阳工业",
-    "WRPointKind": "NOM",
-    "WRPointSKind": "NOM",
+    "Name": "朝阳工业",
+    "Kind": "NOM",
+    "SKind": "NOM",
     "hub": "zthspawn",
     "elevation": 72,
     "coordinate": {
@@ -51,10 +51,10 @@
     "CreateBy": "Aut_moon_white"
   },
   {
-    "TPPointID": "ZTPPNOMNOM_mark142",
-    "TPPointName": "地标传送-海华屿",
-    "TPPointKind": "NOM",
-    "TPPointSKind": "NOM",
+    "ID": "ZTPPNOMNOM_mark142",
+    "Name": "地标传送-海华屿",
+    "Kind": "NOM",
+    "SKind": "NOM",
     "hub": "zthspawn",
     "TGTWarp": "h海南n",
     "elevation": 65,
@@ -71,10 +71,10 @@
     "CreateBy": "Aut_moon_white"
   },
   {
-    "TPPointID": "ZTPPNOMNOM_mark189",
-    "TPPointName": "地标传送-朝阳工业",
-    "TPPointKind": "NOM",
-    "TPPointSKind": "NOM",
+    "ID": "ZTPPNOMNOM_mark189",
+    "Name": "地标传送-朝阳工业",
+    "Kind": "NOM",
+    "SKind": "NOM",
     "TGTWarp": "zygy朝阳工业",
     "elevation": 65,
     "coordinate": {

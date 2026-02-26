@@ -224,11 +224,11 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
         const pts = (fi as any).Conpoints ?? (fi as any).Flrpoints;
         if (!Array.isArray(pts) || pts.length < 3) return false;
         const tags = (fi as any)?.tags ?? (fi as any)?.Tags ?? {};
-        const k = String((fi as any).PGonKind ?? (fi as any).Kind ?? tags.PGonKind ?? tags.Kind ?? '').trim();
+        const k = String((fi as any).Kind ?? (fi as any).Kind ?? tags.Kind ?? tags.Kind ?? '').trim();
         return k === 'NGF';
       },
-      getId: (fi: any) => String(fi.PGonID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
-      getName: (fi: any) => String(fi.PGonName ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
+      getId: (fi: any) => String(fi.ID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
+      getName: (fi: any) => String(fi.Name ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
       formatOption: (name, id) => `${name}(${id})`,
     }),
     []
@@ -326,11 +326,11 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
         coords,
         editorId: creatorId.trim(),
         values: {
-          PLineID: plineId,
-          PLineName: String(info.name ?? '').trim(),
-          PLineKind: kind,
-          PLineSKind: skind,
-          PLineSKind2: info.skind2,
+          ID: plineId,
+          Name: String(info.name ?? '').trim(),
+          Kind: kind,
+          SKind: skind,
+          SKind2: info.skind2,
         },
         groupInfo: {
           tags,
@@ -428,7 +428,7 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
             bridge={bridge}
             label="边界1（可选，将写入 tags.BNgf1）"
             value={String(info.bngf1 ?? '')}
-            placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+            placeholder="输入关键词检索：可匹配 Name / ID"
             config={ngfBoundarySearchCfg}
             onChange={(v) => setInfo((prev) => ({ ...prev, bngf1: v }))}
           />
@@ -437,7 +437,7 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
             bridge={bridge}
             label="边界2（可选，将写入 tags.BNgf2）"
             value={String(info.bngf2 ?? '')}
-            placeholder="输入关键词检索：可匹配 PGonName / PGonID"
+            placeholder="输入关键词检索：可匹配 Name / ID"
             config={ngfBoundarySearchCfg}
             onChange={(v) => setInfo((prev) => ({ ...prev, bngf2: v }))}
           />
@@ -572,7 +572,7 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
         <div className="text-xs text-gray-700">
           将生成：
           <div className="mt-1 font-mono text-xs break-all">
-            PLineID = {worldPrefix}{kind}{skind}{info.skind2 || '...'}_{abbrNormalized || '...'}
+            ID = {worldPrefix}{kind}{skind}{info.skind2 || '...'}_{abbrNormalized || '...'}
           </div>
         </div>
 
