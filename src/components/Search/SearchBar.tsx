@@ -47,6 +47,31 @@ function normalizeQuery(q: string): string {
   return String(q ?? '').trim().toLowerCase();
 }
 
+// 兼容映射：将旧字段归一到 ID/Name（避免历史 index / localStorage 数据导致 build 环境崩溃）
+function pickCompatId(v: any): string {
+  return String(
+    v?.ID ??
+      v?.Id ??
+      v?.id ??
+      v?.lineId ??
+      v?.stationID ??
+      v?.landmarkID ??
+      v?.globalId ??
+      ''
+  ).trim();
+}
+
+function pickCompatName(v: any): string {
+  return String(
+    v?.Name ??
+      v?.name ??
+      v?.stationName ??
+      v?.landmarkName ??
+      v?.lineName ??
+      ''
+  ).trim();
+}
+
 function normalizeHexColorInput(v: any): string {
   const s = String(v ?? '').trim();
   if (!s) return '';
@@ -274,27 +299,32 @@ export function SearchBar({ stations, landmarks, lines, worldId, onSelect, onLin
 
     // 搜索线路（优先显示）
     for (const line of lines) {
-      const lineId = line.lineId;
-      // RMP 线路直接显示 line 名称，其他显示为 "X局Y号线"
-      const lineName = line.bureau === 'RMP'
-        ? line.line
-        : `${line.bureau}局${line.line}号线`;
-      const lineNameAlt = `${line.bureau}-${line.line}`;
+      const anyLine: any = line as any;
+      const id = pickCompatId(anyLine);
+      const name = pickCompatName(anyLine);
+      const bureau = String(anyLine?.bureau ?? '').trim();
+      const lineNo = String(anyLine?.line ?? '').trim();
 
-      if (
-        lineId.toLowerCase().includes(searchQuery) ||
-        lineName.toLowerCase().includes(searchQuery) ||
-        lineNameAlt.toLowerCase().includes(searchQuery) ||
-        line.bureau.toLowerCase().includes(searchQuery) ||
-        line.line.toLowerCase().includes(searchQuery)
-      ) {
+      // 优先使用通用 Name；若缺失则回退到旧字段格式（保持原展示风格）
+      const displayName = name
+        ? name
+        : (bureau === 'RMP'
+          ? lineNo
+          : (bureau || lineNo)
+            ? `${bureau}局${lineNo}号线`
+            : id);
+
+      const altName = bureau && lineNo ? `${bureau}-${lineNo}` : '';
+      const hay = `${id} ${displayName} ${altName} ${bureau} ${lineNo}`.toLowerCase();
+
+      if (hay.includes(searchQuery)) {
         // 计算线路中点作为定位坐标
         const midIndex = Math.floor(line.stations.length / 2);
         const midStation = line.stations[midIndex] || line.stations[0];
 
         matchedResults.push({
           type: 'line',
-          name: lineName,
+          name: displayName,
           coord: midStation?.coord || { x: 0, y: 64, z: 0 },
           extra: '旧+线路',
           lineData: line,
@@ -304,11 +334,15 @@ export function SearchBar({ stations, landmarks, lines, worldId, onSelect, onLin
 
     // 搜索站点
     for (const station of stations) {
-      if (station.name.toLowerCase().includes(searchQuery)) {
+      const anySta: any = station as any;
+      const id = pickCompatId(anySta);
+      const name = pickCompatName(anySta) || String(anySta?.name ?? '').trim();
+      const hay = `${id} ${name}`.toLowerCase();
+      if (hay.includes(searchQuery)) {
         matchedResults.push({
           type: 'station',
-          name: station.name,
-          coord: station.coord,
+          name: name || String(anySta?.name ?? '').trim(),
+          coord: anySta?.coord ?? null,
           extra: '旧+车站',
         });
       }
@@ -316,21 +350,28 @@ export function SearchBar({ stations, landmarks, lines, worldId, onSelect, onLin
 
     // 搜索地标（支持名称和编号搜索）
     for (const landmark of landmarks) {
-      if (!landmark.coord) continue;
+      const anyLm: any = landmark as any;
+      const coord = anyLm?.coord;
+      if (!coord) continue;
+
+      const id = pickCompatId(anyLm) || String(anyLm?.id ?? '').trim();
+      const name = pickCompatName(anyLm) || String(anyLm?.name ?? '').trim();
 
       // 支持按编号搜索（如 #42 或 42）
-      const idString = String(landmark.id);
-      const idWithHash = `#${landmark.id}`;
-      const nameMatch = landmark.name.toLowerCase().includes(searchQuery);
-      const idMatch = searchQuery.startsWith('#')
-        ? idWithHash.toLowerCase() === searchQuery || idWithHash.toLowerCase().startsWith(searchQuery)
-        : idString === searchQuery || idString.startsWith(searchQuery);
+      const idString = String(id);
+      const idWithHash = idString ? `#${idString}` : '';
+      const nameMatch = String(name).toLowerCase().includes(searchQuery);
+      const idMatch = idWithHash
+        ? (searchQuery.startsWith('#')
+          ? idWithHash.toLowerCase() === searchQuery || idWithHash.toLowerCase().startsWith(searchQuery)
+          : idString === searchQuery || idString.startsWith(searchQuery))
+        : false;
 
       if (nameMatch || idMatch) {
         matchedResults.push({
           type: 'landmark',
-          name: `#${landmark.id} ${landmark.name}`,
-          coord: landmark.coord,
+          name: idString ? `#${idString} ${name}`.trim() : name,
+          coord,
           extra: '旧+地标',
         });
       }

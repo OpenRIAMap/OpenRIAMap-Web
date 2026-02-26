@@ -13,6 +13,10 @@ import type { ParsedLandmark } from '@/lib/landmarkParser';
 // 缓存有效期：7 天
 const CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
+// 缓存结构版本：当解析结构/字段发生不兼容变更时请 bump
+// - 生产环境若保留旧 localStorage，会导致 SearchBar 等模块读到旧结构并崩溃
+const CACHE_VERSION = '2026-02-27-1';
+
 // localStorage 键前缀
 const CACHE_PREFIX = 'ria-cache-';
 const CACHE_META_KEY = 'ria-cache-meta';
@@ -118,6 +122,8 @@ function setCacheMeta(meta: CacheMeta): void {
 function isCacheStale(): boolean {
   const meta = getCacheMeta();
   if (!meta) return true;
+  // 版本不一致：视为过期（自动丢弃旧结构缓存）
+  if (meta.version !== CACHE_VERSION) return true;
   return Date.now() - meta.lastUpdated > CACHE_MAX_AGE;
 }
 
@@ -269,7 +275,7 @@ export const useDataStore = create<DataState>((set, get) => ({
     const now = Date.now();
     setCacheMeta({
       lastUpdated: now,
-      version: '1.0',
+      version: CACHE_VERSION,
     });
 
     set({
