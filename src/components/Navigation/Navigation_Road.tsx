@@ -64,6 +64,8 @@ export type RoadSegment = {
   coords: Coordinate[];
   distance: number;
   timeSeconds: number;
+  /** 仅用于 kind=access：用于 UI 展示“步行/鞘翅”接驳（若不填则由面板全局开关兜底） */
+  accessMode?: 'walk' | 'elytra';
   roadId?: string;
   roadName?: string;
   level?: number;
@@ -92,6 +94,13 @@ export type NavigationRoadComputeOptions = {
 
   /** 默认速度（blocks/s），用于未填写 Speed 的道路边 */
   defaultSpeed: number;
+
+  /** 面板是否开启“鞘翅接驳”（仅影响起终点接驳段） */
+  useElytra?: boolean;
+  /** 鞘翅接驳速度（blocks/s） */
+  elytraSpeed?: number;
+  /** 当 useElytra=true 时，距离进入点超过该阈值（blocks）则默认使用鞘翅接驳，否则仍视作步行 */
+  elytraThreshold?: number;
   /** eps 容差（blocks），端点吸附 / 节点去重用 */
   eps?: number;
 
@@ -144,6 +153,7 @@ type RoadFeature = {
   name: string;
   level: number;
   oneway: boolean;
+  enter: boolean;
   speed?: number;
   coords: Coordinate[];
 };
@@ -183,6 +193,8 @@ async function loadRoadFeatures(worldId: string, opt: {
       const name = String(it?.Name ?? '').trim() || '道路';
       const level = Number.isFinite(Number(it?.Level)) ? Number(it.Level) : 0;
       const oneway = Boolean(it?.Oneway);
+      // Enter 缺省视为 true（可进入）
+      const enter = (typeof it?.Enter === 'boolean') ? Boolean(it.Enter) : true;
       const speed = Number.isFinite(Number(it?.Speed)) ? Number(it.Speed) : undefined;
 
       const lp = it?.Linepoints;
@@ -198,7 +210,7 @@ async function loadRoadFeatures(worldId: string, opt: {
         .filter(Boolean) as Coordinate[];
       if (coords.length < 2) continue;
 
-      out.push({ id, name, level, oneway, speed, coords });
+      out.push({ id, name, level, oneway, enter, speed, coords });
     }
   }
 
@@ -217,6 +229,7 @@ type Seg = {
   roadName: string;
   level: number;
   oneway: boolean;
+  enter: boolean;
   speed?: number;
 };
 
@@ -278,6 +291,8 @@ type Edge = {
   speed?: number;
   geom: [Coordinate, Coordinate];
   oneway: boolean;
+  /** 是否可进入该路段（若 false，则起终点不允许在该段附近进/出） */
+  enter: boolean;
 };
 
 type RoadGraphCache = {
@@ -323,7 +338,7 @@ function buildRoadGraph(roads: RoadFeature[], eps: number): RoadGraphCache {
       if (!a || !b) continue;
       const d = dist2D(a, b);
       if (d <= 1e-6) continue;
-      segs.push({ a, b, roadId: r.id, roadName: r.name, level: r.level, oneway: r.oneway, speed: r.speed });
+      segs.push({ a, b, roadId: r.id, roadName: r.name, level: r.level, oneway: r.oneway, enter: r.enter, speed: r.speed });
     }
   }
 
@@ -460,6 +475,7 @@ function buildRoadGraph(roads: RoadFeature[], eps: number): RoadGraphCache {
         speed: s.speed,
         geom: [nodes.get(n1) ?? normCoord(a), nodes.get(n2) ?? normCoord(b)],
         oneway: s.oneway,
+        enter: s.enter,
       };
       addEdge(edgesFrom, n1, e);
       // 双向：若 oneway=false
@@ -594,6 +610,8 @@ function findNearestEdge(graph: RoadGraphCache, p: Coordinate): { seg: RoadGraph
   // 说明：道路数据现阶段通常远小于铁路平台/线路节点规模，且 road 构图已做大量预处理。
   let best: { seg: any; proj: Coordinate; d: number } | null = null;
   for (const s of graph.segIndex) {
+    // Enter=false：禁止把起终点“接驳”到该段（但段本身仍可作为道路通行）
+    if ((s.edgeRef as any)?.enter === false) continue;
     const r = projectPointToSegment2D(p, s.a, s.b);
     if (!best || r.dist < best.d) best = { seg: s, proj: r.proj, d: r.dist };
   }
@@ -705,6 +723,9 @@ export async function computeRoadPlanFromCoords(opt: NavigationRoadComputeOption
   const end = normCoord(opt.endCoord);
   const eps = Number.isFinite(Number(opt.eps)) ? Number(opt.eps) : DEFAULT_EPS;
   const defaultSpeed = Math.max(1e-6, Number(opt.defaultSpeed));
+  const useElytra = !!opt.useElytra;
+  const elytraSpeed = Math.max(1e-6, Number.isFinite(Number(opt.elytraSpeed)) ? Number(opt.elytraSpeed) : 40);
+  const elytraThreshold = Math.max(0, Number.isFinite(Number(opt.elytraThreshold)) ? Number(opt.elytraThreshold) : 50);
 
   // 1) load roads
   const roads = await loadRoadFeatures(worldId, {
@@ -790,6 +811,8 @@ export async function computeRoadPlanFromCoords(opt: NavigationRoadComputeOption
       speed: eRef.speed,
       geom,
       oneway: false,
+      // 接驳边本身不参与 Enter 判断（Enter 仅限制“能否选择该路段作为接驳入口”）
+      enter: true,
     });
 
     addEdge(qg.edgesFrom, temp, mk(n1, d1, [proj, a]));
@@ -847,11 +870,17 @@ export async function computeRoadPlanFromCoords(opt: NavigationRoadComputeOption
   let totalDist = 0;
   let totalTime = 0;
 
+  let startAccessMode: 'walk' | 'elytra' | null = null;
+  let endAccessMode: 'walk' | 'elytra' | null = null;
+
   // access: startCoord -> startProj / endProj -> endCoord
   const accessStartDist = dist2D(start, startProj);
   if (accessStartDist > 1e-6) {
-    const t = accessStartDist / defaultSpeed;
-    segments.push({ kind: 'access', from: start, to: startProj, coords: [start, startProj], distance: accessStartDist, timeSeconds: t });
+    const mode: 'walk' | 'elytra' = (useElytra && accessStartDist > elytraThreshold) ? 'elytra' : 'walk';
+    startAccessMode = mode;
+    const sp = mode === 'elytra' ? elytraSpeed : defaultSpeed;
+    const t = accessStartDist / sp;
+    segments.push({ kind: 'access', accessMode: mode, from: start, to: startProj, coords: [start, startProj], distance: accessStartDist, timeSeconds: t });
     totalDist += accessStartDist;
     totalTime += t;
   }
@@ -877,8 +906,11 @@ export async function computeRoadPlanFromCoords(opt: NavigationRoadComputeOption
 
   const accessEndDist = dist2D(endProj, end);
   if (accessEndDist > 1e-6) {
-    const t = accessEndDist / defaultSpeed;
-    segments.push({ kind: 'access', from: endProj, to: end, coords: [endProj, end], distance: accessEndDist, timeSeconds: t });
+    const mode: 'walk' | 'elytra' = (useElytra && accessEndDist > elytraThreshold) ? 'elytra' : 'walk';
+    endAccessMode = mode;
+    const sp = mode === 'elytra' ? elytraSpeed : defaultSpeed;
+    const t = accessEndDist / sp;
+    segments.push({ kind: 'access', accessMode: mode, from: endProj, to: end, coords: [endProj, end], distance: accessEndDist, timeSeconds: t });
     totalDist += accessEndDist;
     totalTime += t;
   }
@@ -895,8 +927,8 @@ export async function computeRoadPlanFromCoords(opt: NavigationRoadComputeOption
   if (roadCoords.length >= 2) {
     styledSegments.push({ kind: 'generic', coords: roadCoords, color: '#FF9800', dashed: false, tooltip: '道路路线' });
   }
-  if (accessStartDist > 1e-6) styledSegments.push({ kind: 'access', coords: [start, startProj], color: '#9E9E9E', dashed: true, tooltip: '接驳至道路' });
-  if (accessEndDist > 1e-6) styledSegments.push({ kind: 'access', coords: [endProj, end], color: '#9E9E9E', dashed: true, tooltip: '从道路接驳' });
+  if (accessStartDist > 1e-6) styledSegments.push({ kind: 'access', coords: [start, startProj], color: '#9E9E9E', dashed: true, tooltip: startAccessMode === 'elytra' ? '鞘翅接驳至道路' : '步行接驳至道路' });
+  if (accessEndDist > 1e-6) styledSegments.push({ kind: 'access', coords: [endProj, end], color: '#9E9E9E', dashed: true, tooltip: endAccessMode === 'elytra' ? '鞘翅从道路接驳' : '步行从道路接驳' });
 
   const stationMarkers: RouteStationMarker[] = [
     { coord: start, kind: 'start', label: '起点', color: '#4CAF50' },

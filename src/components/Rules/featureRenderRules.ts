@@ -251,7 +251,7 @@ visible: (r, ctx, store) => {
   const dir = raw === '' || raw === null || raw === undefined ? NaN : Number(raw);
 
   // zoom < 6：只显示展示线 dir=3
-  if (ctx.zoomLevel < 6) return dir === 3;
+  if (ctx.zoomLevel < 8) return dir === 3;
 
   // zoom >= 6：进入互斥选择
   const choice = getRleExclusiveChoice(store).choice;
@@ -282,7 +282,11 @@ visible: (r, ctx, store) => {
         const raw = (r.featureInfo as any)?.direction;
         const dir = raw === '' || raw === null || raw === undefined ? NaN : Number(raw);
         const c = normalizeColor((r.featureInfo as any)?.color) ?? '#2563eb';
+        // ✅ 新数据集：统一使用 Name/ID
+        // 兼容旧字段：LineName/LineID（避免历史数据立刻全崩）
         const text =
+          String((r.featureInfo as any)?.Name ?? '').trim() ||
+          String((r.featureInfo as any)?.ID ?? '').trim() ||
           String((r.featureInfo as any)?.LineName ?? '').trim() ||
           String((r.featureInfo as any)?.LineID ?? '').trim();
 
@@ -332,6 +336,69 @@ visible: (r, ctx, store) => {
   },
 
     },
+    },
+  },
+
+  // ------------------------------------------------------------------
+  // 道路 ROD：缩放阈值控制 + 沿线 label
+  // - 仅当 zoomLevel 在 (6,7) 内：显示 25% 透明度的“默认宽度/颜色”线条
+  // - 当 zoomLevel > 7：显示 35% 透明度的线条 + gm-bw-12 的 Name label（沿线中心贴附）
+  //
+  // 重要：这里的“当前宽度”= 你这份 src 中 ROD 线要素的**默认显示宽度**（即通用 Polyline 默认样式的 weight），
+  // 并不是读取 featureInfo 里的某个 width 字段。
+  // ------------------------------------------------------------------
+  {
+    name: '道路 ROD：缩放阈值控制 + 沿线 label',
+    match: { Class: 'ROD', Type: 'Polyline' },
+    zoom: [0, 99],
+    visible: (_r, ctx) => {
+      const z = Number((ctx as any).zoomLevel ?? 0);
+      if (z > 5 && z <= 6) return true;
+      if (z > 6) return true;
+      return false;
+    },
+    symbol: {
+      pathStyle: (r, ctx) => {
+        const z = Number((ctx as any).zoomLevel ?? 0);
+
+        // 颜色：沿用要素自身配置；若未提供则回退到通用 Polyline 默认色
+        const c = normalizeColor((r.featureInfo as any)?.color) ?? '#111827';
+
+        // 宽度：沿用通用 Polyline 默认 weight（你这份 src 中为 3）
+        const defaultWeight = 3;
+
+        const opacity = (z > 6 && z < 7) ? 0.25 : 0.35;
+        return {
+          color: c,
+          weight: defaultWeight,
+          opacity,
+        };
+      },
+
+      label: (_r, ctx) => {
+        const z = Number((ctx as any).zoomLevel ?? 0);
+        if (!(z > 5)) return { enabled: false } as any;
+        return {
+          enabled: true,
+          minLevel: 0,
+          placement: 'center',
+          textFrom: (r: any) => String((r.featureInfo as any)?.Name ?? '').trim(),
+          withDot: false,
+          offsetY: 0,
+          declutter: {
+            // 与 RLE 沿线文字一致的“贴附 + 避让 + 多 anchor”策略（但不做颜色判断）
+            priority: 10,
+            minSpacingPx: 6,
+            candidates: ['C', 'N', 'S', 'E', 'W', 'NE', 'NW', 'SE', 'SW'],
+            allowHide: true,
+            allowAbbrev: true,
+            abbrev: (s: string) => (s.length > 10 ? s.slice(0, 10) + '…' : s),
+            anchorMode: 'polyline-multi',
+            anchorSamples: 7,
+          },
+          styleKey: 'gm-bw-12',
+        } as any;
+      },
     },
   },
 

@@ -1185,6 +1185,11 @@ if (travelMode === 'road') {
     startCoord: startPoint.coord,
     endCoord: endPoint.coord,
     defaultSpeed: profile?.speed ?? 4.3,
+    // 与 rail_new / teleport_new 一致：面板“鞘翅接驳”仅影响起终点接驳段
+    useElytra,
+    // 经验值：与铁路(新)模块默认跨组件飞行速度一致
+    elytraSpeed: 40,
+    elytraThreshold: 50,
     // StepA eps：按你的要求默认 1.5
     eps: 1.5,
   });
