@@ -1633,7 +1633,10 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
   // - Linepoints: [[x,y,z], ...]（y 若缺省，导入时默认 -64；编辑/新建保留输入 y）
   // - Level: 同层级道路可相交打断，不同层级视为立交（导航构图使用）
   // - Oneway/Speed: 目前道路导航可选择是否使用；格式层先完整保留
-  // - Enter: [可选] 是否可进入；默认 true。用于“起终点可否进出该路段”的导航约束。
+  // - Enter/Exit: [可选] 是否可进入/可离开；默认 true。
+  //   仅作用于导航的起点/终点接驳（“上下车/乘降”），不阻断道路之间的连接关系。
+  // - ConnectL: [可选] 显式连接关系（[{mode,tgt}]）。用于在复杂立交/叠层场景下稳定指定连接。
+  // - SelfJunction: [可选] 是否允许自身自交建点；默认 false（仅影响导航构图）。
   道路: {
     key: '道路',
     label: '道路',
@@ -1649,18 +1652,73 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       { key: 'Level', label: '道路层级(Level)', type: 'number' },
       { key: 'Oneway', label: '是否单向(Oneway)', type: 'bool' },
       { key: 'Enter', label: '是否可进入(Enter)', type: 'bool', optional: true },
+      { key: 'Exit', label: '是否可离开(Exit)', type: 'bool', optional: true },
+      { key: 'SelfJunction', label: '是否允许自交(SelfJunction)', type: 'bool', optional: true },
       { key: 'Speed', label: '道路速度(Speed)', type: 'number', optional: true },
       { key: 'Situation', label: '状态(Situation)', type: 'text', optional: true },
     ],
     // tags/extensions：通用字段（与其他要素一致）
     // 说明：本项目的 featureFormats 未提供 getGroupsWithTagExt 之类的辅助函数。
     // 若后续需要在编辑器表单中显式呈现 tags/extensions 的分组，可参考其它要素的实现方式扩展 groups。
-    groups: [],
+    groups: [
+      {
+        key: 'ConnectL',
+        label: '显式连接关系(ConnectL)',
+        optional: true,
+        fields: [
+          {
+            key: 'mode',
+            label: '连接方式(mode)',
+            type: 'select',
+            options: [
+              { label: '端点(endpoint)', value: 'endpoint' },
+              { label: '中段(middle)', value: 'middle' },
+            ],
+          },
+          { key: 'tgt', label: '目标道路ID(tgt)', type: 'text' },
+        ],
+      },
+      {
+        key: 'Blacklist',
+        label: '黑名单(Blacklist)',
+        optional: true,
+        fields: [{ key: 'tgt', label: '目标道路ID(tgt)', type: 'text' }],
+      },
+    ],
     buildFeatureInfo: ({ op, mode, coords, values, groups, worldId, editorId, prevFeatureInfo, now }) => {
       const base = pickByFields(values, FORMAT_REGISTRY['道路'].fields);
       // 新规范：y 默认 -64（若 coords 内已有 y，则保留）
       const Linepoints = coords.map(p => [p.x, (Number.isFinite(p.y as any) ? (p.y as number) : -64), p.z] as [number, number, number]);
-      const out = injectOptionalTagsExtensions({ ...base, Linepoints }, groups);
+      const out0 = injectOptionalTagsExtensions({ ...base, Linepoints }, groups);
+
+      // ConnectL：允许从 groups.ConnectL 写入；仅保留合法条目
+      const rawCL = (groups as any)?.ConnectL;
+      const list = Array.isArray(rawCL) ? rawCL : [];
+      const ConnectL = list
+        .map((it: any) => {
+          const modeRaw = String(it?.mode ?? it?.Lot ?? '').trim();
+          const tgtRaw = String(it?.tgt ?? it?.Tgt ?? '').trim();
+          if (!tgtRaw) return null;
+          if (modeRaw !== 'endpoint' && modeRaw !== 'middle') return null;
+          return { mode: modeRaw, tgt: tgtRaw };
+        })
+        .filter(Boolean);
+
+      const out: any = { ...out0 };
+      if (ConnectL.length) out.ConnectL = ConnectL;
+
+      // Blacklist：允许从 groups.Blacklist 写入；输出为 [[ID], ...]；仅保留非空字符串
+      const rawBL = (groups as any)?.Blacklist;
+      const blList = Array.isArray(rawBL) ? rawBL : [];
+      const Blacklist = blList
+        .map((it: any) => {
+          const v = it?.tgt;
+          if (Array.isArray(v)) return String(v?.[0] ?? '').trim();
+          return String(v ?? it?.ID ?? it?.id ?? '').trim();
+        })
+        .filter((s: string) => !!s);
+      if (Blacklist.length) out.Blacklist = Blacklist.map((id: string) => [id]);
+
       return withSystemFields(FORMAT_REGISTRY['道路'], out, { op, mode, worldId, editorId, prevFeatureInfo, now });
     },
     hydrate: (featureInfo) => ({
@@ -1674,11 +1732,43 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
         Oneway: Boolean(featureInfo?.Oneway),
         // Enter 缺省视为 true
         Enter: typeof featureInfo?.Enter === 'boolean' ? Boolean(featureInfo.Enter) : true,
+        // Exit 缺省视为 true
+        Exit: typeof featureInfo?.Exit === 'boolean' ? Boolean(featureInfo.Exit) : true,
+        // SelfJunction 缺省视为 false
+        SelfJunction: typeof (featureInfo as any)?.SelfJunction === 'boolean' ? Boolean((featureInfo as any).SelfJunction) : false,
         Speed: featureInfo?.Speed ?? '',
         Situation: featureInfo?.Situation ?? '',
       },
       groups: {
         ...hydrateOptionalTagExtGroups(featureInfo),
+        // ConnectL：兼容 ConnectL / connectL；兼容旧键 Lot/Tgt
+        ConnectL: (() => {
+          const raw = (featureInfo as any)?.ConnectL ?? (featureInfo as any)?.connectL;
+          if (!Array.isArray(raw)) return [];
+          return raw
+            .map((it: any) => {
+              const modeRaw = String(it?.mode ?? it?.Lot ?? '').trim();
+              const tgtRaw = String(it?.tgt ?? it?.Tgt ?? '').trim();
+              if (!tgtRaw) return null;
+              if (modeRaw !== 'endpoint' && modeRaw !== 'middle') return null;
+              return { mode: modeRaw, tgt: tgtRaw };
+            })
+            .filter(Boolean);
+        })(),
+        // Blacklist：兼容 [[ID]] / [ID]
+        Blacklist: (() => {
+          const raw = (featureInfo as any)?.Blacklist ?? (featureInfo as any)?.blacklist;
+          if (!Array.isArray(raw)) return [];
+          const ids = raw
+            .map((it: any) => {
+              if (typeof it === 'string') return it.trim();
+              if (Array.isArray(it)) return String(it?.[0] ?? '').trim();
+              if (it && typeof it === 'object') return String(it?.tgt ?? it?.ID ?? it?.id ?? '').trim();
+              return '';
+            })
+            .filter((s: string) => !!s);
+          return ids.map((tgt: string) => ({ tgt }));
+        })(),
       },
     }),
     coordsFromFeatureInfo: (featureInfo) => {
@@ -1703,6 +1793,33 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       if (!Number.isFinite(Number((item as any).Level))) return '缺少 Level 或 Level 不是数字';
       if (typeof (item as any).Oneway !== 'boolean') return '缺少 Oneway 或 Oneway 不是 boolean';
       if (typeof (item as any).Enter !== 'undefined' && typeof (item as any).Enter !== 'boolean') return 'Enter 必须是 boolean（或缺省）';
+      if (typeof (item as any).Exit !== 'undefined' && typeof (item as any).Exit !== 'boolean') return 'Exit 必须是 boolean（或缺省）';
+      if (typeof (item as any).SelfJunction !== 'undefined' && typeof (item as any).SelfJunction !== 'boolean') return 'SelfJunction 必须是 boolean（或缺省）';
+
+      // ConnectL（可选）：[{mode,tgt}]，兼容 Lot/Tgt
+      const rawCL = (item as any).ConnectL ?? (item as any).connectL;
+      if (typeof rawCL !== 'undefined') {
+        if (!Array.isArray(rawCL)) return 'ConnectL 必须是数组（或缺省）';
+        for (const it of rawCL) {
+          if (!it || typeof it !== 'object') return 'ConnectL 条目必须是对象';
+          const modeRaw = String((it as any).mode ?? (it as any).Lot ?? '').trim();
+          const tgtRaw = String((it as any).tgt ?? (it as any).Tgt ?? '').trim();
+          if (!tgtRaw) return 'ConnectL.tgt 不能为空';
+          if (modeRaw !== 'endpoint' && modeRaw !== 'middle') return 'ConnectL.mode 必须是 endpoint 或 middle';
+        }
+      }
+
+      // Blacklist（可选）：[[ID]] 或 [ID]
+      const rawBL = (item as any).Blacklist ?? (item as any).blacklist;
+      if (typeof rawBL !== 'undefined') {
+        if (!Array.isArray(rawBL)) return 'Blacklist 必须是数组（或缺省）';
+        for (const it of rawBL) {
+          const id = (typeof it === 'string')
+            ? it.trim()
+            : (Array.isArray(it) ? String(it?.[0] ?? '').trim() : (it && typeof it === 'object' ? String((it as any)?.tgt ?? '').trim() : ''));
+          if (!id) return 'Blacklist 条目不能为空';
+        }
+      }
       if (!Array.isArray((item as any).Linepoints) || (item as any).Linepoints.length < 2) return 'Linepoints 必须是数组且至少 2 点';
       const terr = validateOptionalTagExtSoft(item);
       if (terr) return terr;

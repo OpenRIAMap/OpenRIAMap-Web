@@ -102,16 +102,50 @@ function MapContainer() {
   const [measuringCloseSignal, setMeasuringCloseSignal] = useState(0);
   const [measureToolsCloseSignal, setMeasureToolsCloseSignal] = useState(0);
 
-  // 测绘激活态：用于禁止导航图选点（由 MeasuringModule / Mtools 派发）
-  const measuringActiveRef = useRef(false);
-  useEffect(() => {
-    const handler = (ev: Event) => {
-      const ce = ev as CustomEvent<{ active?: boolean }>;
-      measuringActiveRef.current = Boolean(ce?.detail?.active);
-    };
-    window.addEventListener('ria:measuringActiveChanged', handler as any);
-    return () => window.removeEventListener('ria:measuringActiveChanged', handler as any);
-  }, []);
+  // 测绘激活态：用于禁止导航图选点（由 MeasuringModule / MeasurementToolsModule 派发）
+// 说明：临时挂载启用时，MeasuringModule 可能被迫处于 active，但此时仍允许导航图选点（只要 MeasurementToolsModule 未启用）
+const measuringModuleActiveRef = useRef(false);
+const measurementToolsActiveRef = useRef(false);
+
+const isTempRuleMountEnabled = useCallback(() => {
+  try {
+    const raw = localStorage.getItem('ria_temp_rule_sources_v1');
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    // 兼容：可能是 { enabled: true } 或 { entries: [{enabled:true}, ...] } 或 { layers: {...} }
+    if (typeof data?.enabled === 'boolean') return data.enabled;
+    if (Array.isArray(data?.entries)) return data.entries.some((e: any) => Boolean(e?.enabled));
+    if (Array.isArray(data?.sources)) return data.sources.some((e: any) => Boolean(e?.enabled));
+    if (data && typeof data === 'object') {
+      // 尝试遍历对象值
+      return Object.values(data).some((v: any) => Boolean(v?.enabled));
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}, []);
+
+useEffect(() => {
+  const handler = (ev: Event) => {
+    const ce = ev as CustomEvent<{ active?: boolean; source?: string }>;
+    const active = Boolean(ce?.detail?.active);
+    const source = String(ce?.detail?.source ?? '');
+    if (source === 'MeasurementToolsModule') {
+      measurementToolsActiveRef.current = active;
+      return;
+    }
+    if (source === 'MeasuringModule') {
+      measuringModuleActiveRef.current = active;
+      return;
+    }
+    // 兜底：未知来源则视作 MeasuringModule
+    measuringModuleActiveRef.current = active;
+  };
+  window.addEventListener('ria:measuringActiveChanged', handler as any);
+  return () => window.removeEventListener('ria:measuringActiveChanged', handler as any);
+}, []);
+
 
   // 规则图层“分组开关”（按 world 维度持久化）
   const { activeButtonIds: activeRuleButtonIds, toggle: toggleRuleButton } = useRuleButtonState(currentWorld);
@@ -643,7 +677,9 @@ const flushCoord = () => {
     // 注意：只派发世界坐标；具体吸附/写入由 NavigationPanel 处理
     map.on('click', (e: L.LeafletMouseEvent) => {
       try {
-        if (measuringActiveRef.current) return;
+        // 禁用条件：测量工具启用时永远禁止；测绘(快捷/完整)启用时，若临时挂载未启用则禁止
+        if (measurementToolsActiveRef.current) return;
+        if (measuringModuleActiveRef.current && !isTempRuleMountEnabled()) return;
         const proj = projectionRef.current;
         if (!proj) return;
         const p = proj.latLngToLocation(e.latlng, 64);

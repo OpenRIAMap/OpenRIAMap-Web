@@ -12,7 +12,7 @@
  *     - onRouteFound 仍保持传回 Array<{coord}>，但会额外挂载 styledSegments / stationMarkers（后续 MapContainer/RouteHighlightLayer 可直接复用）
  */
 
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   X,
   ArrowUpDown,
@@ -825,35 +825,74 @@ export function NavigationPanel({
   const [resultRoad, setResultRoad] = useState<NavRoadPlan | null>(null);
   const [searching, setSearching] = useState(false);
 
+  // 寻路超过阈值时显示进度窗（所有导航模式通用）
+  const [searchProgressOpen, setSearchProgressOpen] = useState(false);
+  const [searchProgressText, setSearchProgressText] = useState('正在计算最短路径');
+
   // 道路：出行方式（速度）选择
   const [roadProfileName, setRoadProfileName] = useState<string>(ROAD_TRAVEL_PROFILES[0]?.name ?? '步行');
 
+  // 道路：起/终点层数偏好（用于择优评分）
+  const [roadStartLevelPref, setRoadStartLevelPref] = useState<number>(0);
+  const [roadEndLevelPref, setRoadEndLevelPref] = useState<number>(0);
+
   // 图上选取（起/终点互斥）
   const [mapPickTarget, setMapPickTarget] = useState<'start' | 'end' | null>(null);
-  const [measuringActive, setMeasuringActive] = useState(false);
+  const [measuringModuleActive, setMeasuringModuleActive] = useState(false);
+  const [measurementToolsActive, setMeasurementToolsActive] = useState(false);
 
-  // 监听测绘激活态：测绘启用时禁止导航图选点；若已开启则自动关闭
-  useEffect(() => {
-    const handler = (ev: Event) => {
-      const ce = ev as CustomEvent<{ active?: boolean }>;
-      const active = Boolean(ce?.detail?.active);
-      setMeasuringActive(active);
-    };
-    window.addEventListener('ria:measuringActiveChanged', handler as any);
-    return () => window.removeEventListener('ria:measuringActiveChanged', handler as any);
+  const isTempRuleMountEnabled = useCallback(() => {
+    try {
+      const raw = localStorage.getItem('ria_temp_rule_sources_v1');
+      if (!raw) return false;
+      const data = JSON.parse(raw);
+      if (typeof data?.enabled === 'boolean') return data.enabled;
+      if (Array.isArray(data?.entries)) return data.entries.some((e: any) => Boolean(e?.enabled));
+      if (Array.isArray(data?.sources)) return data.sources.some((e: any) => Boolean(e?.enabled));
+      if (data && typeof data === 'object') return Object.values(data).some((v: any) => Boolean(v?.enabled));
+      return false;
+    } catch {
+      return false;
+    }
   }, []);
 
+  const blockMapPick = measurementToolsActive || (measuringModuleActive && !isTempRuleMountEnabled());
+
+
+  // 监听测绘/测量工具激活态：
+// - MeasurementToolsModule 启用时：始终禁止导航图选点
+// - MeasuringModule 启用时：若临时挂载启用，则不禁止（便于在临时挂载下测试道路导航）
+useEffect(() => {
+  const handler = (ev: Event) => {
+    const ce = ev as CustomEvent<{ active?: boolean; source?: string }>;
+    const active = Boolean(ce?.detail?.active);
+    const source = String(ce?.detail?.source ?? '');
+    if (source === 'MeasurementToolsModule') {
+      setMeasurementToolsActive(active);
+      return;
+    }
+    if (source === 'MeasuringModule') {
+      setMeasuringModuleActive(active);
+      return;
+    }
+    // 兜底：未知来源当作 MeasuringModule
+    setMeasuringModuleActive(active);
+  };
+  window.addEventListener('ria:measuringActiveChanged', handler as any);
+  return () => window.removeEventListener('ria:measuringActiveChanged', handler as any);
+}, []);
+
   useEffect(() => {
-    if (measuringActive && mapPickTarget) {
+    if (blockMapPick && mapPickTarget) {
       setMapPickTarget(null);
     }
-  }, [measuringActive, mapPickTarget]);
+  }, [blockMapPick, mapPickTarget]);
 
   // 监听地图点击（来自 MapContainer 派发）
   useEffect(() => {
     const handler = (ev: Event) => {
       if (!mapPickTarget) return;
-      if (measuringActive) return;
+      if (blockMapPick) return;
       const ce = ev as CustomEvent<any>;
       const detail = ce?.detail as { worldId?: string; point?: { x: number; y: number; z: number } };
       if (!detail?.point) return;
@@ -880,10 +919,10 @@ export function NavigationPanel({
     };
     window.addEventListener('ria:mapClickWorldPoint', handler as any);
     return () => window.removeEventListener('ria:mapClickWorldPoint', handler as any);
-  }, [mapPickTarget, measuringActive, worldId]);
+  }, [mapPickTarget, blockMapPick, worldId]);
 
   const togglePick = (target: 'start' | 'end') => {
-    if (measuringActive) return;
+    if (blockMapPick) return;
     setMapPickTarget((prev) => (prev === target ? null : target));
   };
 
@@ -1116,6 +1155,12 @@ useEffect(() => {
     }
 
     setSearching(true);
+    setSearchProgressOpen(false);
+    setSearchProgressText('正在计算最短路径');
+
+    const progressTimer = window.setTimeout(() => {
+      setSearchProgressOpen(true);
+    }, 3000);
 
     try {
 // [修改 4] handleSearch() 里 rail_new 分支：整段替换
@@ -1192,6 +1237,9 @@ if (travelMode === 'road') {
     elytraThreshold: 50,
     // StepA eps：按你的要求默认 1.5
     eps: 1.5,
+
+    startLevelPref: roadStartLevelPref,
+    endLevelPref: roadEndLevelPref,
   });
 
   // 记录 profile 名称（便于结果展示）
@@ -1285,6 +1333,8 @@ if (travelMode === 'road') {
         onRouteFound(path);
       }
     } finally {
+      window.clearTimeout(progressTimer);
+      setSearchProgressOpen(false);
       setSearching(false);
     }
   };
@@ -1296,7 +1346,18 @@ if (travelMode === 'road') {
   const hasResult = !!(resultLegacy || resultRailNew || resultTeleportNew || resultRoad);
 
   return (
-    <AppCard className="w-full sm:w-72 max-h-[60vh] sm:max-h-[70vh] flex flex-col">
+    <AppCard className="relative w-full sm:w-72 max-h-[70vh] sm:max-h-[82vh] flex flex-col">
+      {searchProgressOpen && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/20">
+          <AppCard className="p-4 w-[240px]">
+            <div className="text-sm text-gray-800 font-semibold mb-1">请稍候</div>
+            <div className="text-xs text-gray-600">{searchProgressText}</div>
+            <div className="mt-3 h-1 w-full bg-gray-200 rounded overflow-hidden">
+              <div className="h-1 w-1/2 bg-blue-400 animate-pulse" />
+            </div>
+          </AppCard>
+        </div>
+      )}
       {/* 标题 */}
       <div className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0">
         <h3 className="font-bold text-gray-800">路径规划</h3>
@@ -1358,11 +1419,11 @@ if (travelMode === 'road') {
               labelRight={
                 <AppButton
                   onClick={() => togglePick('start')}
-                  disabled={measuringActive}
+                  disabled={blockMapPick}
                   className={`px-2 py-0.5 text-xs rounded border flex items-center gap-1 ${
                     mapPickTarget === 'start' ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-white text-gray-600 border-gray-200'
-                  } ${measuringActive ? 'opacity-60 cursor-not-allowed' : 'hover:bg-gray-50'}`}
-                  title={measuringActive ? '测绘启用时不可图上选取' : '图上选取起点'}
+                  } ${blockMapPick ? 'opacity-60 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+                  title={blockMapPick ? '测量工具启用时不可图上选取；测绘启用时仅在未启用临时挂载时禁止' : '图上选取起点'}
                 >
                   <MousePointerClick className="w-3.5 h-3.5" />
                   <span>{mapPickTarget === 'start' ? '图选中' : '图上选取'}</span>
@@ -1397,11 +1458,11 @@ if (travelMode === 'road') {
             labelRight={
               <AppButton
                 onClick={() => togglePick('end')}
-                disabled={measuringActive}
+                disabled={blockMapPick}
                 className={`px-2 py-0.5 text-xs rounded border flex items-center gap-1 ${
                   mapPickTarget === 'end' ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-white text-gray-600 border-gray-200'
-                } ${measuringActive ? 'opacity-60 cursor-not-allowed' : 'hover:bg-gray-50'}`}
-                title={measuringActive ? '测绘启用时不可图上选取' : '图上选取终点'}
+                } ${blockMapPick ? 'opacity-60 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+                title={blockMapPick ? '测量工具启用时不可图上选取；测绘启用时仅在未启用临时挂载时禁止' : '图上选取终点'}
               >
                 <MousePointerClick className="w-3.5 h-3.5" />
                 <span>{mapPickTarget === 'end' ? '图选中' : '图上选取'}</span>
@@ -1410,7 +1471,7 @@ if (travelMode === 'road') {
           />
         </div>
 
-        {mapPickTarget && !measuringActive && (
+        {mapPickTarget && !blockMapPick && (
           <div className="mb-2 text-xs text-blue-600">
             开启图上选取功能：请点击地图以设置{mapPickTarget === 'start' ? '起点' : '终点'}坐标。
           </div>
@@ -1472,6 +1533,42 @@ if (travelMode === 'road') {
               />
               <span className="text-gray-600">鞘翅</span>
             </label>
+
+            {travelMode === 'road' && (
+              <>
+                <label className="flex items-center gap-1.5 cursor-pointer text-xs">
+                  <span className="text-gray-600">起点层数</span>
+                  <select
+                    className="text-xs border rounded px-1.5 py-0.5 bg-white"
+                    value={roadStartLevelPref}
+                    onChange={(e) => {
+                      setRoadStartLevelPref(Number(e.target.value));
+                      setResultRoad(null);
+                    }}
+                  >
+                    {Array.from({ length: 21 }, (_, i) => i - 10).map((v) => (
+                      <option key={`sLv-${v}`} value={v}>{v}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="flex items-center gap-1.5 cursor-pointer text-xs">
+                  <span className="text-gray-600">终点层数</span>
+                  <select
+                    className="text-xs border rounded px-1.5 py-0.5 bg-white"
+                    value={roadEndLevelPref}
+                    onChange={(e) => {
+                      setRoadEndLevelPref(Number(e.target.value));
+                      setResultRoad(null);
+                    }}
+                  >
+                    {Array.from({ length: 21 }, (_, i) => i - 10).map((v) => (
+                      <option key={`eLv-${v}`} value={v}>{v}</option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            )}
           </div>
 
           <AppButton
@@ -1836,50 +1933,91 @@ if (travelMode === 'road') {
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    {resultRoad.instructions.map((it, idx) => {
-                      const label = (() => {
-                        switch (it.action) {
-                          case 'start':
-                            return '出发';
-                          case 'arrive':
-                            return '到达终点';
-                          case 'slight_left':
-                            return '向左前方';
-                          case 'left':
-                            return '左转';
-                          case 'slight_right':
-                            return '向右前方';
-                          case 'right':
-                            return '右转';
-                          case 'uturn':
-                            return '掉头';
-                          default:
-                            return '直行';
-                        }
-                      })();
+                  {(() => {
+                    const segs = Array.isArray(resultRoad.segments) ? resultRoad.segments : [];
+                    const startAcc = segs.length && segs[0]?.kind === 'access' ? segs[0] : null;
+                    const endAcc = segs.length >= 2 && segs[segs.length - 1]?.kind === 'access' ? segs[segs.length - 1] : null;
 
-                      return (
-                        <div key={`road-ins-${idx}`} className="bg-white border rounded p-2">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="text-xs text-gray-800">
-                                <span className="font-medium">{label}</span>
-                                <span className="text-gray-400 mx-1">·</span>
-                                <span className="text-gray-700">{it.roadName || '道路'}</span>
-                              </div>
-                              <div className="text-[10px] text-gray-500 mt-0.5">
-                                {Math.round(it.distance)}m · {formatTime(it.timeSeconds)}
-                              </div>
+                    const AccessCard = (p: { seg: any; title: string; border: string }) => (
+                      <div className={`bg-white border rounded p-2 border-l-4 ${p.border}`}> 
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-xs text-gray-800">
+                              <span className="font-medium">{p.title}</span>
+                              <span className="text-gray-400 mx-1">·</span>
+                              <span className="text-gray-700">{p.seg?.accessMode === 'elytra' ? '鞘翅接驳' : '步行接驳'}</span>
                             </div>
-                            <AppButton className="text-[10px] text-blue-600 hover:underline" onClick={() => onPointClick?.(it.at)}>
-                              定位
-                            </AppButton>
+                            <div className="text-[10px] text-gray-500 mt-0.5">
+                              {Math.round(p.seg?.distance ?? 0)}m · {formatTime(p.seg?.timeSeconds ?? 0)}
+                            </div>
                           </div>
+                          <AppButton className="text-[10px] text-blue-600 hover:underline" onClick={() => onPointClick?.(p.seg?.to ?? p.seg?.from)}>
+                            定位
+                          </AppButton>
                         </div>
-                      );
-                    })}
-                  </div>
+                      </div>
+                    );
+
+                    return (
+                      <>
+                        {startAcc ? (
+                          <div className="mb-2">
+                            <AccessCard seg={startAcc} title="进入道路" border="border-l-green-500" />
+                          </div>
+                        ) : null}
+                        <div className="space-y-2">
+                          {resultRoad.instructions.map((it, idx) => {
+                            const label = (() => {
+                              switch (it.action) {
+                                case 'start':
+                                  return '出发';
+                                case 'arrive':
+                                  return '到达终点';
+                                case 'slight_left':
+                                  return '向左前方';
+                                case 'left':
+                                  return '左转';
+                                case 'slight_right':
+                                  return '向右前方';
+                                case 'right':
+                                  return '右转';
+                                case 'uturn':
+                                  return '掉头';
+                                default:
+                                  return '直行';
+                              }
+                            })();
+
+                            return (
+                              <div key={`road-ins-${idx}`} className="bg-white border rounded p-2">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <div className="text-xs text-gray-800">
+                                      <span className="font-medium">{label}</span>
+                                      <span className="text-gray-400 mx-1">·</span>
+                                      <span className="text-gray-700">{it.roadName || '道路'}</span>
+                                    </div>
+                                    <div className="text-[10px] text-gray-500 mt-0.5">
+                                      {Math.round(it.distance)}m · {formatTime(it.timeSeconds)}
+                                    </div>
+                                  </div>
+                                  <AppButton className="text-[10px] text-blue-600 hover:underline" onClick={() => onPointClick?.(it.at)}>
+                                    定位
+                                  </AppButton>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {endAcc ? (
+                          <div className="mt-2">
+                            <AccessCard seg={endAcc} title="离开道路" border="border-l-red-500" />
+                          </div>
+                        ) : null}
+                      </>
+                    );
+                  })()}
+
                 </>
               ) : (
                 <div className="text-center text-gray-500 py-4 text-sm">{resultRoad.reason || '未找到可用道路路线'}</div>

@@ -68,7 +68,8 @@ export const RULE_DATA_SOURCES: Record<string, WorldRuleDataSource> = {
     'TPPtest.json',
     '传送.json',
     'ZSGS.json',
-    'ALL_20260226.json'
+    'ALL_20260226.json',
+    'ALL_20260228_HH.json'
     ],
   },
 

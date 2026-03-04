@@ -158,14 +158,21 @@ export function renderLabelHtml(styleKey: LabelStyleKeyInput, text: string, opts
 
   const gm = gmStatic ?? tryBuildGmDerived(String(styleKeyStr));
   if (gm) {
-    const shadow = `
-      0 0 0px rgba(0,0,0,0.9),
-      0 0 0px rgba(0,0,0,0.9),
-      0px 0 0 rgba(0,0,0,0.9),
-      -0px 0 0 rgba(0,0,0,0.9),
-      0 0px 0 rgba(0,0,0,0.9),
-      0 -0px 0 rgba(0,0,0,0.9)
-    `;
+    // 说明：
+    // - 过去使用 `-webkit-text-stroke` + 一组 0px text-shadow 的“双保险”，
+    //   在部分浏览器/设备上会出现字形内部异常黑线（抗锯齿/缩放导致的渲染瑕疵）。
+    // - 这里改为“仅使用多方向 text-shadow 描边”，跨浏览器更稳定。
+    const o = Math.max(1, Math.round(gm.strokeW * 2));
+    const shadow = [
+      `${o}px 0 0 ${gm.stroke}`,
+      `-${o}px 0 0 ${gm.stroke}`,
+      `0 ${o}px 0 ${gm.stroke}`,
+      `0 -${o}px 0 ${gm.stroke}`,
+      `${o}px ${o}px 0 ${gm.stroke}`,
+      `${o}px -${o}px 0 ${gm.stroke}`,
+      `-${o}px ${o}px 0 ${gm.stroke}`,
+      `-${o}px -${o}px 0 ${gm.stroke}`,
+    ].join(',');
 
     return `
       <div style="
@@ -185,8 +192,9 @@ export function renderLabelHtml(styleKey: LabelStyleKeyInput, text: string, opts
           font-weight:${gm.fontWeight};
           font-size:${gm.fontSize}px;
           line-height:1.1;
-          -webkit-text-stroke:${gm.strokeW}px ${gm.stroke};
           text-shadow:${shadow};
+          -webkit-font-smoothing:antialiased;
+          text-rendering:geometricPrecision;
         ">${safe}</span>
       </div>
     `;

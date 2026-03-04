@@ -399,6 +399,19 @@ visible: (r, ctx, store) => {
           styleKey: 'gm-bw-12',
         } as any;
       },
+
+          labelClick: {
+      enabled: true,
+      mode: 'normal',
+      openCard: true,
+      // 与导航 RouteHighlightLayer 保持一致：白色描边 + 主色加粗
+      highlightStyleKey: 'nav-outline',
+        // 新增：几何点击开关（按要素自由组合）
+  geom: {
+    point: true, // 点要素本体可点击
+  },
+
+    },
     },
   },
 

@@ -3340,6 +3340,9 @@ const workflowBridge: WorkflowBridge = {
 
       {(() => {
         const busy = (drawing && drawMode !== 'none') || editingLayerId !== null;
+        // “快捷测绘模式(便捷)”启用时（面板处于 workflow 变体），禁止图层编辑：
+        // 该限制不依赖 measuringActive（因为图层栏可在多种状态下被打开）。
+        const quickMeasuringActive = measuringVariant === 'workflow';
         const visibleList = layers.filter((l) => l.id !== editingLayerId);
         const hasDefaultLayer = visibleList.some((l) => (l?.jsonInfo?.subType ?? '默认') === '默认');
 
@@ -3494,15 +3497,21 @@ const workflowBridge: WorkflowBridge = {
 
                       <AppButton
                         className={`px-2 py-1 text-sm ${
-                          busy ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-yellow-300 hover:bg-yellow-400'
+                          (busy || quickMeasuringActive) ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-yellow-300 hover:bg-yellow-400'
                         }`}
-                        disabled={busy}
+                        disabled={busy || quickMeasuringActive}
                         onClick={() => {
-                          if (busy) return;
+                          if (busy || quickMeasuringActive) return;
                           editLayer(l.id);
                         }}
                         type="button"
-                        title={busy ? '当前有要素正在编辑/绘制，请先保存' : '编辑'}
+                        title={
+                          busy
+                            ? '当前有要素正在编辑/绘制，请先保存'
+                            : quickMeasuringActive
+                              ? '快捷测绘模式启用时禁止编辑图层（避免图层被转移导致卡死）'
+                              : '编辑'
+                        }
                       >
                         编辑
                       </AppButton>

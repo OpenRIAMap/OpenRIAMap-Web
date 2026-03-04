@@ -41,7 +41,18 @@ type InfoForm = {
   level: number; // [-10,10]
   oneway: boolean;
   enter: boolean;
+  exit: boolean;
+  selfJunction: boolean;
   speed: string; // optional float input
+};
+
+type ConnectLItem = {
+  mode: 'endpoint' | 'middle';
+  tgt: string;
+};
+
+type BlacklistItem = {
+  tgt: string;
 };
 
 type ExtensionItem = {
@@ -203,9 +214,16 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
     level: 0,
     oneway: false,
     enter: true,
+    exit: true,
+    selfJunction: false,
     speed: '',
   });
   const [extItems, setExtItems] = useState<ExtensionItem[]>([]);
+
+  // 显式连接关系（ConnectL）：初始为空，仅显示“+”按钮
+  const [connectL, setConnectL] = useState<ConnectLItem[]>([]);
+  // 黑名单（Blacklist）：初始为空，仅显示“+”按钮
+  const [blacklist, setBlacklist] = useState<BlacklistItem[]>([]);
 
   // Page 3
   const [saving, setSaving] = useState(false);
@@ -266,6 +284,18 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
       },
       getId: (fi: any) => String(fi.PGonID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
       getName: (fi: any) => String(fi.PGonName ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
+      formatOption: (name, id) => `${name}(${id})`,
+    }),
+    []
+  );
+
+  // ===== 复用检索组件：道路（Class=ROD） =====
+  const roadSearchCfg: SearchSelectConfig = useMemo(
+    () => ({
+      cacheKey: 'ROD_ALL',
+      filter: (fi: any) => String(fi.Class ?? fi.class ?? '').trim() === 'ROD',
+      getId: (fi: any) => String(fi.ID ?? fi.id ?? '').trim(),
+      getName: (fi: any) => String(fi.Name ?? fi.name ?? '').trim(),
       formatOption: (name, id) => `${name}(${id})`,
     }),
     []
@@ -380,8 +410,19 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
       const level = Math.trunc(Number(info.level));
       const oneway = Boolean(info.oneway);
       const enter = typeof info.enter === 'boolean' ? Boolean(info.enter) : true;
+      const exit = typeof info.exit === 'boolean' ? Boolean(info.exit) : true;
       const spRaw = String(info.speed ?? '').trim();
       const speed = spRaw ? Number(spRaw) : undefined;
+
+      // ConnectL：仅保留合法条目（tgt 非空；mode 合法）
+      const cl = (connectL ?? [])
+        .map((it) => ({ mode: it?.mode, tgt: String(it?.tgt ?? '').trim() }))
+        .filter((it) => (it.mode === 'endpoint' || it.mode === 'middle') && !!it.tgt);
+
+      // Blacklist：仅保留非空 tgt
+      const bl = (blacklist ?? [])
+        .map((it) => ({ tgt: String(it?.tgt ?? '').trim() }))
+        .filter((it) => !!it.tgt);
 
       const res = bridgeRef.current.commitFeature({
         subType: '道路',
@@ -397,6 +438,8 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
           Level: level,
           Oneway: oneway,
           Enter: enter,
+          Exit: exit,
+          SelfJunction: info.selfJunction,
           Speed: speed as any, // optional
         },
         groupInfo: {
@@ -407,6 +450,10 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
             extType: it.extType,
             extValue: it.extValue,
           })),
+          // ConnectL：作为 groups.ConnectL 写入 featureFormats
+          ...(cl.length ? { ConnectL: cl } : {}),
+          // Blacklist：作为 groups.Blacklist 写入 featureFormats
+          ...(bl.length ? { Blacklist: bl } : {}),
         },
       });
 
@@ -528,6 +575,157 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
                 <option value="false">false</option>
               </select>
             </label>
+          </div>
+
+          {/* Enter/Exit + ConnectL：插入在“是否可进入”之后、“限速”之前 */}
+          <div className="grid grid-cols-3 gap-2">
+            <label className="block space-y-1">
+              <div className="text-xs opacity-80">是否可离开（Exit，可选，缺省=true）</div>
+              <select
+                className="w-full border p-1 rounded text-sm"
+                value={info.exit ? 'true' : 'false'}
+                onChange={(e) => setInfo((prev) => ({ ...prev, exit: e.target.value === 'true' }))}
+                onMouseDownCapture={(e) => e.stopPropagation()}
+                onPointerDownCapture={(e) => e.stopPropagation()}
+                onTouchStartCapture={(e) => e.stopPropagation()}
+              >
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select>
+            </label>
+            <label className="block space-y-1">
+              <div className="text-xs opacity-80">是否允许自交（SelfJunction，可选，缺省=false）</div>
+              <select
+                className="w-full border p-1 rounded text-sm"
+                value={info.selfJunction ? 'true' : 'false'}
+                onChange={(e) => setInfo((prev) => ({ ...prev, selfJunction: e.target.value === 'true' }))}
+                onMouseDownCapture={(e) => e.stopPropagation()}
+                onPointerDownCapture={(e) => e.stopPropagation()}
+                onTouchStartCapture={(e) => e.stopPropagation()}
+              >
+                <option value="false">false</option>
+                <option value="true">true</option>
+              </select>
+            </label>
+
+          </div>
+
+          <div className="border rounded p-2">
+            <div className="text-xs font-semibold mb-1">显式连接关系（ConnectL，可选）</div>
+            <div className="text-[11px] text-gray-600 mb-2">
+              强行指定连接道路 ID。指定后将越过“自然交叉/打断”的 Level 规则：只要平面关系满足，即视作连接。
+            </div>
+
+            {connectL.length ? (
+              <div className="space-y-2">
+                {connectL.map((row, idx) => (
+                  <div key={idx} className="grid grid-cols-12 gap-2 items-end">
+                    <label className="col-span-3 space-y-1">
+                      <div className="text-xs opacity-80">方式</div>
+                      <select
+                        className="w-full border p-1 rounded text-sm"
+                        value={row.mode}
+                        onChange={(e) => {
+                          const v = (e.target.value as any) as 'endpoint' | 'middle';
+                          setConnectL((prev) => prev.map((it, i) => (i === idx ? { ...it, mode: v } : it)));
+                        }}
+                        onMouseDownCapture={(e) => e.stopPropagation()}
+                        onPointerDownCapture={(e) => e.stopPropagation()}
+                        onTouchStartCapture={(e) => e.stopPropagation()}
+                      >
+                        <option value="endpoint">端点</option>
+                        <option value="middle">中段</option>
+                      </select>
+                    </label>
+
+                    <div className="col-span-8">
+                      <WorkflowFeatureSearchSelect
+                        bridge={bridge}
+                        label="目标道路（选择后写入 ID）"
+                        value={String(row.tgt ?? '')}
+                        placeholder="输入关键词检索：可匹配 Name / ID"
+                        config={roadSearchCfg}
+                        onChange={(v) => setConnectL((prev) => prev.map((it, i) => (i === idx ? { ...it, tgt: v } : it)))}
+                      />
+                    </div>
+
+                    <div className="col-span-1 flex justify-end">
+                      <AppButton
+                        type="button"
+                        className="px-2 py-1 text-xs rounded border bg-white hover:bg-gray-50"
+                        onClick={() => setConnectL((prev) => prev.filter((_, i) => i !== idx))}
+                        title="删除该条"
+                      >
+                        −
+                      </AppButton>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-gray-500">（未添加显式连接关系）</div>
+            )}
+
+            <div className="mt-2 flex justify-end">
+              <AppButton
+                type="button"
+                className="px-2 py-1 text-xs rounded border bg-white hover:bg-gray-50"
+                onClick={() => setConnectL((prev) => [...prev, { mode: 'endpoint', tgt: '' }])}
+                title="添加一条连接关系"
+              >
+                ＋
+              </AppButton>
+            </div>
+          </div>
+
+          <div className="border rounded p-2">
+            <div className="text-xs font-semibold mb-1">黑名单（Blacklist，可选）</div>
+            <div className="text-[11px] text-gray-600 mb-2">
+              记录不希望与其产生自然连接（交叉/端点对线/端点对端点候选）的目标道路 ID。仅在本要素未设置 ConnectL 时生效。
+            </div>
+
+            {blacklist.length ? (
+              <div className="space-y-2">
+                {blacklist.map((row, idx) => (
+                  <div key={idx} className="grid grid-cols-12 gap-2 items-end">
+                    <div className="col-span-11">
+                      <WorkflowFeatureSearchSelect
+                        bridge={bridge}
+                        label="目标道路（选择后写入 ID）"
+                        value={String(row.tgt ?? '')}
+                        placeholder="输入关键词检索：可匹配 Name / ID"
+                        config={roadSearchCfg}
+                        onChange={(v) => setBlacklist((prev) => prev.map((it, i) => (i === idx ? { ...it, tgt: v } : it)))}
+                      />
+                    </div>
+
+                    <div className="col-span-1 flex justify-end">
+                      <AppButton
+                        type="button"
+                        className="px-2 py-1 text-xs rounded border bg-white hover:bg-gray-50"
+                        onClick={() => setBlacklist((prev) => prev.filter((_, i) => i !== idx))}
+                        title="删除该条"
+                      >
+                        −
+                      </AppButton>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-gray-500">（未添加黑名单）</div>
+            )}
+
+            <div className="mt-2 flex justify-end">
+              <AppButton
+                type="button"
+                className="px-2 py-1 text-xs rounded border bg-white hover:bg-gray-50"
+                onClick={() => setBlacklist((prev) => [...prev, { tgt: '' }])}
+                title="添加一条黑名单"
+              >
+                ＋
+              </AppButton>
+            </div>
           </div>
 
           <LabeledInput
