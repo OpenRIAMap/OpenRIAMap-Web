@@ -1232,29 +1232,6 @@ function projectPointToSegment2D_Raw(p: Coordinate, a: Coordinate, b: Coordinate
   return { proj: { x, z, y: DEFAULT_Y }, t, dist: d };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function findNearestEdge(
-  graph: RoadGraphCache,
-  p: Coordinate,
-  opt: { forEnd: boolean }
-): { seg: RoadGraphCache['segIndex'][number]; proj: Coordinate } | null {
-  // 简化：线性扫描（后续如规模变大再加空间索引）
-  // 说明：道路数据现阶段通常远小于铁路平台/线路节点规模，且 road 构图已做大量预处理。
-  let best: { seg: any; proj: Coordinate; d: number } | null = null;
-  for (const s of graph.segIndex) {
-    // Enter/Exit 仅影响起终点“接驳”选择（乘降/上下车），不阻断道路内部连通。
-    const enterOk = (s.edgeRef as any)?.enter !== false;
-    const exitOk = (s.edgeRef as any)?.exit !== false;
-    if (!opt.forEnd && !enterOk) continue;
-    if (opt.forEnd && !exitOk) continue;
-    const r = projectPointToSegment2D(p, s.a, s.b);
-    if (!best || r.dist < best.d) best = { seg: s, proj: r.proj, d: r.dist };
-  }
-  return best ? { seg: best.seg, proj: best.proj } : null;
-}
-
-
-
 type MatchCand = {
   seg: RoadGraphCache['segIndex'][number];
   entry: Coordinate;      // 最终进入/离开点（垂足或端点）
