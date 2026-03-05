@@ -253,8 +253,8 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
   const abbrNormalized = useMemo(() => normalizeAbbr(info.abbr), [info.abbr]);
 
   const canGoNextFromInfo = useMemo(() => {
-    return nonEmpty(info.skind2) && nonEmpty(info.name) && nonEmpty(abbrNormalized) && nonEmpty(info.nomenclator);
-  }, [info.skind2, info.name, abbrNormalized, info.nomenclator]);
+    return nonEmpty(info.skind2) && nonEmpty(info.name) && nonEmpty(abbrNormalized);
+  }, [info.skind2, info.name, abbrNormalized]);
 
   const draftLine: WorldPoint[] = step === 'draw' ? (bridge.getTempPoints?.() ?? []) : [];
 
@@ -310,11 +310,12 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
       }
 
       const tags: Array<{ tagKey: string; tagValue: string }> = [
-        {
-          tagKey: 'nomenclator',
-          tagValue: String(info.nomenclator ?? '').trim(),
-        },
+        
       ];
+      // tags：nomenclator 可选（若填写则写入 tags.nomenclator）
+      const nom = String(info.nomenclator ?? '').trim();
+      if (nom) tags.push({ tagKey: 'nomenclator', tagValue: nom });
+
       const bngf1 = String(info.bngf1 ?? '').trim();
       const bngf2 = String(info.bngf2 ?? '').trim();
       if (bngf1) tags.push({ tagKey: 'BNgf1', tagValue: bngf1 });
@@ -418,7 +419,7 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
           ) : null}
 
           <LabeledInput
-            label="命名者（将写入 tags.nomenclator）"
+            label="命名者（tags.nomenclator，可选）"
             value={info.nomenclator}
             placeholder="例如：XX社团 / 聚落 / 个人署名"
             onChange={(v) => setInfo((prev) => ({ ...prev, nomenclator: v }))}

@@ -280,8 +280,8 @@ export default function SpecialCulturalPointWorkflow(props: WorkflowComponentPro
   const abbrNormalized = useMemo(() => normalizeAbbr(info.abbr), [info.abbr]);
 
   const canGoNextFromInfo = useMemo(() => {
-    return nonEmpty(info.typeKey) && nonEmpty(info.name) && nonEmpty(abbrNormalized) && nonEmpty(info.nomenclator);
-  }, [info.typeKey, info.name, abbrNormalized, info.nomenclator]);
+    return nonEmpty(info.typeKey) && nonEmpty(info.name) && nonEmpty(abbrNormalized);
+  }, [info.typeKey, info.name, abbrNormalized]);
 
   const draftPoint: WorldPoint[] = step === 'draw' ? (bridge.getTempPoints?.() ?? []) : [];
 
@@ -355,8 +355,12 @@ export default function SpecialCulturalPointWorkflow(props: WorkflowComponentPro
       }
 
       const tags: Array<{ tagKey: string; tagValue: string }> = [
-        { tagKey: 'nomenclator', tagValue: String(info.nomenclator ?? '').trim() },
+        
       ];
+      // tags：nomenclator 可选（若填写则写入 tags.nomenclator）
+      const nom = String(info.nomenclator ?? '').trim();
+      if (nom) tags.push({ tagKey: 'nomenclator', tagValue: nom });
+
 
       const land = String(info.land ?? '').trim();
       const uadm = String(info.uadm ?? '').trim();
@@ -464,7 +468,7 @@ export default function SpecialCulturalPointWorkflow(props: WorkflowComponentPro
           ) : null}
 
           <LabeledInput
-            label="命名者（将写入 tags.nomenclator）"
+            label="命名者（tags.nomenclator，可选）"
             value={info.nomenclator}
             placeholder="例如：官方公告 / OSM / 个人署名"
             onChange={(v) => setInfo((prev) => ({ ...prev, nomenclator: v }))}

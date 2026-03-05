@@ -233,8 +233,8 @@ export default function NaturalWaterbodyWorkflow(props: WorkflowComponentProps) 
   const canGoNextFromCreator = useMemo(() => nonEmpty(creatorId), [creatorId]);
   const abbrNormalized = useMemo(() => normalizeAbbr(info.abbr), [info.abbr]);
   const canGoNextFromInfo = useMemo(() => {
-    return nonEmpty(info.skind2) && nonEmpty(info.name) && nonEmpty(abbrNormalized) && nonEmpty(info.nomenclator);
-  }, [info.skind2, info.name, abbrNormalized, info.nomenclator]);
+    return nonEmpty(info.skind2) && nonEmpty(info.name) && nonEmpty(abbrNormalized);
+  }, [info.skind2, info.name, abbrNormalized]);
 
   // 绘制页直接读取草稿点序（由 MeasuringModule tempPoints 驱动 re-render）
   const draftPolygon: WorldPoint[] = step === 'draw' ? (bridge.getTempPoints?.() ?? []) : [];
@@ -292,6 +292,11 @@ export default function NaturalWaterbodyWorkflow(props: WorkflowComponentProps) 
         });
       }
 
+      // tags：nomenclator 可选（若填写则写入 tags.nomenclator）
+      const tags: Array<{ tagKey: string; tagValue: any }> = [];
+      const nom = String(info.nomenclator ?? '').trim();
+      if (nom) tags.push({ tagKey: 'nomenclator', tagValue: nom });
+
       const res = bridgeRef.current.commitFeature({
         subType: '地物面',
         mode: 'polygon',
@@ -305,12 +310,7 @@ export default function NaturalWaterbodyWorkflow(props: WorkflowComponentProps) 
           SKind2: info.skind2,
         },
         groupInfo: {
-          tags: [
-            {
-              tagKey: 'nomenclator',
-              tagValue: String(info.nomenclator ?? '').trim(),
-            },
-          ],
+          tags,
           extensions: extList.map((it) => ({
             extGroup: it.extGroup,
             extKey: it.extKey,
@@ -397,7 +397,7 @@ export default function NaturalWaterbodyWorkflow(props: WorkflowComponentProps) 
           ) : null}
 
           <LabeledInput
-            label="命名者（将写入 tags.nomenclator）"
+            label="命名者（tags.nomenclator，可选）"
             value={info.nomenclator}
             placeholder="例如：XX社团 / 聚落 / 个人署名"
             onChange={(v) => setInfo((prev) => ({ ...prev, nomenclator: v }))}

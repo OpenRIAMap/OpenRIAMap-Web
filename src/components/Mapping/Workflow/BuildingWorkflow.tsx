@@ -260,8 +260,8 @@ export default function BuildingWorkflow(props: WorkflowComponentProps) {
   const abbrNormalized = useMemo(() => normalizeAbbr(info.abbr), [info.abbr]);
 
   const canGoNextFromInfo = useMemo(() => {
-    return nonEmpty(info.typeKey) && nonEmpty(info.name) && nonEmpty(abbrNormalized) && nonEmpty(info.nomenclator);
-  }, [info.typeKey, info.name, abbrNormalized, info.nomenclator]);
+    return nonEmpty(info.typeKey) && nonEmpty(info.name) && nonEmpty(abbrNormalized);
+  }, [info.typeKey, info.name, abbrNormalized]);
 
   const draftPolygon: WorldPoint[] = step === 'draw' ? (bridge.getTempPoints?.() ?? []) : [];
 
@@ -318,7 +318,8 @@ export default function BuildingWorkflow(props: WorkflowComponentProps) {
       }
 
       const tags: Array<{ tagKey: string; tagValue: any }> = [];
-      tags.push({ tagKey: 'nomenclator', tagValue: String(info.nomenclator ?? '').trim() });
+      const nom = String(info.nomenclator ?? '').trim();
+      if (nom) tags.push({ tagKey: 'nomenclator', tagValue: nom });
 
       const land = String(info.land ?? '').trim();
       if (land) tags.push({ tagKey: 'Land', tagValue: land });
@@ -414,7 +415,7 @@ export default function BuildingWorkflow(props: WorkflowComponentProps) {
 
           <LabeledInput label="名称" value={info.name} placeholder="例如：主岛码头" onChange={(v) => setInfo((p) => ({ ...p, name: v }))} />
           <LabeledInput label="字符简称（用于ID后缀）" value={info.abbr} placeholder="例如：ZDMT" onChange={(v) => setInfo((p) => ({ ...p, abbr: v }))} />
-          <LabeledInput label="命名者（nomenclator）" value={info.nomenclator} placeholder="例如：Codusk" onChange={(v) => setInfo((p) => ({ ...p, nomenclator: v }))} />
+          <LabeledInput label="命名者（tags.nomenclator，可选）" value={info.nomenclator} placeholder="例如：Codusk" onChange={(v) => setInfo((p) => ({ ...p, nomenclator: v }))} />
 
           <div className="grid grid-cols-2 gap-2">
             <WorkflowFeatureSearchSelect

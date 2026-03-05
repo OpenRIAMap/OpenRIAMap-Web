@@ -281,8 +281,8 @@ export default function SettlementBoundaryLineWorkflow(props: WorkflowComponentP
   const abbrNormalized = useMemo(() => normalizeAbbr(info.abbr), [info.abbr]);
 
   const canGoNextFromInfo = useMemo(() => {
-    return nonEmpty(info.typeKey) && nonEmpty(info.name) && nonEmpty(abbrNormalized) && nonEmpty(info.nomenclator);
-  }, [info.typeKey, info.name, abbrNormalized, info.nomenclator]);
+    return nonEmpty(info.typeKey) && nonEmpty(info.name) && nonEmpty(abbrNormalized);
+  }, [info.typeKey, info.name, abbrNormalized]);
 
   const draftLine: WorldPoint[] = step === 'draw' ? (bridge.getTempPoints?.() ?? []) : [];
 
@@ -346,8 +346,12 @@ export default function SettlementBoundaryLineWorkflow(props: WorkflowComponentP
       }
 
       const tags: Array<{ tagKey: string; tagValue: string }> = [
-        { tagKey: 'nomenclator', tagValue: String(info.nomenclator ?? '').trim() },
+        
       ];
+      // tags：nomenclator 可选（若填写则写入 tags.nomenclator）
+      const nom = String(info.nomenclator ?? '').trim();
+      if (nom) tags.push({ tagKey: 'nomenclator', tagValue: nom });
+
 
       const land = String(info.land ?? '').trim();
       const badm1 = String(info.badm1 ?? '').trim();
@@ -457,7 +461,7 @@ export default function SettlementBoundaryLineWorkflow(props: WorkflowComponentP
           ) : null}
 
           <LabeledInput
-            label="命名者（将写入 tags.nomenclator）"
+            label="命名者（tags.nomenclator，可选）"
             value={info.nomenclator}
             placeholder="例如：XX社团 / 聚落 / 个人署名"
             onChange={(v) => setInfo((prev) => ({ ...prev, nomenclator: v }))}

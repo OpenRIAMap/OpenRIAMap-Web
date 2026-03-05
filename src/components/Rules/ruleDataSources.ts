@@ -73,7 +73,6 @@ export const RULE_DATA_SOURCES: Record<string, WorldRuleDataSource> = {
     ],
   },
 
-  /** 其他世界：先留空，避免误报 */
   eden: { baseUrl: '/data/Mapping/eden', files: [] },
   naraku: { baseUrl: '/data/Mapping/naraku', files: [] },
   houtu: { baseUrl: '/data/Mapping/houtu', files: [] },

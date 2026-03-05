@@ -294,11 +294,10 @@ export default function FloorUnitWorkflow(props: WorkflowComponentProps) {
       nonEmpty(info.typeKey) &&
       nonEmpty(info.name) &&
       nonEmpty(abbrNormalized) &&
-      nonEmpty(info.nomenclator) &&
       nonEmpty(info.buildingId) &&
       nonEmpty(info.nofFloor)
     );
-  }, [info.typeKey, info.name, abbrNormalized, info.nomenclator, info.buildingId, info.nofFloor]);
+  }, [info.typeKey, info.name, abbrNormalized, info.buildingId, info.nofFloor]);
 
   const draftPolygon: WorldPoint[] = step === 'draw' ? (bridge.getTempPoints?.() ?? []) : [];
 
@@ -355,7 +354,8 @@ export default function FloorUnitWorkflow(props: WorkflowComponentProps) {
       }
 
       const tags: Array<{ tagKey: string; tagValue: any }> = [];
-      tags.push({ tagKey: 'nomenclator', tagValue: String(info.nomenclator ?? '').trim() });
+      const nom = String(info.nomenclator ?? '').trim();
+      if (nom) tags.push({ tagKey: 'nomenclator', tagValue: nom });
 
       const land = String(info.land ?? '').trim();
       if (land) tags.push({ tagKey: 'Land', tagValue: land });
@@ -453,7 +453,7 @@ export default function FloorUnitWorkflow(props: WorkflowComponentProps) {
 
           <LabeledInput label="名称" value={info.name} placeholder="例如：站厅" onChange={(v) => setInfo((p) => ({ ...p, name: v }))} />
           <LabeledInput label="字符简称（用于ID后缀）" value={info.abbr} placeholder="例如：HALL" onChange={(v) => setInfo((p) => ({ ...p, abbr: v }))} />
-          <LabeledInput label="命名者（nomenclator）" value={info.nomenclator} placeholder="例如：YZ" onChange={(v) => setInfo((p) => ({ ...p, nomenclator: v }))} />
+          <LabeledInput label="命名者（tags.nomenclator，可选）" value={info.nomenclator} placeholder="例如：YZ" onChange={(v) => setInfo((p) => ({ ...p, nomenclator: v }))} />
 
           <div className="grid grid-cols-2 gap-2">
             <WorkflowFeatureSearchSelect
