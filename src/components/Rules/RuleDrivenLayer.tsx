@@ -1278,18 +1278,32 @@ if (r.type === 'Points' && pointLatLng && !labelOnly) {
         declutterLabelRequests.push(req);
         let styleKey: any = (labelPlan as any)?.styleKey ?? (clickPlan as any)?.labelStyleKey ?? 'bubble-dark';
 
-        // Polyline：若 request 给了 rotateDeg，并且 styleKey 是对象，则注入旋转角
-        if (styleKey && typeof styleKey === 'object') {
-          const k = String((styleKey as any).key ?? '');
-          if (k.startsWith('rle-line-')) {
-            styleKey = { ...(styleKey as any), rotateDeg: Number((req as any).rotateDeg ?? 0) || 0 };
-          } else {
-            // pill 等保持屏幕朝向
-            styleKey = { ...(styleKey as any), rotateDeg: 0 };
-          }
-        }
+        // Polyline：若 request 给了 rotateDeg，则对“沿线文字类样式”注入旋转角。
+// - rle-line-xx：铁路沿线字（需要旋转）
+// - gm-bw-xx / gm-wtb-xx / gm-outline*：道路沿线字（需要旋转）
+// 同时：以 45° 为界，>45° 时改为竖排（中文逐字竖排，英文连续>=4字符横置）。
+        const reqRotateDeg = Number((req as any).rotateDeg ?? 0) || 0;
+        const absRotateDeg = Math.abs(reqRotateDeg);
 
-        declutterLabelMeta.set(req.id, { styleKey, plan: (clickPlan && (clickPlan as any).enabled) ? clickPlan : null });
+        const styleKeyStr = styleKey && typeof styleKey === 'object' ? String((styleKey as any).key ?? '') : String(styleKey ?? '');
+        const canRotate =
+          styleKeyStr.startsWith('rle-line-') ||
+          /^gm-bw-\d+$/.test(styleKeyStr) ||
+          /^gm-wtb-\d+$/.test(styleKeyStr) ||
+          styleKeyStr.startsWith('gm-outline');
+
+        if (canRotate) {
+          const baseObj = styleKey && typeof styleKey === 'object' ? { ...(styleKey as any) } : { key: styleKeyStr };
+          if (absRotateDeg > 45) {
+            styleKey = { ...baseObj, rotateDeg: 0, writingMode: 'vertical' };
+          } else {
+            styleKey = { ...baseObj, rotateDeg: reqRotateDeg, writingMode: 'horizontal' };
+          }
+        } else if (styleKey && typeof styleKey === 'object') {
+          // pill 等保持屏幕朝向
+          styleKey = { ...(styleKey as any), rotateDeg: 0 };
+        }
+declutterLabelMeta.set(req.id, { styleKey, plan: (clickPlan && (clickPlan as any).enabled) ? clickPlan : null });
       } else {
         // 该要素当前不应显示 label（minLevel/text 空等）→ 移除旧 label
         const b = cacheRef.current.get(r.uid);

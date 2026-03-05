@@ -37,6 +37,7 @@ export type LabelStyleKeyInput =
       key: LabelStyleKey;
       color?: string;
       rotateDeg?: number;
+      writingMode?: 'horizontal' | 'vertical';
     };
 
 export type LabelPlacement = 'center' | 'near';
@@ -90,12 +91,42 @@ export function renderLabelHtml(styleKey: LabelStyleKeyInput, text: string, opts
   const styleKeyStr: string = keyObj ? String(keyObj.key ?? '') : String(styleKey);
   const themeColor = keyObj ? String(keyObj.color ?? '') : '';
   const rotateDeg = keyObj && Number.isFinite(Number(keyObj.rotateDeg)) ? Number(keyObj.rotateDeg) : 0;
+  const writingMode: 'horizontal' | 'vertical' = keyObj && (keyObj as any).writingMode === 'vertical' ? 'vertical' : 'horizontal';
 
-  const safe = escapeHtml(String(text ?? ''));
+  const rawText = String(text ?? '');
+
+  const buildVerticalTokensHtml = (s: string): string => {
+    // 规则：连续 >=4 个英文/数字字符视为一个整体（横置显示），其他字符逐字竖排。
+    const parts: Array<{ t: string; kind: 'latin' | 'other' }> = [];
+    let i = 0;
+    while (i < s.length) {
+      const rest = s.slice(i);
+      const m = rest.match(/^[A-Za-z0-9]{4,}/);
+      if (m && m[0]) {
+        parts.push({ t: m[0], kind: 'latin' });
+        i += m[0].length;
+        continue;
+      }
+      parts.push({ t: s[i], kind: 'other' });
+      i += 1;
+    }
+
+    return parts
+      .map((p) => {
+        const safe = escapeHtml(p.t);
+        if (p.kind === 'latin') {
+          return `<span style="display:inline-block; writing-mode:horizontal-tb; transform:rotate(90deg); transform-origin:center;">${safe}</span>`;
+        }
+        return `<span>${safe}</span>`;
+      })
+      .join('<br/>');
+  };
+
+  const safe = writingMode === 'vertical' ? buildVerticalTokensHtml(rawText) : escapeHtml(rawText);
 
   const placement = opts.placement ?? 'center';
   const baseTransform = placementTransform(placement);
-  const transform = rotateDeg ? `${baseTransform} rotate(${rotateDeg}deg)` : baseTransform;
+  const transform = writingMode === 'vertical' ? baseTransform : (rotateDeg ? `${baseTransform} rotate(${rotateDeg}deg)` : baseTransform);
   const extraMarginTop = placementExtraMarginTopPx(placement, opts.offsetY);
 
   const dot = opts.withDot ? dotHtml() : '';
@@ -178,7 +209,7 @@ export function renderLabelHtml(styleKey: LabelStyleKeyInput, text: string, opts
       <div style="
         transform:${transform};
         margin-top:${extraMarginTop}px;
-        white-space:nowrap;
+        white-space:${writingMode === 'vertical' ? 'normal' : 'nowrap'};
         pointer-events:${pe};
         cursor:${cursor};
         display:inline-flex;
@@ -215,15 +246,28 @@ export function renderLabelHtml(styleKey: LabelStyleKeyInput, text: string, opts
   const rleLineSize = parseSizeSuffixAny(styleKeyStr, 'rle-line-');
   if (rleLineSize !== null) {
     const c = themeColor || '#2563eb';
-    // 描边宽度按字号等比缩放（参考 GM 的做法），以当前基准为准：13px -> 0.3px。
-    // 量化到 0.05px，避免小数过碎。
-    const RLE_LINE_STROKE_RATIO = 0.3 / 13;
-    const strokeW = roundTo(rleLineSize * RLE_LINE_STROKE_RATIO, 0.05);
+
+    // 与 gm-bw-xx 使用同一套“多方向 text-shadow 描边”组装方式，仅填充色随线路色变化。
+    // 描边宽度按字号等比缩放（与 GM 系统保持一致）。
+    const GM_STROKE_RATIO = 1 / 30; // 15->0.5, 9->0.3
+    const strokeW = roundTo(rleLineSize * GM_STROKE_RATIO, 0.05);
+    const o = Math.max(1, Math.round(strokeW * 2));
+    const shadow = [
+      `${o}px 0 0 #ffffff`,
+      `-${o}px 0 0 #ffffff`,
+      `0 ${o}px 0 #ffffff`,
+      `0 -${o}px 0 #ffffff`,
+      `${o}px ${o}px 0 #ffffff`,
+      `${o}px -${o}px 0 #ffffff`,
+      `-${o}px ${o}px 0 #ffffff`,
+      `-${o}px -${o}px 0 #ffffff`,
+    ].join(',');
+
     return `
       <div style="
         transform:${transform};
         margin-top:${extraMarginTop}px;
-        white-space:nowrap;
+        white-space:${writingMode === 'vertical' ? 'normal' : 'nowrap'};
         pointer-events:${pe};
         cursor:${cursor};
         display:inline-flex;
@@ -236,8 +280,9 @@ export function renderLabelHtml(styleKey: LabelStyleKeyInput, text: string, opts
           font-weight:700;
           font-size:${rleLineSize}px;
           line-height:1.1;
-          -webkit-text-stroke:${strokeW}px #ffffff;
-          text-shadow: 0 0 0 rgba(255,255,255,0.95);
+          text-shadow:${shadow};
+          -webkit-font-smoothing:antialiased;
+          text-rendering:geometricPrecision;
         ">${safe}</span>
       </div>
     `;
@@ -259,7 +304,7 @@ export function renderLabelHtml(styleKey: LabelStyleKeyInput, text: string, opts
       <div style="
         transform:${transform};
         margin-top:${extraMarginTop}px;
-        white-space:nowrap;
+        white-space:${writingMode === 'vertical' ? 'normal' : 'nowrap'};
         pointer-events:${pe};
         cursor:${cursor};
         display:inline-flex;

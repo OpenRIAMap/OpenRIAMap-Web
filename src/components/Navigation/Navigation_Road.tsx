@@ -24,6 +24,8 @@ import { RULE_DATA_SOURCES, type WorldRuleDataSource } from '@/components/Rules/
 // ------------------------------
 
 export type RoadTravelProfile = {
+  /** 出行方式编码（用于 ROD.Mode 过滤） */
+  code: string;
   /** 面板显示名 */
   name: string;
   /** 默认速度（blocks/s） */
@@ -37,11 +39,15 @@ export type RoadTravelProfile = {
  * - 若道路要素本身填写了 Speed，则该段使用其 Speed 覆盖
  */
 export const ROAD_TRAVEL_PROFILES: RoadTravelProfile[] = [
-  { name: '步行', speed: 4.3 },
+  { code: 'WALK', name: '步行', speed: 4.3 },
+  { code: 'HORSE', name: '马', speed: 10 },
   // 你可以在此处新增“载具/特殊移动方式”的速度配置：
   // { name: '马', speed: 9.0 },
   // { name: '船', speed: 7.0 },
 ];
+
+const ROAD_TRAVEL_PROFILE_CODES = new Set(ROAD_TRAVEL_PROFILES.map(p => p.code));
+
 
 export type RoadTurnAction = 'start' | 'continue' | 'slight_left' | 'left' | 'slight_right' | 'right' | 'uturn' | 'arrive';
 
@@ -76,6 +82,7 @@ export type NavRoadPlan = {
   reason?: string;
   worldId: string;
 
+  profileCode: string;
   profileName: string;
   profileSpeed: number;
 
@@ -94,6 +101,9 @@ export type NavigationRoadComputeOptions = {
 
   /** 默认速度（blocks/s），用于未填写 Speed 的道路边 */
   defaultSpeed: number;
+
+  /** 当前选择的出行方式 code（用于 ROD.Mode 过滤）。缺省=不限制 */
+  travelModeCode?: string;
 
   /** 面板是否开启“鞘翅接驳”（仅影响起终点接驳段） */
   useElytra?: boolean;
@@ -127,6 +137,18 @@ const DEFAULT_EPS = 1.5;
 // debug（可开关）
 const DEBUG_ROAD_NAV = false;
 const dbg = (...args: any[]) => { if (DEBUG_ROAD_NAV) console.log('[RoadNav]', ...args); };
+
+// 合并 Mode 约束：两侧都有约束则取交集；一侧缺省则取另一侧；交集为空则返回空数组（表示“无可用模式”）
+function combineModeCodes(a?: string[], b?: string[]): string[] | undefined {
+  const aa = (a && a.length) ? Array.from(new Set(a)) : undefined;
+  const bb = (b && b.length) ? Array.from(new Set(b)) : undefined;
+  if (aa && bb) {
+    const setB = new Set(bb);
+    const inter = aa.filter((x) => setB.has(x));
+    return inter.length ? inter : [];
+  }
+  return aa ?? bb;
+}
 
 // 候选数量（每端）
 const CAND_K = 3;
@@ -204,6 +226,8 @@ type RoadFeature = {
   selfJunction: boolean;
   connectL?: ConnectLItem[];
   blacklist?: string[];
+  /** 可用出行方式编码列表（ROD.Mode）。缺省/空=不限制 */
+  modes?: string[];
   speed?: number;
   coords: Coordinate[];
 };
@@ -299,6 +323,20 @@ function parseRoadFromRaw(it: any): RoadFeature | null {
         .filter((x: any) => (x.mode === 'endpoint' || x.mode === 'middle') && !!x.tgt)
         .map((x: any) => ({ mode: x.mode, tgt: x.tgt }))
     : undefined;
+  // Mode：兼容 [[code]] / [code] / [{code}]；过滤非法 code 后为空则视为不存在
+  const rawMode = (it as any)?.Mode ?? (it as any)?.mode;
+  const modes: string[] | undefined = Array.isArray(rawMode)
+    ? rawMode
+        .map((x: any) => {
+          if (typeof x === 'string') return x.trim();
+          if (Array.isArray(x)) return String(x?.[0] ?? '').trim();
+          if (x && typeof x === 'object') return String(x?.code ?? x?.tgt ?? x?.ID ?? x?.id ?? '').trim();
+          return '';
+        })
+        .filter((s: string) => !!s && ROAD_TRAVEL_PROFILE_CODES.has(s))
+    : undefined;
+  const modes2 = (modes && modes.length) ? Array.from(new Set(modes)) : undefined;
+
 
   // Blacklist：兼容 [[ID]] / [ID] / [{tgt}]
   const rawBL = (it as any)?.Blacklist ?? (it as any)?.blacklist;
@@ -327,7 +365,8 @@ function parseRoadFromRaw(it: any): RoadFeature | null {
     .filter(Boolean) as Coordinate[];
   if (coords.length < 2) return null;
 
-  return { id, name, level, oneway, enter, exit, selfJunction, connectL, blacklist, speed, coords };
+  return { id, name, level, oneway, enter, exit, selfJunction, connectL, blacklist, modes: modes2, speed, coords };
+
 }
 
 async function loadRoadFeatures(worldId: string, opt: {
@@ -437,6 +476,7 @@ type Seg = {
   enter: boolean;
   exit?: boolean;
   selfJunction?: boolean;
+  modes?: string[];
   speed?: number;
 };
 
@@ -502,6 +542,8 @@ type Edge = {
   enter: boolean;
   /** 是否可离开该路段（若 false，则终点不允许在该段附近进/出） */
   exit: boolean;
+  /** 可用出行方式（缺省=不限制）。用于 ROD.Mode 过滤 */
+  modeSet?: Set<string>;
 };
 
 type RoadGraphCache = {
@@ -583,7 +625,7 @@ function buildRoadGraph(roads: RoadFeature[], eps: number): RoadGraphCache {
       if (!a || !b) continue;
       const d = dist2D(a, b);
       if (d <= 1e-6) continue;
-      segs.push({ a, b, roadId: r.id, roadName: r.name, level: r.level, oneway: r.oneway, enter: r.enter, exit: r.exit, selfJunction: r.selfJunction, speed: r.speed });
+      segs.push({ a, b, roadId: r.id, roadName: r.name, level: r.level, oneway: r.oneway, enter: r.enter, exit: r.exit, selfJunction: r.selfJunction, modes: r.modes, speed: r.speed });
     }
   }
 
@@ -675,9 +717,9 @@ function buildRoadGraph(roads: RoadFeature[], eps: number): RoadGraphCache {
   // 3.4) 显式 connector edge 记录（用于跨 Level 的端点连接 / ConnectL 连接）。
   // 说明：节点聚类按 Level 分层；跨层连通不能再依赖“坐标相同就合并节点”。
   // 因此我们把需要跨层连通的点对先记录下来，等 nodes/edgesFrom 建好后再补充一条连接边。
-  const pendingConnectors: Array<{ a: Coordinate; levelA: number; b: Coordinate; levelB: number; ref: Seg; minLen?: number }> = [];
-  const addConnectorEdgeLater = (a: Coordinate, levelA: number, b: Coordinate, levelB: number, ref: Seg, minLen?: number) => {
-    pendingConnectors.push({ a, levelA, b, levelB, ref, minLen });
+  const pendingConnectors: Array<{ a: Coordinate; levelA: number; b: Coordinate; levelB: number; ref: Seg; minLen?: number; modeCodes?: string[] }> = [];
+  const addConnectorEdgeLater = (a: Coordinate, levelA: number, b: Coordinate, levelB: number, ref: Seg, minLen?: number, modeCodes?: string[]) => {
+    pendingConnectors.push({ a, levelA, b, levelB, ref, minLen, modeCodes });
   };
 
   // 3.5) 端点落在线中：端点→垂足造节点（同 Level）
@@ -695,6 +737,7 @@ function buildRoadGraph(roads: RoadFeature[], eps: number): RoadGraphCache {
     oneway: boolean;
     enter: boolean;
     selfJunction: boolean;
+    modes?: string[];
     speed?: number;
   };
   const endpoints: Endpoint[] = [];
@@ -714,6 +757,7 @@ function buildRoadGraph(roads: RoadFeature[], eps: number): RoadGraphCache {
       oneway: r.oneway,
       enter: r.enter,
       selfJunction: r.selfJunction,
+      modes: r.modes,
       speed: r.speed,
     });
     endpoints.push({
@@ -725,6 +769,7 @@ function buildRoadGraph(roads: RoadFeature[], eps: number): RoadGraphCache {
       oneway: r.oneway,
       enter: r.enter,
       selfJunction: r.selfJunction,
+      modes: r.modes,
       speed: r.speed,
     });
   }
@@ -783,7 +828,7 @@ function buildRoadGraph(roads: RoadFeature[], eps: number): RoadGraphCache {
         enter: true,
         exit: true,
       };
-      addConnectorEdgeLater(e1.p, e1.level, e2.p, e2.level, ref, 1e-6);
+      addConnectorEdgeLater(e1.p, e1.level, e2.p, e2.level, ref, 1e-6, combineModeCodes(e1.modes, e2.modes));
         }
       }
     }
@@ -931,7 +976,7 @@ function buildRoadGraph(roads: RoadFeature[], eps: number): RoadGraphCache {
         // connect by a short connector edge (跨 Level 时依然可连)
         const refSegIdx = (segIdxByRoad.get(src.id)?.[0] ?? segIdxByRoad.get(tgt.id)?.[0]);
         if (refSegIdx === undefined) continue;
-        addConnectorEdgeLater(best.a, src.level, best.b, tgt.level, segs[refSegIdx]);
+          addConnectorEdgeLater(best.a, src.level, best.b, tgt.level, segs[refSegIdx], undefined, combineModeCodes(src.modes, tgt.modes));
         continue;
       }
 
@@ -951,7 +996,7 @@ function buildRoadGraph(roads: RoadFeature[], eps: number): RoadGraphCache {
             splitPts[best.idx].push(best.proj);
             // connector edge: from endpoint to proj（跨 Level 时依然可连）
             const refSegIdx = (segIdxByRoad.get(src.id)?.[0] ?? best.idx);
-            if (refSegIdx !== undefined) addConnectorEdgeLater(ep, src.level, best.proj, segs[best.idx].level, segs[refSegIdx]);
+            if (refSegIdx !== undefined) addConnectorEdgeLater(ep, src.level, best.proj, segs[best.idx].level, segs[refSegIdx], undefined, combineModeCodes(src.modes, segs[best.idx].modes));
           }
         }
 
@@ -972,7 +1017,7 @@ function buildRoadGraph(roads: RoadFeature[], eps: number): RoadGraphCache {
 
             // 若两段 Level 不同，节点不会在聚类阶段合并；middle 模式期望“中段存在关系”，因此需要显式 connector。
             if (segs[i2].level !== segs[j2].level) {
-              addConnectorEdgeLater(ip, segs[i2].level, ip, segs[j2].level, segs[i2], 0.01);
+              addConnectorEdgeLater(ip, segs[i2].level, ip, segs[j2].level, segs[i2], 0.01, combineModeCodes(segs[i2].modes, segs[j2].modes));
             }
           }
         }
@@ -1049,6 +1094,7 @@ function buildRoadGraph(roads: RoadFeature[], eps: number): RoadGraphCache {
         oneway: s.oneway,
         enter: s.enter,
         exit: typeof s.exit === 'boolean' ? s.exit : true,
+        modeSet: (s.modes && s.modes.length) ? new Set(s.modes) : undefined,
       };
       addEdge(edgesFrom, n1, e);
       // 双向：若 oneway=false
@@ -1064,6 +1110,8 @@ function buildRoadGraph(roads: RoadFeature[], eps: number): RoadGraphCache {
 
   // 5.5) apply pending connector edges (for ConnectL cross-level connectivity)
   for (const c of pendingConnectors) {
+    // 若两侧 Mode 约束交集为空，则该 connector 对任何 mode 都不可用，直接跳过。
+    if (c.modeCodes && c.modeCodes.length === 0) continue;
     const nA = coordKey2D(c.a, eps, c.levelA);
     const nB = coordKey2D(c.b, eps, c.levelB);
     if (!nodes.has(nA) || !nodes.has(nB)) continue;
@@ -1081,6 +1129,7 @@ function buildRoadGraph(roads: RoadFeature[], eps: number): RoadGraphCache {
       oneway: false,
       enter: true,
       exit: true,
+      modeSet: (c.modeCodes && c.modeCodes.length) ? new Set(c.modeCodes) : undefined,
     };
     addEdge(edgesFrom, nA, e);
     addEdge(edgesFrom, nB, { ...e, to: nA, geom: [e.geom[1], e.geom[0]] });
@@ -1157,8 +1206,9 @@ function dijkstra(args: {
   start: NodeId;
   goal: NodeId;
   defaultSpeed: number;
+  modeCode?: string;
 }): { ok: boolean; dist: number; prev: Map<NodeId, { from: NodeId; edge: Edge }> } {
-  const { graph, start, goal, defaultSpeed } = args;
+  const { graph, start, goal, defaultSpeed, modeCode } = args;
   const dist = new Map<NodeId, number>();
   const prev = new Map<NodeId, { from: NodeId; edge: Edge }>();
   const heap = new MinHeap<NodeId>();
@@ -1173,6 +1223,7 @@ function dijkstra(args: {
     if (u === goal) return { ok: true, dist: du, prev };
     const edges = graph.edgesFrom.get(u) ?? [];
     for (const e of edges) {
+      if (modeCode && e.modeSet && !e.modeSet.has(modeCode)) continue;
       const sp = Number.isFinite(Number(e.speed)) ? Number(e.speed) : defaultSpeed;
       const w = e.distance / Math.max(1e-6, sp);
       const nd = du + w;
@@ -1436,6 +1487,7 @@ export async function computeRoadPlanFromCoords(opt: NavigationRoadComputeOption
       ok: false,
       reason: '未加载到道路数据（Class=ROD）',
       worldId,
+      profileCode: String(opt.travelModeCode ?? ''),
       profileName: '',
       profileSpeed: defaultSpeed,
       totalDistance: 0,
@@ -1482,6 +1534,7 @@ export async function computeRoadPlanFromCoords(opt: NavigationRoadComputeOption
       ok: false,
       reason: '道路图为空或无法匹配到最近道路边（可能 Enter/Exit 全部阻断）',
       worldId,
+      profileCode: String(opt.travelModeCode ?? ''),
       profileName: '',
       profileSpeed: defaultSpeed,
       totalDistance: 0,
@@ -1526,6 +1579,7 @@ export async function computeRoadPlanFromCoords(opt: NavigationRoadComputeOption
         oneway: eRef.oneway,
         enter: eRef.enter,
         exit: eRef.exit,
+        modeSet: eRef.modeSet,
       });
     };
 
@@ -1602,7 +1656,14 @@ export async function computeRoadPlanFromCoords(opt: NavigationRoadComputeOption
       // ignore
     }
 
-    const dj = dijkstra({ graph: qg, start: startNode, goal: endNode, defaultSpeed });
+    const dj = dijkstra({
+      graph: qg,
+      start: startNode,
+      goal: endNode,
+      defaultSpeed,
+      // ROD.Mode 过滤：若 edge.modeSet 存在且不包含该 code，则该边不可进入
+      modeCode: String(opt.travelModeCode ?? ''),
+    });
     if (!dj.ok) return { ok: false, score: Infinity, edgePath: [], totalTime: Infinity, totalDist: Infinity, sCand, eCand };
 
     const edgePath: Edge[] = [];
@@ -1644,6 +1705,7 @@ export async function computeRoadPlanFromCoords(opt: NavigationRoadComputeOption
       ok: false,
       reason: '道路网络不可达（可能起终点处于不同断网区域/不同层级且无连接）',
       worldId,
+      profileCode: String(opt.travelModeCode ?? ''),
       profileName: '',
       profileSpeed: defaultSpeed,
       totalDistance: 0,
@@ -1743,7 +1805,8 @@ export async function computeRoadPlanFromCoords(opt: NavigationRoadComputeOption
   return {
     ok: true,
     worldId,
-    profileName: '',
+      profileCode: String(opt.travelModeCode ?? ''),
+      profileName: '',
     profileSpeed: defaultSpeed,
     totalDistance: totalDist,
     totalTimeSeconds: totalTime,

@@ -1230,6 +1230,8 @@ if (travelMode === 'road') {
     startCoord: startPoint.coord,
     endCoord: endPoint.coord,
     defaultSpeed: profile?.speed ?? 4.3,
+    // 用于道路 Mode 过滤（若 profile 未提供 code，则视为不启用过滤）
+    travelModeCode: (profile as any)?.code,
     // 与 rail_new / teleport_new 一致：面板“鞘翅接驳”仅影响起终点接驳段
     useElytra,
     // 经验值：与铁路(新)模块默认跨组件飞行速度一致

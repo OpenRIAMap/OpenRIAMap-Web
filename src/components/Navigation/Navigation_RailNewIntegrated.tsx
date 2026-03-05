@@ -1761,6 +1761,27 @@ function stationNameOfPlatform(platformId: string, stas: Map<string, Sta>, platf
   return stas.get(sid)?.Name ?? stas.get(sid)?.stationName ?? "";
 }
 
+function normalizeRailChipName(rawLineName: string, baseLineName?: string): string {
+  const raw = String(rawLineName ?? '').trim();
+  const base = String(baseLineName ?? '').trim();
+
+  // 1) 若有显式 baseLineName（同 Bureau+Line 的规范名），优先用于“联络线/接口”这类分段归并
+  let n = base || raw;
+
+  // 2) 对包含“线...-上/下行”的线路名：剥离“线”之后、“-”之前的分段名，只保留 “<...线>-上行”
+  //    例如：溯铁4号线冷渊段-上行 -> 溯铁4号线-上行
+  const idxLine = n.indexOf('线');
+  const idxDash = n.indexOf('-');
+  if (idxLine >= 0 && idxDash > idxLine) {
+    n = `${n.slice(0, idxLine + 1)}${n.slice(idxDash)}`;
+  }
+
+  // 若 base 为空且 raw 非空，用 raw 兜底（避免空串）
+  if (!n && raw) n = raw;
+
+  return n.trim();
+}
+
 function buildRailPlanOutput(args: {
   edges: Edge[];
   rideInfo: Map<NodeKey, RideNodeInfo>;
@@ -1873,14 +1894,17 @@ function buildRailPlanOutput(args: {
 
       // chips：按 lines[] 去重
       for (const ln of lines) {
-        const c = normalizeCssColor(ln.color, '#3b82f6');
-      const k = `${ln.lineName}@@${c}`;
+      const c = normalizeCssColor(ln.color, '#3b82f6');
+      const displayName = normalizeRailChipName(ln.lineName, ln.line);
+      const bureauKey = String((ln as any).bureau ?? '');
+      const lineKey = String((ln as any).line ?? ln.lineId ?? '');
+      const dirKey = String((ln as any).direction ?? '');
+      const k = `${bureauKey}@@${lineKey}@@${displayName}@@${dirKey}@@${c}`;
       if (!chipSet.has(k)) {
         chipSet.add(k);
-        usedLineChips.push({ lineName: ln.lineName, color: c });
+        usedLineChips.push({ lineName: displayName, color: c });
       }
-
-      }
+    }
 
       segments.push({
         kind: 'rail',

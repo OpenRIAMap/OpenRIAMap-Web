@@ -76,8 +76,15 @@ export const WORKFLOW_FEATURE_CATALOG: WorkflowFeatureCatalogEntry[] = [
 
   // ===== 道路 Road（ROD） =====
   // 说明：Road 的 Kind/SKind 目前仅区分 NOM/SPE 两类（与你提供的索引表一致）。
-  { classKey: '道路', classCode: 'ROD', drawMode: 'polyline', kind: 'NOM', skind: 'NOM', skind2: '', name: '默认', geom: '线' },
-  { classKey: '道路', classCode: 'ROD', drawMode: 'polyline', kind: 'SPE', skind: 'SPE', skind2: '', name: '特殊', geom: '线' },
+  { classKey: '道路', classCode: 'ROD', drawMode: 'polyline', kind: 'NOM', skind: '', skind2: '', name: '通用', geom: '线' },
+  { classKey: '道路', classCode: 'ROD', drawMode: 'polyline', kind: 'TUK', skind: '', skind2: '', name: '重要干线', geom: '线' },
+  { classKey: '道路', classCode: 'ROD', drawMode: 'polyline', kind: 'PRI', skind: '', skind2: '', name: '主干线', geom: '线' },
+  { classKey: '道路', classCode: 'ROD', drawMode: 'polyline', kind: 'SEC', skind: '', skind2: '', name: '次干线', geom: '线' },
+  { classKey: '道路', classCode: 'ROD', drawMode: 'polyline', kind: 'SEC', skind: '', skind2: '', name: '支路', geom: '线' },
+  { classKey: '道路', classCode: 'ROD', drawMode: 'polyline', kind: 'RES', skind: '', skind2: '', name: '小区域道路', geom: '线' },
+  { classKey: '道路', classCode: 'ROD', drawMode: 'polyline', kind: 'SVS', skind: '', skind2: '', name: '匝道', geom: '线' },
+  { classKey: '道路', classCode: 'ROD', drawMode: 'polyline', kind: 'IDR', skind: '', skind2: '', name: '室内道路', geom: '线' },
+  { classKey: '道路', classCode: 'ROD', drawMode: 'polyline', kind: 'SPE', skind: '', skind2: '', name: '特殊', geom: '线' },
 
 
   // ===== 传送点 Teleport Point（TPP）=====
@@ -1647,7 +1654,7 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       { key: 'ID', label: '道路ID', type: 'text' },
       { key: 'Name', label: '道路名', type: 'text' },
       { key: 'Kind', label: '类型(Kind)', type: 'text' },
-      { key: 'SKind', label: '子类型(SKind)', type: 'text' },
+      { key: 'SKind', label: '子类型(SKind)', type: 'text', optional: true },
       { key: 'SKind2', label: '三级子类型(SKind2)', type: 'text', optional: true },
       { key: 'Level', label: '道路层级(Level)', type: 'number' },
       { key: 'Oneway', label: '是否单向(Oneway)', type: 'bool' },
@@ -1684,6 +1691,12 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
         optional: true,
         fields: [{ key: 'tgt', label: '目标道路ID(tgt)', type: 'text' }],
       },
+      {
+        key: 'Mode',
+        label: '允许出行方式(Mode)',
+        optional: true,
+        fields: [{ key: 'code', label: '出行方式编码(code)', type: 'text' }],
+      },
     ],
     buildFeatureInfo: ({ op, mode, coords, values, groups, worldId, editorId, prevFeatureInfo, now }) => {
       const base = pickByFields(values, FORMAT_REGISTRY['道路'].fields);
@@ -1718,6 +1731,18 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
         })
         .filter((s: string) => !!s);
       if (Blacklist.length) out.Blacklist = Blacklist.map((id: string) => [id]);
+
+      // Mode：允许从 groups.Mode 写入；输出为 [[code], ...]；仅保留非空字符串
+      const rawMode = (groups as any)?.Mode;
+      const mList = Array.isArray(rawMode) ? rawMode : [];
+      const Mode = mList
+        .map((it: any) => {
+          const v = it?.code ?? it?.tgt;
+          if (Array.isArray(v)) return String(v?.[0] ?? '').trim();
+          return String(v ?? it?.ID ?? it?.id ?? '').trim();
+        })
+        .filter((s: string) => !!s);
+      if (Mode.length) out.Mode = Array.from(new Set(Mode)).map((c: string) => [c]);
 
       return withSystemFields(FORMAT_REGISTRY['道路'], out, { op, mode, worldId, editorId, prevFeatureInfo, now });
     },
@@ -1769,6 +1794,20 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
             .filter((s: string) => !!s);
           return ids.map((tgt: string) => ({ tgt }));
         })(),
+        // Mode：兼容 [[code]] / [code]
+        Mode: (() => {
+          const raw = (featureInfo as any)?.Mode ?? (featureInfo as any)?.mode;
+          if (!Array.isArray(raw)) return [];
+          const codes = raw
+            .map((it: any) => {
+              if (typeof it === 'string') return it.trim();
+              if (Array.isArray(it)) return String(it?.[0] ?? '').trim();
+              if (it && typeof it === 'object') return String(it?.code ?? it?.tgt ?? it?.ID ?? it?.id ?? '').trim();
+              return '';
+            })
+            .filter((s: string) => !!s);
+          return codes.map((code: string) => ({ code }));
+        })(),
       },
     }),
     coordsFromFeatureInfo: (featureInfo) => {
@@ -1789,12 +1828,17 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       if (!String((item as any).Name ?? '').trim()) return '缺少 Name';
       if (!isFiniteNum((item as any).World)) return '缺少 World 或 World 不是数字';
       if (!String((item as any).Kind ?? '').trim()) return '缺少 Kind';
-      if (!String((item as any).SKind ?? '').trim()) return '缺少 SKind';
       if (!Number.isFinite(Number((item as any).Level))) return '缺少 Level 或 Level 不是数字';
       if (typeof (item as any).Oneway !== 'boolean') return '缺少 Oneway 或 Oneway 不是 boolean';
       if (typeof (item as any).Enter !== 'undefined' && typeof (item as any).Enter !== 'boolean') return 'Enter 必须是 boolean（或缺省）';
       if (typeof (item as any).Exit !== 'undefined' && typeof (item as any).Exit !== 'boolean') return 'Exit 必须是 boolean（或缺省）';
       if (typeof (item as any).SelfJunction !== 'undefined' && typeof (item as any).SelfJunction !== 'boolean') return 'SelfJunction 必须是 boolean（或缺省）';
+
+      // Mode（可选）：[[code]] / [code]
+      const rawMode = (item as any).Mode ?? (item as any).mode;
+      if (typeof rawMode !== 'undefined') {
+        if (!Array.isArray(rawMode)) return 'Mode 必须是数组（或缺省）';
+      }
 
       // ConnectL（可选）：[{mode,tgt}]，兼容 Lot/Tgt
       const rawCL = (item as any).ConnectL ?? (item as any).connectL;
@@ -1838,7 +1882,7 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       { key: 'ID', label: '传送点ID', type: 'text' },
       { key: 'Name', label: '传送点名', type: 'text' },
       { key: 'Kind', label: '类型(Kind)', type: 'text' },
-      { key: 'SKind', label: '子类型(SKind)', type: 'text' },
+      { key: 'SKind', label: '子类型(SKind)', type: 'text', optional: true },
       { key: 'SKind2', label: '三级子类型(SKind2)', type: 'text', optional: true },
 
       { key: 'hub', label: '枢纽(hub)', type: 'text', optional: true },
@@ -1934,7 +1978,6 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       const name = String((item as any).Name ?? '').trim();
       if (!name) return '缺少 Name';
       if (!String((item as any).Kind ?? '').trim()) return '缺少 Kind';
-      if (!String((item as any).SKind ?? '').trim()) return '缺少 SKind';
       if (!(item as any).coordinate || !isFiniteNum((item as any).coordinate.x) || !isFiniteNum((item as any).coordinate.z)) {
         return '缺少合法 coordinate.x / coordinate.z';
       }
@@ -1961,7 +2004,7 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       { key: 'WRPointI2D', label: 'Warp点游戏内ID(WRPointI2D)', type: 'text' },
       { key: 'Name', label: 'Warp点名', type: 'text' },
       { key: 'Kind', label: '类型(Kind)', type: 'text' },
-      { key: 'SKind', label: '子类型(SKind)', type: 'text' },
+      { key: 'SKind', label: '子类型(SKind)', type: 'text', optional: true },
       { key: 'SKind2', label: '三级子类型(SKind2)', type: 'text', optional: true },
       { key: 'hub', label: '枢纽(hub)', type: 'text', optional: true },
       { key: 'elevation', label: '高度(y)', type: 'number', optional: true },
@@ -2022,7 +2065,6 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       const name = String((item as any).Name ?? '').trim();
       if (!name) return '缺少 Name';
       if (!String((item as any).Kind ?? '').trim()) return '缺少 Kind';
-      if (!String((item as any).SKind ?? '').trim()) return '缺少 SKind';
       if (!(item as any).coordinate || !isFiniteNum((item as any).coordinate.x) || !isFiniteNum((item as any).coordinate.z)) {
         return '缺少合法 coordinate.x / coordinate.z';
       }
@@ -2042,7 +2084,7 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       { key: 'ID', label: '交易点ID', type: 'text' },
       { key: 'Name', label: '交易点名', type: 'text' },
       { key: 'Kind', label: '类型(Kind)', type: 'text' },
-      { key: 'SKind', label: '子类型(SKind)', type: 'text' },
+      { key: 'SKind', label: '子类型(SKind)', type: 'text', optional: true },
       { key: 'SKind2', label: '三级子类型(SKind2)', type: 'text', optional: true },
 
       { key: 'Interaction', label: '交互模式(Interaction)', type: 'text', optional: true },
@@ -2164,7 +2206,6 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       const name = String((item as any).Name ?? '').trim();
       if (!name) return '缺少 Name';
       if (!String((item as any).Kind ?? '').trim()) return '缺少 Kind';
-      if (!String((item as any).SKind ?? '').trim()) return '缺少 SKind';
       if (!(item as any).coordinate || !isFiniteNum((item as any).coordinate.x) || !isFiniteNum((item as any).coordinate.z)) {
         return '缺少合法 coordinate.x / coordinate.z';
       }

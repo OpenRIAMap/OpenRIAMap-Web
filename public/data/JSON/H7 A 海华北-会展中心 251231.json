@@ -241,8 +241,8 @@
     "CreateBy": "HyperBird_"
   },
   {
-    "staBuildingID": "ZRHSTB_HHBZ",
-    "staBuildingName": "海华北站",
+    "ID": "ZRHSTB_HHBZ",
+    "Name": "海华北站",
     "Conpoints": [
       [
         8823.5,
@@ -273,8 +273,8 @@
     "CreateBy": "HyperBird_"
   },
   {
-    "plfRoundID": "ZRH7PFB_1",
-    "plfRoundName": "海华北站",
+    "ID": "ZRH7PFB_1",
+    "Name": "海华北站",
     "LineID": "ZRH7_A_01",
     "Flrpoints": [
       [
@@ -305,8 +305,8 @@
     "CreateBy": "HyperBird_"
   },
   {
-    "platformID": "ZRH7PLF*1*D",
-    "platformName": "海华北站-2站台",
+    "ID": "ZRH7PLF*1*D",
+    "Name": "海华北站-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -332,8 +332,8 @@
     "CreateBy": "HyperBird_"
   },
   {
-    "platformID": "ZRH7PLF*1*U",
-    "platformName": "海华北站-1站台",
+    "ID": "ZRH7PLF*1*U",
+    "Name": "海华北站-1站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -359,8 +359,8 @@
     "CreateBy": "HyperBird_"
   },
   {
-    "stationID": "ZRH7STA_1",
-    "stationName": "海华北站",
+    "ID": "ZRH7STA_1",
+    "Name": "海华北站",
     "STBuilding": "ZRHSTB_HHBZ",
     "coordinate": {
       "x": 8790.5,
@@ -381,8 +381,8 @@
     "CreateBy": "HyperBird_"
   },
   {
-    "staBuildingID": "ZRHSTB_HZZX",
-    "staBuildingName": "会展中心",
+    "ID": "ZRHSTB_HZZX",
+    "Name": "会展中心",
     "Conpoints": [
       [
         8980.5,
@@ -413,8 +413,8 @@
     "CreateBy": "HyperBird_"
   },
   {
-    "plfRoundID": "ZRH7PFB_2",
-    "plfRoundName": "会展中心",
+    "ID": "ZRH7PFB_2",
+    "Name": "会展中心",
     "LineID": "ZRH7_A_01",
     "Flrpoints": [
       [
@@ -445,8 +445,8 @@
     "CreateBy": "HyperBird_"
   },
   {
-    "platformID": "ZRH7PLF*2*D",
-    "platformName": "会展中心-2站台",
+    "ID": "ZRH7PLF*2*D",
+    "Name": "会展中心-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -472,8 +472,8 @@
     "CreateBy": "HyperBird_"
   },
   {
-    "platformID": "ZRH7PLF*2*U",
-    "platformName": "会展中心-2站台",
+    "ID": "ZRH7PLF*2*U",
+    "Name": "会展中心-2站台",
     "Situation": true,
     "Connect": true,
     "coordinate": {
@@ -498,8 +498,8 @@
     "CreateBy": "HyperBird_"
   },
   {
-    "stationID": "ZRH7STA_2",
-    "stationName": "会展中心",
+    "ID": "ZRH7STA_2",
+    "Name": "会展中心",
     "STBuilding": "ZRHSTB_HZZX",
     "coordinate": {
       "x": 9019.5,
