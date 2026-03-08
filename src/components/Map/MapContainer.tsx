@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import MobileBottomSheet from '@/components/Mobile/MobileBottomSheet';
+import MobileQuickDock from '@/components/Mobile/MobileQuickDock';
 import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { createDynmapCRS, ZTH_FLAT_CONFIG, DynmapProjection } from '@/lib/DynmapProjection';
@@ -34,12 +36,15 @@ import MeasuringModule, { type MeasuringModuleHandle } from '@/components/Mappin
 import MeasurementToolsModule from '@/components/Mapping/Mtools';
 
 import RuleDrivenLayer from '@/components/Rules/RuleDrivenLayer';
+import { resolveFeatureCardComponent } from '@/components/Rules/cardrules/featureCardRegistry';
+import type { FeatureRecord } from '@/components/Rules/renderRules';
 import RuleButtonPanel from '@/components/Rules/ButtonRule/RuleButtonPanel';
 import { useRuleButtonState } from '@/components/Rules/ButtonRule/ruleButtonState';
 
 import { formatGridNumber, snapWorldPointByMode } from '@/components/Mapping/GridSnapModeSwitch';
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
+import { Globe2, PanelsTopLeft, Layers3, SlidersHorizontal, Plus, Minus, HelpCircle } from 'lucide-react';
 
 // ===== 导航“图上选取”：MapContainer 统一派发地图点击事件 =====
 type MapClickWorldPointEventDetail = {
@@ -47,6 +52,9 @@ type MapClickWorldPointEventDetail = {
   point: { x: number; y: number; z: number };
 };
 
+
+type MobilePanelKey = null | 'navigation' | 'attributeQuery' | 'players' | 'about' | 'settings';
+type MobileQuickPanelKey = null | 'worlds' | 'toolbar' | 'ruleButtons' | 'modeTools';
 
 // 世界配置
 const WORLDS = [
@@ -78,6 +86,13 @@ function MapContainer() {
   const [showPlayersPage, setShowPlayersPage] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [mobileActivePanel, setMobileActivePanel] = useState<MobilePanelKey>(null);
+  const [mobileQuickPanel, setMobileQuickPanel] = useState<MobileQuickPanelKey>(null);
+  const [mobileSheetCollapsed, setMobileSheetCollapsed] = useState(false);
+  const [mobileSheetHidden, setMobileSheetHidden] = useState(false);
+  const [mobileSheetOffset, setMobileSheetOffset] = useState(0);
+  const [selectedRuleFeature, setSelectedRuleFeature] = useState<FeatureRecord | null>(null);
+  const [selectedRuleClassCode, setSelectedRuleClassCode] = useState<string | null>(null);
   const [stations, setStations] = useState<ParsedStation[]>([]);
   const [lines, setLines] = useState<ParsedLine[]>([]);
   const [landmarks, setLandmarks] = useState<ParsedLandmark[]>([]);
@@ -171,6 +186,71 @@ const [panelZIndexes, setPanelZIndexes] = useState<Record<string, number>>({
 });
 
   const zIndexCounterRef = useRef(1001);
+  const ruleResolveFeatureByIdRef = useRef<any>(undefined);
+  const ruleTriggerLabelClickRef = useRef<any>(undefined);
+
+  const closeMobileSheet = useCallback(() => {
+    setMobileActivePanel(null);
+    setMobileSheetCollapsed(false);
+    setMobileSheetHidden(false);
+    setHighlightedLine(null);
+    setSelectedPoint(null);
+    setSelectedPlayer(null);
+    setSelectedRuleFeature(null);
+    setSelectedRuleClassCode(null);
+    window.dispatchEvent(new CustomEvent('ria:ruleFeatureCardClose'));
+  }, []);
+
+  const openMobilePanel = useCallback((panel: MobilePanelKey) => {
+    setMobileQuickPanel(null);
+    setMobileSheetHidden(false);
+    setMobileSheetCollapsed(false);
+    setHighlightedLine(null);
+    setSelectedPoint(null);
+    setSelectedPlayer(null);
+    setSelectedRuleFeature(null);
+    setSelectedRuleClassCode(null);
+    window.dispatchEvent(new CustomEvent('ria:ruleFeatureCardClose'));
+    setMobileActivePanel((prev) => (prev === panel ? null : panel));
+  }, []);
+
+  const toggleMobileSheetCollapsed = useCallback(() => {
+    setMobileSheetHidden(false);
+    setMobileSheetCollapsed((prev) => !prev);
+  }, []);
+
+  const toggleMobileQuickPanel = useCallback((panel: MobileQuickPanelKey) => {
+    setMobileQuickPanel((prev) => (prev === panel ? null : panel));
+  }, []);
+
+  useEffect(() => {
+    const sameFeature = (a: any, b: any) => {
+      const auid = String(a?.uid ?? '');
+      const buid = String(b?.uid ?? '');
+      if (auid || buid) return auid === buid;
+      return a === b;
+    };
+
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent<any>).detail ?? {};
+      const nextFeature = detail.open ? (detail.feature ?? null) : null;
+      ruleResolveFeatureByIdRef.current = detail.resolveFeatureById;
+      ruleTriggerLabelClickRef.current = detail.onTryTriggerLabelClickById;
+      setSelectedRuleClassCode(detail.classCode ? String(detail.classCode) : null);
+      setSelectedRuleFeature((prev) => {
+        const changed = !sameFeature(prev, nextFeature);
+        if (detail.open && (changed || !prev)) {
+          setMobileQuickPanel(null);
+          setMobileSheetHidden(false);
+          setMobileSheetCollapsed(false);
+        }
+        return nextFeature;
+      });
+    };
+
+    window.addEventListener('ria:ruleFeatureCardState', handler as any);
+    return () => window.removeEventListener('ria:ruleFeatureCardState', handler as any);
+  }, []);
 
   // 置顶面板
   const bringToFront = useCallback((panelId: string) => {
@@ -391,6 +471,9 @@ if (mapStyle === 'sketch') {
   // 线路选中处理 - 高亮线路并调整视图
   const handleLineSelect = useCallback((line: ParsedLine) => {
     if (!showRailway) setShowRailway(true);
+    setMobileQuickPanel(null);
+    setMobileSheetHidden(false);
+    setMobileSheetCollapsed(false);
     setHighlightedLine(line);
     setRouteHighlight(null);  // 清除路径规划
     setSelectedPoint(null);  // 清除点位选中
@@ -408,6 +491,9 @@ if (mapStyle === 'sketch') {
 
   // 站点点击处理
   const handleStationClick = useCallback((station: ParsedStation) => {
+    setMobileQuickPanel(null);
+    setMobileSheetHidden(false);
+    setMobileSheetCollapsed(false);
     setSelectedPoint({
       type: 'station',
       name: station.name,
@@ -427,6 +513,9 @@ if (mapStyle === 'sketch') {
   // 地标点击处理
   const handleLandmarkClick = useCallback((landmark: ParsedLandmark) => {
     if (!landmark.coord) return;
+    setMobileQuickPanel(null);
+    setMobileSheetHidden(false);
+    setMobileSheetCollapsed(false);
     setSelectedPoint({
       type: 'landmark',
       name: landmark.name,
@@ -445,6 +534,9 @@ if (mapStyle === 'sketch') {
 
   // 玩家点击处理
   const handlePlayerClick = useCallback((player: Player) => {
+    setMobileQuickPanel(null);
+    setMobileSheetHidden(false);
+    setMobileSheetCollapsed(false);
     setSelectedPlayer(player);
     setSelectedPoint(null);
     setHighlightedLine(null);
@@ -610,9 +702,11 @@ const map = L.map(mapRef.current, {
 
 
 
-    // 添加缩放控件 - 桌面端右下角，手机端左下角
+    // 添加缩放控件 - 仅桌面端使用 Leaflet 默认控件；移动端改为右侧自定义按钮
     const isDesktop = window.innerWidth >= 640;
-    L.control.zoom({ position: isDesktop ? 'bottomright' : 'bottomleft' }).addTo(map);
+    if (isDesktop) {
+      L.control.zoom({ position: 'bottomright' }).addTo(map);
+    }
 
     // 添加 Dynmap 瓦片图层 - 使用保存的世界和风格
     const savedMapStyle = loadMapSettings()?.mapStyle ?? 'default';
@@ -728,8 +822,153 @@ map.on('mousemove', handleMouseMove);
     };
   }, []);
 
+  const mobileSheetTitle = highlightedLine
+    ? '线路详情'
+    : selectedPoint
+      ? '点位详情'
+      : selectedPlayer
+        ? '玩家详情'
+        : selectedRuleFeature
+          ? '要素信息'
+          : mobileActivePanel === 'navigation'
+            ? '路径规划'
+            : mobileActivePanel === 'attributeQuery'
+              ? '按属性查询'
+              : mobileActivePanel === 'players'
+                ? '在线玩家'
+                : mobileActivePanel === 'about'
+                  ? '关于'
+                  : mobileActivePanel === 'settings'
+                    ? '设置'
+                    : '';
+
+  const shouldShowMobileSheet = Boolean(highlightedLine || selectedPoint || selectedPlayer || selectedRuleFeature || mobileActivePanel);
+
+  const renderMobileSheetContent = () => {
+    if (highlightedLine) {
+      return (
+        <LineDetailCard
+          line={highlightedLine}
+          onClose={() => setHighlightedLine(null)}
+          onStationClick={(_name, coord) => {
+            const map = leafletMapRef.current;
+            const proj = projectionRef.current;
+            if (!map || !proj) return;
+            const latLng = proj.locationToLatLng(coord.x, coord.y || 64, coord.z);
+            map.setView(latLng, 5);
+          }}
+        />
+      );
+    }
+
+    if (selectedPoint) {
+      const { nearbyStations, nearbyLandmarks } = getNearbyPoints(selectedPoint.coord);
+      return (
+        <PointDetailCard
+          selectedPoint={selectedPoint}
+          nearbyStations={nearbyStations}
+          nearbyLandmarks={nearbyLandmarks}
+          lines={lines}
+          onClose={() => setSelectedPoint(null)}
+          onStationClick={handleStationClick}
+          onLandmarkClick={handleLandmarkClick}
+          onLineClick={(line) => {
+            setSelectedPoint(null);
+            handleLineSelect(line);
+          }}
+        />
+      );
+    }
+
+    if (selectedPlayer) {
+      const playerCoord: Coordinate = { x: selectedPlayer.x, y: selectedPlayer.y, z: selectedPlayer.z };
+      const { nearbyStations, nearbyLandmarks } = getNearbyPoints(playerCoord);
+      return (
+        <PlayerDetailCard
+          player={selectedPlayer}
+          nearbyStations={nearbyStations}
+          nearbyLandmarks={nearbyLandmarks}
+          onClose={() => setSelectedPlayer(null)}
+          onStationClick={handleStationClick}
+          onLandmarkClick={handleLandmarkClick}
+        />
+      );
+    }
+
+    if (selectedRuleFeature) {
+      const Card = resolveFeatureCardComponent(selectedRuleClassCode);
+      return (
+        <Card
+          open
+          feature={selectedRuleFeature}
+          onClose={closeMobileSheet}
+          resolveFeatureById={ruleResolveFeatureByIdRef.current}
+          onTryTriggerLabelClickById={ruleTriggerLabelClickRef.current}
+          variant="embedded"
+        />
+      );
+    }
+
+    switch (mobileActivePanel) {
+      case 'about':
+        return <AboutCard onClose={closeMobileSheet} />;
+      case 'settings':
+        return <SettingsPanel onClose={closeMobileSheet} />;
+      case 'navigation':
+        return (
+          <NavigationPanel
+            stations={stations}
+            lines={lines}
+            landmarks={landmarks}
+            players={players}
+            worldId={currentWorld}
+            onRouteFound={handleRouteFound}
+            onClose={closeMobileSheet}
+            onPointClick={(coord) => {
+              const map = leafletMapRef.current;
+              const proj = projectionRef.current;
+              if (!map || !proj) return;
+              const latLng = proj.locationToLatLng(coord.x, coord.y || 64, coord.z);
+              map.setView(latLng, 5);
+            }}
+          />
+        );
+      case 'attributeQuery':
+        return (
+          <AttributeQueryPanel
+            worldId={currentWorld}
+            onSelect={(r) => {
+              handleSearchSelect(r);
+            }}
+            onClose={closeMobileSheet}
+          />
+        );
+      case 'players':
+        return (
+          <PlayersList
+            worldId={currentWorld}
+            onClose={closeMobileSheet}
+            onPlayerSelect={(player) => {
+              closeMobileSheet();
+              handlePlayerClick(player);
+            }}
+            onNavigateToPlayer={() => {
+              setMobileActivePanel('navigation');
+              setMobileSheetHidden(false);
+              setMobileSheetCollapsed(false);
+            }}
+          />
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
-    <div className="relative w-full h-full">
+    <div
+      className="relative w-full h-full"
+      style={{ ['--ria-mobile-bottom-offset' as any]: `${mobileSheetOffset}px` }}
+    >
       {/* 地图容器 */}
       <div ref={mapRef} className="w-full h-full" />
 
@@ -780,20 +1019,20 @@ map.on('mousemove', handleMouseMove);
         />
       )}
 
-      {/* 左侧面板区域 */}
-      <div className="absolute top-2 left-2 right-2 sm:top-4 sm:left-4 sm:right-auto z-[1000] flex flex-col gap-2 sm:max-w-[300px]">
-        {/* 标题和世界切换 */}
+      {/* 顶部区域：桌面端恢复原始布局；移动端仅保留搜索框与关于快捷按钮 */}
+      <div className="hidden sm:flex absolute top-4 left-4 right-auto z-[1000] flex-col gap-2 sm:max-w-[300px]">
         <AppCard className="bg-white/90 px-3 py-2 sm:px-4">
           <h1 className="text-base sm:text-lg font-bold text-gray-800">RIA 在线地图</h1>
           <WorldSwitcher
+            frameless
             worlds={WORLDS}
             currentWorld={currentWorld}
             onWorldChange={handleWorldChange}
           />
         </AppCard>
 
-        {/* 搜索栏 */}
         <SearchBar
+          variant="desktop"
           stations={stations}
           landmarks={landmarks}
           lines={lines}
@@ -802,7 +1041,6 @@ map.on('mousemove', handleMouseMove);
           onLineSelect={handleLineSelect}
         />
 
-        {/* 工具栏 */}
         <Toolbar
           onNavigationClick={() => { setShowNavigation(true); bringToFront('navigation'); }}
           onAttributeQueryClick={() => { setShowAttributeQuery(true); bringToFront('attributeQuery'); }}
@@ -812,136 +1050,136 @@ map.on('mousemove', handleMouseMove);
           onSettingsClick={() => { setShowSettings(true); bringToFront('settings'); }}
         />
 
-        {/* 手机端：保持原有的流式布局 */}
-        <div className="sm:hidden flex flex-col gap-2">
-          {/* 关于卡片 */}
-          {showAbout && (
-            <AboutCard onClose={() => setShowAbout(false)} />
-          )}
+        {hasRoute && (
+          <AppButton
+            onClick={() => setRouteHighlight(null)}
+            className="bg-gray-500 hover:bg-gray-600 text-white px-3 py-1.5 rounded-lg shadow-lg flex items-center gap-2 w-fit text-sm"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            <span>清除路径</span>
+          </AppButton>
+        )}
+      </div>
 
-          {/* 设置面板 */}
-          {showSettings && (
-            <SettingsPanel onClose={() => setShowSettings(false)} />
-          )}
-
-          {/* 路径规划面板 */}
-          {showNavigation && (
-            <NavigationPanel
-              stations={stations}
-              lines={lines}
-              landmarks={landmarks}
-              players={players}
-              worldId={currentWorld}
-              onRouteFound={handleRouteFound}
-              onClose={() => setShowNavigation(false)}
-              onPointClick={(coord) => {
-                const map = leafletMapRef.current;
-                const proj = projectionRef.current;
-                if (!map || !proj) return;
-                const latLng = proj.locationToLatLng(coord.x, coord.y || 64, coord.z);
-                map.setView(latLng, 5);
-              }}
-            />
-          )}
-
-          {/* 按属性查询（手机端：保持原有的流式布局） */}
-          {showAttributeQuery && (
-            <AttributeQueryPanel
-              worldId={currentWorld}
-              onSelect={(r) => {
-                handleSearchSelect(r);
-              }}
-              onClose={() => setShowAttributeQuery(false)}
-            />
-          )}
-
-
-          {/* 线路详情卡片 */}
-          {highlightedLine && (
-            <LineDetailCard
-              line={highlightedLine}
-              onClose={() => setHighlightedLine(null)}
-              onStationClick={(_name, coord) => {
-                const map = leafletMapRef.current;
-                const proj = projectionRef.current;
-                if (!map || !proj) return;
-                const latLng = proj.locationToLatLng(coord.x, coord.y || 64, coord.z);
-                map.setView(latLng, 5);
-              }}
-            />
-          )}
-
-          {/* 点位详情卡片 */}
-          {selectedPoint && (() => {
-            const { nearbyStations, nearbyLandmarks } = getNearbyPoints(selectedPoint.coord);
-            return (
-              <PointDetailCard
-                selectedPoint={selectedPoint}
-                nearbyStations={nearbyStations}
-                nearbyLandmarks={nearbyLandmarks}
-                lines={lines}
-                onClose={() => setSelectedPoint(null)}
-                onStationClick={handleStationClick}
-                onLandmarkClick={handleLandmarkClick}
-                onLineClick={(line) => {
-                  setSelectedPoint(null);
-                  handleLineSelect(line);
-                }}
-              />
-            );
-          })()}
-
-          {/* 玩家详情卡片 */}
-          {selectedPlayer && (() => {
-            const playerCoord: Coordinate = { x: selectedPlayer.x, y: selectedPlayer.y, z: selectedPlayer.z };
-            const { nearbyStations, nearbyLandmarks } = getNearbyPoints(playerCoord);
-            return (
-              <PlayerDetailCard
-                player={selectedPlayer}
-                nearbyStations={nearbyStations}
-                nearbyLandmarks={nearbyLandmarks}
-                onClose={() => setSelectedPlayer(null)}
-                onStationClick={handleStationClick}
-                onLandmarkClick={handleLandmarkClick}
-              />
-            );
-          })()}
-
-          {/* 玩家列表面板 */}
-          {showPlayersPage && (
-            <PlayersList
-              worldId={currentWorld}
-              onClose={() => setShowPlayersPage(false)}
-              onPlayerSelect={(player) => {
-                setShowPlayersPage(false);
-                handlePlayerClick(player);
-              }}
-              onNavigateToPlayer={() => {
-                setShowPlayersPage(false);
-                setShowNavigation(true);
-              }}
-            />
-          )}
+      <div className="sm:hidden absolute top-2 left-2 right-2 z-[1000] flex items-stretch gap-2">
+        <div className="flex-1 min-w-0">
+          <SearchBar
+            variant="mobile"
+            mobile
+            stations={stations}
+            landmarks={landmarks}
+            lines={lines}
+            worldId={currentWorld}
+            onSelect={handleSearchSelect}
+            onLineSelect={handleLineSelect}
+          />
         </div>
+        <AppButton
+          onClick={() => openMobilePanel('about')}
+          className="h-[62px] w-[62px] rounded-[28px] bg-white/95 text-gray-600 hover:bg-white flex items-center justify-center shadow-[0_12px_30px_rgba(0,0,0,0.12)] border border-gray-200/70 shrink-0"
+          title="关于"
+        >
+          <HelpCircle className="w-6 h-6" />
+        </AppButton>
+      </div>
 
-        {/* 清除路径按钮 */}
-{hasRoute && (
-  <AppButton
-    onClick={() => setRouteHighlight(null)}
-    className="bg-gray-500 hover:bg-gray-600 text-white px-3 py-1.5 rounded-lg shadow-lg flex items-center gap-2 w-fit text-sm"
-  >
-    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-    </svg>
-    <span>清除路径</span>
-  </AppButton>
-)}
-
+      <div className="sm:hidden absolute right-2 top-1/2 -translate-y-1/2 z-[1001]">
+        <MobileQuickDock
+          activeKey={mobileQuickPanel}
+          onToggle={(key) => toggleMobileQuickPanel(key as MobileQuickPanelKey)}
+          items={[
+            { key: 'worlds', label: '世界切换', icon: <Globe2 className="w-5 h-5" />, activeClassName: 'bg-rose-100 text-rose-700' },
+            { key: 'toolbar', label: '工具栏', icon: <PanelsTopLeft className="w-5 h-5" />, activeClassName: 'bg-violet-100 text-violet-700' },
+            { key: 'ruleButtons', label: '图层切换按钮', icon: <Layers3 className="w-5 h-5" />, activeClassName: 'bg-emerald-100 text-emerald-700' },
+            { key: 'modeTools', label: '模式工具', icon: <SlidersHorizontal className="w-5 h-5" />, activeClassName: 'bg-sky-100 text-sky-700' },
+          ]}
+          directionMap={{ worlds: 'down', toolbar: 'down', ruleButtons: shouldShowMobileSheet ? 'up' : 'down', modeTools: shouldShowMobileSheet ? 'up' : 'down' }}
+          renderPanel={(key) => {
+            if (key === 'worlds') {
+              return (
+                <WorldSwitcher
+                  frameless
+                  mobile
+                  worlds={WORLDS}
+                  currentWorld={currentWorld}
+                  onWorldChange={(worldId) => {
+                    handleWorldChange(worldId);
+                    setMobileQuickPanel(null);
+                  }}
+                />
+              );
+            }
+            if (key === 'toolbar') {
+              return (
+                <Toolbar
+                  frameless
+                  mobile
+                  onNavigationClick={() => openMobilePanel('navigation')}
+                  onAttributeQueryClick={() => openMobilePanel('attributeQuery')}
+                  onLinesClick={() => {
+                    setMobileQuickPanel(null);
+                    setShowLinesPage(true);
+                  }}
+                  onPlayersClick={() => openMobilePanel('players')}
+                  onHelpClick={() => openMobilePanel('about')}
+                  onSettingsClick={() => openMobilePanel('settings')}
+                />
+              );
+            }
+            if (key === 'ruleButtons') {
+              return (
+                <RuleButtonPanel
+                  frameless
+                  mode="mobile"
+                  activeButtonIds={activeRuleButtonIds}
+                  onToggle={toggleRuleButton}
+                />
+              );
+            }
+            return (
+              <LayerControl
+                frameless
+                mobile
+                showRailway={showRailway}
+                showLandmark={showLandmark}
+                showPlayers={showPlayers}
+                dimBackground={dimBackground}
+                mapStyle={mapStyle}
+                onToggleRailway={setShowRailway}
+                onToggleLandmark={setShowLandmark}
+                onTogglePlayers={setShowPlayers}
+                onToggleDimBackground={setDimBackground}
+                onToggleMapStyle={setMapStyle}
+              />
+            );
+          }}
+          zoomControls={(
+            <AppCard className="bg-white/92 p-1 flex flex-col gap-1 shadow-xl w-11 items-center">
+              <AppButton
+                onClick={() => leafletMapRef.current?.zoomIn()}
+                className="h-9 w-9 text-gray-700 hover:bg-gray-100"
+                title="放大"
+              >
+                <Plus className="w-5 h-5" />
+              </AppButton>
+              <AppButton
+                onClick={() => leafletMapRef.current?.zoomOut()}
+                className="h-9 w-9 text-gray-700 hover:bg-gray-100"
+                title="缩小"
+              >
+                <Minus className="w-5 h-5" />
+              </AppButton>
+            </AppCard>
+          )}
+        />
       </div>
 
       {/* 桌面端：可拖拽浮动面板 */}
       {/* 关于卡片 */}
       {showAbout && (
+        <div className="hidden sm:block">
         <DraggablePanel
           id="about"
           defaultPosition={{ x: 16, y: 180 }}
@@ -950,10 +1188,12 @@ map.on('mousemove', handleMouseMove);
         >
           <AboutCard onClose={() => setShowAbout(false)} />
         </DraggablePanel>
+        </div>
       )}
 
       {/* 设置面板 */}
       {showSettings && (
+        <div className="hidden sm:block">
         <DraggablePanel
           id="settings"
           defaultPosition={{ x: 16, y: 180 }}
@@ -962,10 +1202,12 @@ map.on('mousemove', handleMouseMove);
         >
           <SettingsPanel onClose={() => setShowSettings(false)} />
         </DraggablePanel>
+        </div>
       )}
 
       {/* 路径规划面板 */}
       {showNavigation && (
+        <div className="hidden sm:block">
         <DraggablePanel
           id="navigation"
           defaultPosition={{ x: 16, y: 180 }}
@@ -989,10 +1231,12 @@ map.on('mousemove', handleMouseMove);
             }}
           />
         </DraggablePanel>
+        </div>
       )}
 
       {/* 按属性查询面板 */}
       {showAttributeQuery && (
+        <div className="hidden sm:block">
         <DraggablePanel
           id="attributeQuery"
           defaultPosition={{ x: 16, y: 180 }}
@@ -1007,10 +1251,12 @@ map.on('mousemove', handleMouseMove);
             onClose={() => setShowAttributeQuery(false)}
           />
         </DraggablePanel>
+        </div>
       )}
 
       {/* 玩家列表面板 */}
       {showPlayersPage && (
+        <div className="hidden sm:block">
         <DraggablePanel
           id="players"
           defaultPosition={{ x: 16, y: 180 }}
@@ -1029,10 +1275,12 @@ map.on('mousemove', handleMouseMove);
             }}
           />
         </DraggablePanel>
+        </div>
       )}
 
       {/* 线路详情卡片 */}
       {highlightedLine && (
+        <div className="hidden sm:block">
         <DraggablePanel
           id="lineDetail"
           defaultPosition={{ x: 340, y: 16 }}
@@ -1051,12 +1299,14 @@ map.on('mousemove', handleMouseMove);
             }}
           />
         </DraggablePanel>
+        </div>
       )}
 
       {/* 点位详情卡片 */}
       {selectedPoint && (() => {
         const { nearbyStations, nearbyLandmarks } = getNearbyPoints(selectedPoint.coord);
         return (
+          <div className="hidden sm:block">
           <DraggablePanel
             id="pointDetail"
             defaultPosition={{ x: 340, y: 16 }}
@@ -1077,6 +1327,7 @@ map.on('mousemove', handleMouseMove);
               }}
             />
           </DraggablePanel>
+          </div>
         );
       })()}
 
@@ -1085,6 +1336,7 @@ map.on('mousemove', handleMouseMove);
         const playerCoord: Coordinate = { x: selectedPlayer.x, y: selectedPlayer.y, z: selectedPlayer.z };
         const { nearbyStations, nearbyLandmarks } = getNearbyPoints(playerCoord);
         return (
+          <div className="hidden sm:block">
           <DraggablePanel
             id="playerDetail"
             defaultPosition={{ x: 340, y: 16 }}
@@ -1100,13 +1352,13 @@ map.on('mousemove', handleMouseMove);
               onLandmarkClick={handleLandmarkClick}
             />
           </DraggablePanel>
+          </div>
         );
       })()}
 
-      {/* 右侧图层控制 - 手机端右下角版权上方，桌面端右上角 */}
-      <div className="absolute bottom-8 right-2 sm:top-4 sm:bottom-auto sm:right-4 z-[1000]">
+      {/* 桌面端：右上角图层控制 */}
+      <div className="hidden sm:block absolute top-4 right-4 z-[1000]">
         <div className="flex items-start gap-2">
-          {/* 规则图层分组开关（放在原八个按键组左侧） */}
           <RuleButtonPanel
             activeButtonIds={activeRuleButtonIds}
             onToggle={toggleRuleButton}
@@ -1145,6 +1397,25 @@ map.on('mousemove', handleMouseMove);
           </LayerControl>
         </div>
       </div>
+
+      <MobileBottomSheet
+        open={shouldShowMobileSheet}
+        hidden={mobileSheetHidden}
+        collapsed={mobileSheetCollapsed}
+        title={mobileSheetTitle}
+        onClose={closeMobileSheet}
+        onToggleCollapsed={() => {
+          if (mobileSheetHidden) {
+            setMobileSheetHidden(false);
+            setMobileSheetCollapsed(false);
+            return;
+          }
+          toggleMobileSheetCollapsed();
+        }}
+        onOffsetChange={setMobileSheetOffset}
+      >
+        {renderMobileSheetContent()}
+      </MobileBottomSheet>
 
       {/* 路径高亮图层 */}
 {mapReady && leafletMapRef.current && projectionRef.current && showRouteOverlay && routeHighlight && (

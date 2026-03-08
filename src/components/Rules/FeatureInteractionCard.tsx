@@ -37,6 +37,8 @@ type Props = {
 
   /** 可选：覆盖主信息/其他信息分区（用于特殊卡把大段信息挪到自定义模块中） */
   infoSectionsOverride?: { mainRows: CardRow[]; otherRows: CardRow[] };
+  /** 渲染模式：floating=桌面悬浮，embedded=嵌入容器（移动端底部抽屉） */
+  variant?: 'floating' | 'embedded';
 };
 
 type CardRow = { label: string; value: any };
@@ -127,6 +129,7 @@ export default function FeatureInteractionCard(props: Props) {
     pictureItemSize,
     disableFieldRules,
     infoSectionsOverride,
+    variant = 'floating',
   } = props;
   if (!open) return null;
 
@@ -259,10 +262,8 @@ export default function FeatureInteractionCard(props: Props) {
     }
   };
 
-  return (
-    <>
-      <DraggablePanel id="featureInteractionCard" defaultPosition={{ x: 16, y: 180 }}>
-        <AppCard className={cardClassName ?? 'w-[360px]'} onWheel={(e) => e.stopPropagation()}>
+  const cardBody = (
+    <AppCard className={cardClassName ?? 'w-[360px]'} onWheel={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-3 py-2 border-b border-black/10">
           <div className="text-sm font-semibold truncate" title={title}>
             {title || '（未命名要素）'}
@@ -275,9 +276,11 @@ export default function FeatureInteractionCard(props: Props) {
             >
               JSON
             </AppButton>
-            <AppButton className="px-2 py-1 text-xs bg-transparent hover:bg-black/5" onClick={onClose} type="button">
-              关闭
-            </AppButton>
+            {variant === 'embedded' ? null : (
+              <AppButton className="px-2 py-1 text-xs bg-transparent hover:bg-black/5" onClick={onClose} type="button">
+                关闭
+              </AppButton>
+            )}
           </div>
         </div>
 
@@ -519,8 +522,16 @@ export default function FeatureInteractionCard(props: Props) {
             )}
           </div>
         </div>
-        </AppCard>
-      </DraggablePanel>
+    </AppCard>
+  );
+
+  return (
+    <>
+      {variant === 'embedded' ? cardBody : (
+        <DraggablePanel id="featureInteractionCard" defaultPosition={{ x: 16, y: 180 }}>
+          {cardBody}
+        </DraggablePanel>
+      )}
 
       {jsonOpen && (
         <DraggablePanel id="featureJsonPanel" defaultPosition={{ x: 400, y: 200 }}>

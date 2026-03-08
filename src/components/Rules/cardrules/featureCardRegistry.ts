@@ -13,6 +13,7 @@ export type FeatureCardCommonProps = {
   // Optional hooks used by the default card; special cards may ignore.
   resolveFeatureById?: ResolveFeatureById;
   onTryTriggerLabelClickById?: (id: string) => void;
+  variant?: 'floating' | 'embedded';
 };
 
 export const FEATURE_CARD_REGISTRY: Record<string, ComponentType<FeatureCardCommonProps>> = {

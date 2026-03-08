@@ -716,6 +716,16 @@ useEffect(() => {
   // worldId 切换时会卸载/重挂载 listener，避免跨世界误开。
 }, [worldId]);
 
+useEffect(() => {
+  const handler = () => {
+    highlightGroupRef.current?.clearLayers();
+    setFeatureCardOpen(false);
+    setSelectedFeature(null);
+  };
+
+  window.addEventListener('ria:ruleFeatureCardClose', handler as any);
+  return () => window.removeEventListener('ria:ruleFeatureCardClose', handler as any);
+}, []);
 
 // (2) “分组开关”筛选：将预加载池(allRecordsRef) → 渲染池(recordsRef/storeRef)
 // - 支持多个开关并集
@@ -891,6 +901,20 @@ useEffect(() => {
     setFeatureCardOpen(false);
     setSelectedFeature(null);
   }, [worldId]);
+
+
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('ria:ruleFeatureCardState', {
+      detail: {
+        open: featureCardOpen,
+        feature: selectedFeature,
+        classCode: selectedFeature?.meta?.Class ?? selectedFeature?.featureInfo?.Class ?? null,
+        resolveFeatureById,
+        onTryTriggerLabelClickById,
+      },
+    }));
+  }, [featureCardOpen, selectedFeature, resolveFeatureById, onTryTriggerLabelClickById]);
 
   // (3.5) 初始化自定义 panes：用于稳定控制遮挡顺序（避免“读入顺序导致覆盖”）
   useEffect(() => {
@@ -1458,19 +1482,21 @@ declutterLabelMeta.set(req.id, { styleKey, plan: (clickPlan && (clickPlan as any
           </div>
         </AppCard>
       )}
-      {(() => {
-        const cls = selectedFeature?.meta?.Class ?? selectedFeature?.featureInfo?.Class;
-        const Card = resolveFeatureCardComponent(cls);
-        return (
-          <Card
-            open={featureCardOpen}
-            feature={selectedFeature}
-            onClose={clearSelection}
-            resolveFeatureById={resolveFeatureById}
-            onTryTriggerLabelClickById={onTryTriggerLabelClickById}
-          />
-        );
-      })()}
+      <div className="hidden sm:block">
+        {(() => {
+          const cls = selectedFeature?.meta?.Class ?? selectedFeature?.featureInfo?.Class;
+          const Card = resolveFeatureCardComponent(cls);
+          return (
+            <Card
+              open={featureCardOpen}
+              feature={selectedFeature}
+              onClose={clearSelection}
+              resolveFeatureById={resolveFeatureById}
+              onTryTriggerLabelClickById={onTryTriggerLabelClickById}
+            />
+          );
+        })()}
+      </div>
     </>
   );
 }

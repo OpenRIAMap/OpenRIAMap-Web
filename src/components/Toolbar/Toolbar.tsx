@@ -17,98 +17,110 @@ interface ToolbarProps {
   onPlayersClick: () => void;
   onHelpClick: () => void;
   onSettingsClick: () => void;
+  mobile?: boolean;
+  frameless?: boolean;
 }
 
-export function Toolbar({
+function ToolbarButtons({
   onNavigationClick,
   onAttributeQueryClick,
   onLinesClick,
   onPlayersClick,
   onHelpClick,
   onSettingsClick,
-}: ToolbarProps) {
+  mobile = false,
+}: Omit<ToolbarProps, 'frameless'>) {
+  const buttonClass = mobile
+    ? 'p-2.5 rounded-lg text-gray-600 transition-colors group relative active:scale-[0.98]'
+    : 'p-2 rounded-lg transition-colors group relative';
+
   return (
-    <AppCard className="bg-white/90 p-2 flex items-center gap-1">
-      {/* 路径规划 */}
+    <>
       <AppButton
         onClick={onNavigationClick}
-        className="p-2 rounded-lg hover:bg-blue-50 text-gray-600 hover:text-blue-600 transition-colors group relative"
+        className={`${buttonClass} hover:bg-blue-50 hover:text-blue-600`}
         title="路径规划"
       >
         <Navigation className="w-5 h-5" />
-        <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+        <span className={`absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none ${mobile ? 'hidden' : ''}`}>
           路径规划
         </span>
       </AppButton>
 
-      <div className="w-px h-6 bg-gray-200" />
+      {!mobile && <div className="w-px h-6 bg-gray-200" />}
 
-      {/* 按属性查询 */}
       <AppButton
         onClick={onAttributeQueryClick}
-        className="p-2 rounded-lg hover:bg-emerald-50 text-gray-600 hover:text-emerald-600 transition-colors group relative"
+        className={`${buttonClass} hover:bg-emerald-50 hover:text-emerald-600`}
         title="按属性查询"
       >
         <Filter className="w-5 h-5" />
-        <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+        <span className={`absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none ${mobile ? 'hidden' : ''}`}>
           按属性查询
         </span>
       </AppButton>
 
-      {/* 全部线路 */}
       <AppButton
         onClick={onLinesClick}
-        className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 hover:text-gray-800 transition-colors group relative"
+        className={`${buttonClass} hover:bg-gray-100 hover:text-gray-800`}
         title="线路列表"
       >
         <List className="w-5 h-5" />
-        <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+        <span className={`absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none ${mobile ? 'hidden' : ''}`}>
           线路列表
         </span>
       </AppButton>
 
-      {/* 在线玩家 */}
       <AppButton
         onClick={onPlayersClick}
-        className="p-2 rounded-lg hover:bg-cyan-50 text-gray-600 hover:text-cyan-600 transition-colors group relative"
+        className={`${buttonClass} hover:bg-cyan-50 hover:text-cyan-600`}
         title="在线玩家"
       >
         <Users className="w-5 h-5" />
-        <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+        <span className={`absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none ${mobile ? 'hidden' : ''}`}>
           在线玩家
         </span>
       </AppButton>
 
-      {/* 帮助 */}
       <AppButton
         onClick={onHelpClick}
-        className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 hover:text-gray-800 transition-colors group relative"
+        className={`${buttonClass} hover:bg-gray-100 hover:text-gray-800`}
         title="帮助"
       >
         <HelpCircle className="w-5 h-5" />
-        <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+        <span className={`absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none ${mobile ? 'hidden' : ''}`}>
           帮助
         </span>
       </AppButton>
 
-      {/* 设置 */}
       <AppButton
         onClick={onSettingsClick}
-        className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 hover:text-gray-800 transition-colors group relative"
+        className={`${buttonClass} hover:bg-gray-100 hover:text-gray-800`}
         title="设置"
       >
         <Settings className="w-5 h-5" />
-        <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+        <span className={`absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none ${mobile ? 'hidden' : ''}`}>
           设置
         </span>
       </AppButton>
+    </>
+  );
+}
+
+export function Toolbar(props: ToolbarProps) {
+  const { mobile = false, frameless = false } = props;
+  const contentClass = mobile ? 'grid grid-cols-3 gap-1.5' : 'flex items-center gap-1';
+  const content = <div className={contentClass}><ToolbarButtons {...props} mobile={mobile} /></div>;
+
+  if (frameless) return content;
+
+  return (
+    <AppCard className={`bg-white/90 ${mobile ? 'p-2' : 'p-2'}`}>
+      {content}
     </AppCard>
   );
 }
 
-/**
- * 地图风格选项
- */
 const MAP_STYLE_OPTIONS: Array<{
   value: MapStyle;
   label: string;
@@ -120,9 +132,6 @@ const MAP_STYLE_OPTIONS: Array<{
   { value: 'sketch', label: '素描', icon: <Pencil className="w-5 h-5" />, description: '手绘地图风格' },
 ];
 
-/**
- * 地图风格下拉选择器
- */
 interface MapStyleSelectorProps {
   mapStyle: MapStyle;
   onToggleMapStyle: (style: MapStyle) => void;
@@ -134,7 +143,6 @@ function MapStyleSelector({ mapStyle, onToggleMapStyle }: MapStyleSelectorProps)
 
   const currentStyle = MAP_STYLE_OPTIONS.find(s => s.value === mapStyle) || MAP_STYLE_OPTIONS[0];
 
-  // 点击外部关闭下拉菜单
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -168,7 +176,6 @@ function MapStyleSelector({ mapStyle, onToggleMapStyle }: MapStyleSelectorProps)
         </span>
       </AppButton>
 
-      {/* 下拉菜单 - 桌面端向下弹出，移动端向上弹出 */}
       <AppCard
         className={`absolute right-0 w-36 border border-gray-200 py-1 z-50 transition-all duration-150 md:mt-1 md:origin-top-right max-md:bottom-full max-md:mb-1 max-md:origin-bottom-right ${
           isOpen
@@ -196,9 +203,6 @@ function MapStyleSelector({ mapStyle, onToggleMapStyle }: MapStyleSelectorProps)
   );
 }
 
-/**
- * 关于卡片组件
- */
 interface AboutCardProps {
   onClose: () => void;
 }
@@ -251,9 +255,6 @@ export function AboutCard({ onClose }: AboutCardProps) {
   );
 }
 
-/**
- * 图层控制组件（右上角）
- */
 interface LayerControlProps {
   showRailway: boolean;
   showLandmark: boolean;
@@ -266,9 +267,11 @@ interface LayerControlProps {
   onToggleDimBackground: (dim: boolean) => void;
   onToggleMapStyle: (style: MapStyle) => void;
   children?: React.ReactNode;
+  mobile?: boolean;
+  frameless?: boolean;
 }
 
-export function LayerControl({
+function LayerControlButtons({
   showRailway,
   showLandmark,
   showPlayers,
@@ -280,13 +283,12 @@ export function LayerControl({
   onToggleDimBackground,
   onToggleMapStyle,
   children,
-}: LayerControlProps) {
+}: Omit<LayerControlProps, 'mobile' | 'frameless'>) {
   const hasExtra = !!children;
 
   return (
-    <AppCard className="bg-white/90 p-3 flex flex-col gap-2">
+    <>
       <div className="flex flex-wrap items-center gap-1">
-        {/* 铁路图层 */}
         <ToolIconButton
           label="铁路"
           icon={<Train className="w-5 h-5" />}
@@ -294,8 +296,6 @@ export function LayerControl({
           tone="blue"
           onClick={() => onToggleRailway(!showRailway)}
         />
-
-        {/* 地标图层 */}
         <ToolIconButton
           label="地标"
           icon={<Home className="w-5 h-5" />}
@@ -303,8 +303,6 @@ export function LayerControl({
           tone="green"
           onClick={() => onToggleLandmark(!showLandmark)}
         />
-
-        {/* 玩家图层 */}
         <ToolIconButton
           label="玩家"
           icon={<User className="w-5 h-5" />}
@@ -312,20 +310,12 @@ export function LayerControl({
           tone="cyan"
           onClick={() => onTogglePlayers(!showPlayers)}
         />
-
-        {/* 规则图层分组开关已独立为左侧面板（Rules/ButtonRule） */}
       </div>
 
       <div className="h-px bg-gray-200" />
 
       <div className="flex flex-wrap items-center gap-1">
-        {hasExtra && (
-          <div className="flex items-center gap-1">
-            {children}
-          </div>
-        )}
-
-        {/* 淡化背景 */}
+        {hasExtra ? <div className="flex flex-wrap items-center gap-1">{children}</div> : null}
         <ToolIconButton
           label="淡化背景"
           icon={<Moon className="w-5 h-5" />}
@@ -333,10 +323,25 @@ export function LayerControl({
           tone="purple"
           onClick={() => onToggleDimBackground(!dimBackground)}
         />
-
-        {/* 地图风格下拉选择器 */}
         <MapStyleSelector mapStyle={mapStyle} onToggleMapStyle={onToggleMapStyle} />
       </div>
+    </>
+  );
+}
+
+export function LayerControl(props: LayerControlProps) {
+  const { mobile = false, frameless = false } = props;
+  const content = (
+    <div className={`flex flex-col gap-2 ${mobile ? 'w-[196px]' : ''}`}>
+      <LayerControlButtons {...props} />
+    </div>
+  );
+
+  if (frameless) return content;
+
+  return (
+    <AppCard className={`bg-white/90 ${mobile ? 'p-2.5' : 'p-3'} flex flex-col gap-2`}>
+      {content}
     </AppCard>
   );
 }
