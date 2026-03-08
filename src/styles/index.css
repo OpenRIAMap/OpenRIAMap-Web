@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+
+:root {
+  --ria-mobile-safe-top: env(safe-area-inset-top, 0px);
+  --ria-mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 /* Leaflet 样式覆盖 */
 .leaflet-container {
   width: 100%;
@@ -30,6 +36,13 @@ html, body, #root {
 
 /* 手机端坐标显示与底部抽屉联动 */
 @media (max-width: 639px) {
+  .app-root {
+    height: 100vh;
+    min-height: 100vh;
+    height: 100dvh;
+    min-height: 100dvh;
+  }
+
   .coord-display {
     font-size: 10px !important;
     padding: 3px 6px !important;

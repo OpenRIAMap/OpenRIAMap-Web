@@ -58,7 +58,10 @@ export default function MobileBottomSheet({
   const previewMode = hidden || collapsed;
 
   return (
-    <div className="sm:hidden absolute inset-x-2 bottom-2 z-[1002] pointer-events-none">
+    <div
+      className="sm:hidden absolute inset-x-2 z-[1002] pointer-events-none"
+      style={{ bottom: "calc(0.5rem + var(--ria-mobile-safe-bottom))" }}
+    >
       <div
         ref={shellRef}
         className={[

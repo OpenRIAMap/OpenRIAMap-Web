@@ -1063,7 +1063,10 @@ map.on('mousemove', handleMouseMove);
         )}
       </div>
 
-      <div className="sm:hidden absolute top-2 left-2 right-2 z-[1000] flex items-stretch gap-2">
+      <div
+        className="sm:hidden absolute left-2 right-2 z-[1000] flex items-stretch gap-2"
+        style={{ top: "calc(0.5rem + var(--ria-mobile-safe-top))" }}
+      >
         <div className="flex-1 min-w-0">
           <SearchBar
             variant="mobile"

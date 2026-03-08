@@ -3,7 +3,7 @@ import PWAInstallPrompt from './components/PWAInstallPrompt/PWAInstallPrompt'
 
 function App() {
   return (
-    <div className="h-screen w-screen">
+    <div className="app-root h-screen w-screen">
       <MapContainer />
       <PWAInstallPrompt />
     </div>
