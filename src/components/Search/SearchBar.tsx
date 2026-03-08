@@ -480,10 +480,10 @@ export function SearchBar({ stations, landmarks, lines, worldId, onSelect, onLin
 
   const isMobileVariant = variant ? variant === 'mobile' : mobile;
   const shellClassName = isMobileVariant
-    ? 'flex items-center min-h-[62px] rounded-[28px] px-1'
+    ? 'flex items-center min-h-[50px] rounded-[24px] px-1'
     : 'flex items-center min-h-[54px] sm:min-h-0 rounded-2xl';
   const inputClassName = isMobileVariant
-    ? 'flex-1 w-full px-3 py-4 text-[17px] outline-none rounded-r-[28px] bg-transparent'
+    ? 'flex-1 min-w-0 w-full px-3 py-2.5 text-[16px] outline-none rounded-r-[24px] bg-transparent'
     : 'flex-1 w-full sm:w-64 px-3 sm:px-3 py-3 sm:py-2 text-base sm:text-sm outline-none rounded-r-2xl bg-transparent';
 
   const handleSelect = (result: SearchResult) => {
@@ -500,7 +500,7 @@ export function SearchBar({ stations, landmarks, lines, worldId, onSelect, onLin
     <div ref={containerRef} className={`relative ${isMobileVariant ? 'flex items-stretch gap-2' : ''}`}>
       <AppCard className={`${shellClassName} ${isMobileVariant && onAboutClick ? 'flex-1 min-w-0' : ''}`}>
         <span className="pl-4 sm:pl-3 text-gray-400">
-          <SearchIcon className={`${isMobileVariant ? 'w-6 h-6' : 'w-5 h-5'} sm:w-5 sm:h-5`} />
+          <SearchIcon className={`${isMobileVariant ? 'w-5 h-5' : 'w-5 h-5'} sm:w-5 sm:h-5`} />
         </span>
         <input
           ref={inputRef}
@@ -519,10 +519,10 @@ export function SearchBar({ stations, landmarks, lines, worldId, onSelect, onLin
       {isMobileVariant && onAboutClick ? (
         <AppButton
           onClick={onAboutClick}
-          className="h-[62px] w-[62px] rounded-[28px] bg-white/95 text-gray-600 hover:bg-white flex items-center justify-center shadow-[0_12px_30px_rgba(0,0,0,0.12)] border border-gray-200/70 shrink-0"
+          className="h-[50px] w-[50px] rounded-[24px] bg-white/95 text-gray-600 flex items-center justify-center shadow-[0_12px_30px_rgba(0,0,0,0.12)] border border-gray-200/70 shrink-0"
           title="关于"
         >
-          <HelpCircle className="w-6 h-6" />
+          <HelpCircle className="w-5 h-5" />
         </AppButton>
       ) : null}
 

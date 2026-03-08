@@ -80,7 +80,7 @@ export default function MobileQuickDock({
               onClick={() => onToggle(item.key)}
               className={[
                 'relative h-11 w-11 rounded-full shadow-xl border border-white/70 backdrop-blur-sm transition-all flex items-center justify-center',
-                active ? item.activeClassName : 'bg-white/92 text-gray-700 hover:bg-white',
+                active ? item.activeClassName : 'bg-white/92 text-gray-700 border-white/70 backdrop-blur-sm',
               ].join(' ')}
               title={item.label}
             >

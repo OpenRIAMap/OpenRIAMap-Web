@@ -44,7 +44,7 @@ import { useRuleButtonState } from '@/components/Rules/ButtonRule/ruleButtonStat
 import { formatGridNumber, snapWorldPointByMode } from '@/components/Mapping/GridSnapModeSwitch';
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
-import { Globe2, PanelsTopLeft, Layers3, SlidersHorizontal, Plus, Minus, HelpCircle } from 'lucide-react';
+import { Globe2, PanelsTopLeft, Layers3, SlidersHorizontal, Plus, Minus } from 'lucide-react';
 
 // ===== 导航“图上选取”：MapContainer 统一派发地图点击事件 =====
 type MapClickWorldPointEventDetail = {
@@ -1063,32 +1063,21 @@ map.on('mousemove', handleMouseMove);
         )}
       </div>
 
-      <div
-        className="sm:hidden absolute left-2 right-2 z-[1000] flex items-stretch gap-2"
-        style={{ top: "calc(0.5rem + var(--ria-mobile-safe-top))" }}
-      >
-        <div className="flex-1 min-w-0">
-          <SearchBar
-            variant="mobile"
-            mobile
-            stations={stations}
-            landmarks={landmarks}
-            lines={lines}
-            worldId={currentWorld}
-            onSelect={handleSearchSelect}
-            onLineSelect={handleLineSelect}
-          />
-        </div>
-        <AppButton
-          onClick={() => openMobilePanel('about')}
-          className="h-[62px] w-[62px] rounded-[28px] bg-white/95 text-gray-600 hover:bg-white flex items-center justify-center shadow-[0_12px_30px_rgba(0,0,0,0.12)] border border-gray-200/70 shrink-0"
-          title="关于"
-        >
-          <HelpCircle className="w-6 h-6" />
-        </AppButton>
+      <div className="sm:hidden absolute top-2 left-2 right-2 z-[1003]">
+        <SearchBar
+          variant="mobile"
+          mobile
+          stations={stations}
+          landmarks={landmarks}
+          lines={lines}
+          worldId={currentWorld}
+          onSelect={handleSearchSelect}
+          onLineSelect={handleLineSelect}
+          onAboutClick={() => openMobilePanel('about')}
+        />
       </div>
 
-      <div className="sm:hidden absolute right-2 top-1/2 -translate-y-1/2 z-[1001]">
+      <div className="sm:hidden absolute right-2 top-[40%] -translate-y-1/2 z-[1001]">
         <MobileQuickDock
           activeKey={mobileQuickPanel}
           onToggle={(key) => toggleMobileQuickPanel(key as MobileQuickPanelKey)}
@@ -1162,14 +1151,14 @@ map.on('mousemove', handleMouseMove);
             <AppCard className="bg-white/92 p-1 flex flex-col gap-1 shadow-xl w-11 items-center">
               <AppButton
                 onClick={() => leafletMapRef.current?.zoomIn()}
-                className="h-9 w-9 text-gray-700 hover:bg-gray-100"
+                className="h-9 w-9 text-gray-700 active:bg-gray-100"
                 title="放大"
               >
                 <Plus className="w-5 h-5" />
               </AppButton>
               <AppButton
                 onClick={() => leafletMapRef.current?.zoomOut()}
-                className="h-9 w-9 text-gray-700 hover:bg-gray-100"
+                className="h-9 w-9 text-gray-700 active:bg-gray-100"
                 title="缩小"
               >
                 <Minus className="w-5 h-5" />
