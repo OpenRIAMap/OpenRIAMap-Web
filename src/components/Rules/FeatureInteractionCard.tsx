@@ -39,6 +39,7 @@ type Props = {
   infoSectionsOverride?: { mainRows: CardRow[]; otherRows: CardRow[] };
   /** 渲染模式：floating=桌面悬浮，embedded=嵌入容器（移动端底部抽屉） */
   variant?: 'floating' | 'embedded';
+  onOpenJsonPanel?: (payload: { title: string; jsonText: string; filename: string }) => void;
 };
 
 type CardRow = { label: string; value: any };
@@ -130,6 +131,7 @@ export default function FeatureInteractionCard(props: Props) {
     disableFieldRules,
     infoSectionsOverride,
     variant = 'floating',
+    onOpenJsonPanel,
   } = props;
   if (!open) return null;
 
@@ -262,6 +264,24 @@ export default function FeatureInteractionCard(props: Props) {
     }
   };
 
+
+  const featureJsonFilename = useMemo(() => {
+    const id = String(feature?.meta?.idValue ?? 'feature').trim() || 'feature';
+    return `${id}.json`;
+  }, [feature]);
+
+  const handleJsonOpen = () => {
+    if (variant === 'embedded' && onOpenJsonPanel) {
+      onOpenJsonPanel({
+        title: title || '当前要素 JSON',
+        jsonText: featureJsonText,
+        filename: featureJsonFilename,
+      });
+      return;
+    }
+    setJsonOpen(true);
+  };
+
   const cardBody = (
     <AppCard className={cardClassName ?? 'w-[360px]'} onWheel={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-3 py-2 border-b border-black/10">
@@ -271,7 +291,7 @@ export default function FeatureInteractionCard(props: Props) {
           <div className="flex items-center gap-2">
             <AppButton
               className="px-2 py-1 text-xs bg-transparent hover:bg-black/5"
-              onClick={() => setJsonOpen(true)}
+              onClick={handleJsonOpen}
               type="button"
             >
               JSON
@@ -566,8 +586,7 @@ export default function FeatureInteractionCard(props: Props) {
                   type="button"
                   className="px-2 py-1 text-xs border border-gray-300 bg-white hover:bg-gray-50"
                   onClick={() => {
-                    const id = String(feature?.meta?.idValue ?? 'feature').trim() || 'feature';
-                    downloadTextFile(`${id}.json`, featureJsonText);
+                    downloadTextFile(featureJsonFilename, featureJsonText);
                   }}
                 >
                   下载

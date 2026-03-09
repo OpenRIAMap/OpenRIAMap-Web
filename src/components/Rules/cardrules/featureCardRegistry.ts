@@ -14,6 +14,7 @@ export type FeatureCardCommonProps = {
   resolveFeatureById?: ResolveFeatureById;
   onTryTriggerLabelClickById?: (id: string) => void;
   variant?: 'floating' | 'embedded';
+  onOpenJsonPanel?: (payload: { title: string; jsonText: string; filename: string }) => void;
 };
 
 export const FEATURE_CARD_REGISTRY: Record<string, ComponentType<FeatureCardCommonProps>> = {

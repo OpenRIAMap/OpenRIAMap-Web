@@ -16,7 +16,9 @@ interface MobileQuickDockProps {
   onToggle: (key: string) => void;
   renderPanel: (key: string) => ReactNode;
   zoomControls?: ReactNode;
+  bottomSlot?: ReactNode;
   directionMap?: Partial<Record<string, 'down' | 'up'>>;
+  onDockHeightChange?: (height: number) => void;
 }
 
 export default function MobileQuickDock({
@@ -25,7 +27,9 @@ export default function MobileQuickDock({
   onToggle,
   renderPanel,
   zoomControls,
+  bottomSlot,
   directionMap,
+  onDockHeightChange,
 }: MobileQuickDockProps) {
   const dockRef = useRef<HTMLDivElement>(null);
   const buttonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -34,6 +38,23 @@ export default function MobileQuickDock({
     height: 44,
     containerHeight: 0,
   });
+
+  useLayoutEffect(() => {
+    const dockEl = dockRef.current;
+    if (!dockEl) return;
+
+    const report = () => onDockHeightChange?.(dockEl.getBoundingClientRect().height);
+    report();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(report);
+      ro.observe(dockEl);
+      return () => ro.disconnect();
+    }
+
+    window.addEventListener('resize', report);
+    return () => window.removeEventListener('resize', report);
+  }, [items.length, zoomControls, activeKey, onDockHeightChange]);
 
   useLayoutEffect(() => {
     if (!activeKey) return;
@@ -91,6 +112,7 @@ export default function MobileQuickDock({
       </div>
 
       {zoomControls ? <div className="pointer-events-auto w-11">{zoomControls}</div> : null}
+      {bottomSlot ? <div className="pointer-events-auto">{bottomSlot}</div> : null}
     </div>
   );
 }

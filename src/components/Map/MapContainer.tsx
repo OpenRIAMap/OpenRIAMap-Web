@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import MobileBottomSheet from '@/components/Mobile/MobileBottomSheet';
 import MobileQuickDock from '@/components/Mobile/MobileQuickDock';
+import MobileFeatureJsonPanel from '@/components/Mobile/MobileFeatureJsonPanel';
+import MobileFloorPanel from '@/components/Mobile/MobileFloorPanel';
 import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { createDynmapCRS, ZTH_FLAT_CONFIG, DynmapProjection } from '@/lib/DynmapProjection';
@@ -53,7 +55,7 @@ type MapClickWorldPointEventDetail = {
 };
 
 
-type MobilePanelKey = null | 'navigation' | 'attributeQuery' | 'players' | 'about' | 'settings';
+type MobilePanelKey = null | 'navigation' | 'attributeQuery' | 'players' | 'about' | 'settings' | 'featureJson';
 type MobileQuickPanelKey = null | 'worlds' | 'toolbar' | 'ruleButtons' | 'modeTools';
 
 // 世界配置
@@ -93,6 +95,17 @@ function MapContainer() {
   const [mobileSheetOffset, setMobileSheetOffset] = useState(0);
   const [selectedRuleFeature, setSelectedRuleFeature] = useState<FeatureRecord | null>(null);
   const [selectedRuleClassCode, setSelectedRuleClassCode] = useState<string | null>(null);
+
+  const [mobileFeatureJson, setMobileFeatureJson] = useState<{ title: string; jsonText: string; filename: string } | null>(null);
+  const [mobileFloorPanelState, setMobileFloorPanelState] = useState<{
+    visible: boolean;
+    buildingName: string;
+    floorOptions: Array<{ label: string; value: string }>;
+    activeFloorIndex: number;
+  }>({ visible: false, buildingName: '', floorOptions: [], activeFloorIndex: 0 });
+  const [mobileFloorCollapsed, setMobileFloorCollapsed] = useState(false);
+  const [mobileQuickDockHeight, setMobileQuickDockHeight] = useState(0);
+  const suppressRuleFeatureCardOpenRef = useRef(false);
   const [stations, setStations] = useState<ParsedStation[]>([]);
   const [lines, setLines] = useState<ParsedLine[]>([]);
   const [landmarks, setLandmarks] = useState<ParsedLandmark[]>([]);
@@ -190,6 +203,7 @@ const [panelZIndexes, setPanelZIndexes] = useState<Record<string, number>>({
   const ruleTriggerLabelClickRef = useRef<any>(undefined);
 
   const closeMobileSheet = useCallback(() => {
+    suppressRuleFeatureCardOpenRef.current = false;
     setMobileActivePanel(null);
     setMobileSheetCollapsed(false);
     setMobileSheetHidden(false);
@@ -198,10 +212,12 @@ const [panelZIndexes, setPanelZIndexes] = useState<Record<string, number>>({
     setSelectedPlayer(null);
     setSelectedRuleFeature(null);
     setSelectedRuleClassCode(null);
+    setMobileFeatureJson(null);
     window.dispatchEvent(new CustomEvent('ria:ruleFeatureCardClose'));
   }, []);
 
   const openMobilePanel = useCallback((panel: MobilePanelKey) => {
+    suppressRuleFeatureCardOpenRef.current = false;
     setMobileQuickPanel(null);
     setMobileSheetHidden(false);
     setMobileSheetCollapsed(false);
@@ -210,6 +226,7 @@ const [panelZIndexes, setPanelZIndexes] = useState<Record<string, number>>({
     setSelectedPlayer(null);
     setSelectedRuleFeature(null);
     setSelectedRuleClassCode(null);
+    setMobileFeatureJson(null);
     window.dispatchEvent(new CustomEvent('ria:ruleFeatureCardClose'));
     setMobileActivePanel((prev) => (prev === panel ? null : panel));
   }, []);
@@ -236,6 +253,16 @@ const [panelZIndexes, setPanelZIndexes] = useState<Record<string, number>>({
       const nextFeature = detail.open ? (detail.feature ?? null) : null;
       ruleResolveFeatureByIdRef.current = detail.resolveFeatureById;
       ruleTriggerLabelClickRef.current = detail.onTryTriggerLabelClickById;
+
+      if (suppressRuleFeatureCardOpenRef.current) {
+        if (!detail.open) {
+          suppressRuleFeatureCardOpenRef.current = false;
+          setSelectedRuleFeature(null);
+          setSelectedRuleClassCode(null);
+        }
+        return;
+      }
+
       setSelectedRuleClassCode(detail.classCode ? String(detail.classCode) : null);
       setSelectedRuleFeature((prev) => {
         const changed = !sameFeature(prev, nextFeature);
@@ -243,6 +270,7 @@ const [panelZIndexes, setPanelZIndexes] = useState<Record<string, number>>({
           setMobileQuickPanel(null);
           setMobileSheetHidden(false);
           setMobileSheetCollapsed(false);
+          if (mobileActivePanel !== 'featureJson') setMobileActivePanel(null);
         }
         return nextFeature;
       });
@@ -250,6 +278,26 @@ const [panelZIndexes, setPanelZIndexes] = useState<Record<string, number>>({
 
     window.addEventListener('ria:ruleFeatureCardState', handler as any);
     return () => window.removeEventListener('ria:ruleFeatureCardState', handler as any);
+  }, [mobileActivePanel]);
+
+
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent<any>).detail ?? {};
+      setMobileFloorPanelState({
+        visible: Boolean(detail.visible),
+        buildingName: String(detail.buildingName ?? ''),
+        floorOptions: Array.isArray(detail.floorOptions) ? detail.floorOptions : [],
+        activeFloorIndex: Number.isInteger(detail.activeFloorIndex) ? detail.activeFloorIndex : 0,
+      });
+    };
+
+    window.addEventListener('ria:mobileFloorPanelState', handler as EventListener);
+    return () => window.removeEventListener('ria:mobileFloorPanelState', handler as EventListener);
+  }, []);
+
+  const handleMobileFloorSelect = useCallback((index: number) => {
+    window.dispatchEvent(new CustomEvent('ria:mobileFloorSelect', { detail: { index } }));
   }, []);
 
   // 置顶面板
@@ -840,7 +888,9 @@ map.on('mousemove', handleMouseMove);
                   ? '关于'
                   : mobileActivePanel === 'settings'
                     ? '设置'
-                    : '';
+                    : mobileActivePanel === 'featureJson'
+                      ? 'JSON 详情'
+                      : '';
 
   const shouldShowMobileSheet = Boolean(highlightedLine || selectedPoint || selectedPlayer || selectedRuleFeature || mobileActivePanel);
 
@@ -895,6 +945,16 @@ map.on('mousemove', handleMouseMove);
       );
     }
 
+    if (mobileActivePanel === 'featureJson') {
+      return mobileFeatureJson ? (
+        <MobileFeatureJsonPanel
+          title={mobileFeatureJson.title}
+          jsonText={mobileFeatureJson.jsonText}
+          filename={mobileFeatureJson.filename}
+        />
+      ) : null;
+    }
+
     if (selectedRuleFeature) {
       const Card = resolveFeatureCardComponent(selectedRuleClassCode);
       return (
@@ -905,6 +965,16 @@ map.on('mousemove', handleMouseMove);
           resolveFeatureById={ruleResolveFeatureByIdRef.current}
           onTryTriggerLabelClickById={ruleTriggerLabelClickRef.current}
           variant="embedded"
+          onOpenJsonPanel={(payload) => {
+            suppressRuleFeatureCardOpenRef.current = true;
+            setMobileFeatureJson(payload);
+            setMobileActivePanel('featureJson');
+            setMobileSheetHidden(false);
+            setMobileSheetCollapsed(false);
+            setSelectedRuleFeature(null);
+            setSelectedRuleClassCode(null);
+            window.dispatchEvent(new CustomEvent('ria:ruleFeatureCardClose'));
+          }}
         />
       );
     }
@@ -1147,6 +1217,7 @@ map.on('mousemove', handleMouseMove);
               />
             );
           }}
+          onDockHeightChange={setMobileQuickDockHeight}
           zoomControls={(
             <AppCard className="bg-white/92 p-1 flex flex-col gap-1 shadow-xl w-11 items-center">
               <AppButton
@@ -1166,6 +1237,23 @@ map.on('mousemove', handleMouseMove);
             </AppCard>
           )}
         />
+      </div>
+
+      <div
+        className="sm:hidden absolute right-2 top-[40%] -translate-y-1/2 z-[1001] pointer-events-none"
+        style={{ marginTop: `${mobileQuickDockHeight + 8}px` }}
+      >
+        <div className="pointer-events-auto">
+          <MobileFloorPanel
+            visible={Boolean(mobileFloorPanelState.visible && mobileFloorPanelState.floorOptions.length > 0)}
+            collapsed={mobileFloorCollapsed}
+            buildingName={mobileFloorPanelState.buildingName}
+            floorOptions={mobileFloorPanelState.floorOptions}
+            activeFloorIndex={mobileFloorPanelState.activeFloorIndex}
+            onSelectFloor={handleMobileFloorSelect}
+            onToggleCollapsed={() => setMobileFloorCollapsed((prev) => !prev)}
+          />
+        </div>
       </div>
 
       {/* 桌面端：可拖拽浮动面板 */}

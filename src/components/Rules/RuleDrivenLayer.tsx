@@ -904,6 +904,8 @@ useEffect(() => {
 
 
 
+  const mobileFloorVisible = ctx.inFloorView && !!activeBuildingUid && floorOptions.length > 0 && visible;
+
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('ria:ruleFeatureCardState', {
       detail: {
@@ -915,6 +917,33 @@ useEffect(() => {
       },
     }));
   }, [featureCardOpen, selectedFeature, resolveFeatureById, onTryTriggerLabelClickById]);
+
+
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ index?: number }>).detail ?? {};
+      const idx = Number(detail.index);
+      if (!Number.isInteger(idx)) return;
+      if (idx < 0 || idx >= floorOptions.length) return;
+      setActiveFloorIndex(idx);
+    };
+
+    window.addEventListener('ria:mobileFloorSelect', handler as EventListener);
+    return () => window.removeEventListener('ria:mobileFloorSelect', handler as EventListener);
+  }, [floorOptions.length]);
+
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent('ria:mobileFloorPanelState', {
+        detail: {
+          visible: mobileFloorVisible,
+          buildingName: activeBuildingName,
+          floorOptions,
+          activeFloorIndex,
+        },
+      }),
+    );
+  }, [mobileFloorVisible, activeBuildingName, floorOptions, activeFloorIndex]);
 
   // (3.5) 初始化自定义 panes：用于稳定控制遮挡顺序（避免“读入顺序导致覆盖”）
   useEffect(() => {
@@ -1442,45 +1471,44 @@ declutterLabelMeta.set(req.id, { styleKey, plan: (clickPlan && (clickPlan as any
   }, [mapReady, visible, map, projection, worldId, activeBuildingUid, activeBuildingFloorRefSet, floorOptions, activeFloorIndex, dataVersion]);
 
 
-  const showFloorUI = ctx.inFloorView && !!activeBuildingUid && floorOptions.length > 0 && visible;
+  const showFloorUI = mobileFloorVisible;
 
 
   return (
     <>
       {showFloorUI && (
-        <AppCard
-          style={{ position: 'fixed', top: 80, right: 16, zIndex: 2147483647, pointerEvents: 'auto' }}
-          className="bg-white/90 border border-gray-200 p-2 w-28"
-          onMouseDown={(e) => e.stopPropagation()}
-          onDoubleClick={(e) => e.stopPropagation()}
-          onWheel={(e) => e.stopPropagation()}
-        >
+        <div className="hidden sm:block">
+          <AppCard
+            style={{ position: 'fixed', top: 80, right: 16, zIndex: 2147483647, pointerEvents: 'auto' }}
+            className="bg-white/90 border border-gray-200 p-2 w-28"
+            onMouseDown={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+            onWheel={(e) => e.stopPropagation()}
+          >
+            <div className="text-xs font-semibold text-gray-800 mb-1">楼层视角</div>
+            <div className="text-[11px] text-gray-600 mb-2 truncate" title={activeBuildingName}>
+              {activeBuildingName || '（未命名建筑）'}
+            </div>
 
-
-          <div className="text-xs font-semibold text-gray-800 mb-1">楼层视角</div>
-          <div className="text-[11px] text-gray-600 mb-2 truncate" title={activeBuildingName}>
-            {activeBuildingName || '（未命名建筑）'}
-          </div>
-
-          {/* 楼层按钮列表（“滑条”简化为可维护的按钮列表；如需真正 range slider，你可在此替换） */}
-          <div className="flex flex-col gap-1 max-h-[60vh] overflow-auto">
-            {floorOptions.map((opt, idx) => {
-              const on = idx === activeFloorIndex;
-              return (
-                <AppButton
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setActiveFloorIndex(idx)}
-                  className={`w-full text-left px-2 py-1 rounded text-xs border transition-colors ${
-                    on ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
-                  }`}
-                >
-                  {opt.label}
-                </AppButton>
-              );
-            })}
-          </div>
-        </AppCard>
+            <div className="flex flex-col gap-1 max-h-[60vh] overflow-auto">
+              {floorOptions.map((opt, idx) => {
+                const on = idx === activeFloorIndex;
+                return (
+                  <AppButton
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setActiveFloorIndex(idx)}
+                    className={`w-full text-left px-2 py-1 rounded text-xs border transition-colors ${
+                      on ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    {opt.label}
+                  </AppButton>
+                );
+              })}
+            </div>
+          </AppCard>
+        </div>
       )}
       <div className="hidden sm:block">
         {(() => {
