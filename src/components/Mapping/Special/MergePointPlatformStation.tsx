@@ -3,7 +3,7 @@ import {
   FORMAT_REGISTRY,
   type FieldDef,
   type GroupDef,
-} from '@/components/Mapping/featureFormats';
+} from '@/components/Common/featureFormats';
 import AppButton from '@/components/ui/AppButton';
 
 export type DraftBundle = {

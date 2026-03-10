@@ -5,7 +5,7 @@
 
 import { X, User, Heart, Shield, Train, Home } from 'lucide-react';
 import type { Player, ParsedStation } from '@/types';
-import type { ParsedLandmark } from '@/lib/landmarkParser';
+import type { ParsedLandmark } from '@/components/Legacy/data/landmarkParser';
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
 

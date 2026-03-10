@@ -1,8 +1,8 @@
 import { useMemo, useRef, type WheelEvent } from 'react';
 
-import type { FeatureRecord } from '../renderRules';
+import type { FeatureRecord } from '@/components/Rules/rendering/renderRules';
 // 仅作为 TRP 专用展示模块，不依赖 FIELD_RULES。
-import { WORKFLOW_FEATURE_CATALOG } from '@/components/Mapping/featureFormats';
+import { WORKFLOW_FEATURE_CATALOG } from '@/components/Common/featureFormats';
 
 type Props = {
   feature: FeatureRecord;

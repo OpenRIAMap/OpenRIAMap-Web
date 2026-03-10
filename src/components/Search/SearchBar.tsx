@@ -6,12 +6,12 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { HelpCircle, Search as SearchIcon } from 'lucide-react';
 import type { ParsedStation, ParsedLine } from '@/types';
-import type { ParsedLandmark } from '@/lib/landmarkParser';
+import type { ParsedLandmark } from '@/components/Legacy/data/landmarkParser';
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
-import type { FeatureRecord } from '@/components/Rules/renderRules';
-import { pickIdFieldValue } from '@/components/Rules/renderRules';
-import { getRuleSearchPool } from '@/components/Rules/ruleSearchRegistry';
+import type { FeatureRecord } from '@/components/Rules/rendering/renderRules';
+import { pickIdFieldValue } from '@/components/Rules/rendering/renderRules';
+import { getRuleSearchPool } from '@/components/Rules/search/ruleSearchRegistry';
 import { loadRailNewIndex, passLineBooleanFilters, type RailNewIndex } from '@/components/Navigation/railNewIndex';
 import {
   isRuleBlacklisted,

@@ -1,5 +1,5 @@
 import type { FeatureCardCommonProps } from './featureCardRegistry';
-import FeatureInteractionCard from '../FeatureInteractionCard';
+import FeatureInteractionCard from '@/components/Rules/core/FeatureInteractionCard';
 import TRPTradeSection from './TRPTradeSection';
 import { buildInfoSectionsForFeature } from './fieldRules';
 

@@ -34,7 +34,7 @@
  */
 
 import type { Coordinate } from '@/types';
-import { RULE_DATA_SOURCES, type WorldRuleDataSource } from '@/components/Rules/ruleDataSources';
+import { RULE_DATA_SOURCES, type WorldRuleDataSource } from '@/components/Rules/data/ruleDataSources';
 
 // ------------------------------
 // 公共输出类型：供 NavigationPanel / RouteHighlightLayer 使用

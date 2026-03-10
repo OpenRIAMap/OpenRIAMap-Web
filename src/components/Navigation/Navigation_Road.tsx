@@ -17,7 +17,7 @@
 
 import type { Coordinate } from '@/types';
 import type { RouteHighlightData, RouteStyledSegment, RouteStationMarker } from '@/components/Map/RouteHighlightLayer';
-import { RULE_DATA_SOURCES, type WorldRuleDataSource } from '@/components/Rules/ruleDataSources';
+import { RULE_DATA_SOURCES, type WorldRuleDataSource } from '@/components/Rules/data/ruleDataSources';
 
 // ------------------------------
 // types

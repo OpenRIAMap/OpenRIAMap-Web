@@ -1,4 +1,4 @@
-import type { FeatureRecord } from '../renderRules';
+import type { FeatureRecord } from '@/components/Rules/rendering/renderRules';
 import { RULE_BUTTON_DEFS, type RuleButtonCriteria } from './buttonRuleConfig';
 
 function normalize(v: any): string {

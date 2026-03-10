@@ -1,9 +1,9 @@
 import type { ComponentType } from 'react';
 
-import FeatureInteractionCard from '../FeatureInteractionCard';
+import FeatureInteractionCard from '@/components/Rules/core/FeatureInteractionCard';
 import TRPFeatureInteractionCard from './TRPFeatureInteractionCard';
 
-import type { FeatureRecord } from '../renderRules';
+import type { FeatureRecord } from '@/components/Rules/rendering/renderRules';
 import type { ResolveFeatureById } from './cardInteractions';
 
 export type FeatureCardCommonProps = {

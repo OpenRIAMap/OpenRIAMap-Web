@@ -1,5 +1,5 @@
-import type { FeatureRecord } from '../renderRules';
-import { getValueByPath } from '../renderRules';
+import type { FeatureRecord } from '@/components/Rules/rendering/renderRules';
+import { getValueByPath } from '@/components/Rules/rendering/renderRules';
 import { extractKindTriplet } from './pictureRules';
 // 使用相对路径，避免不同构建环境下 @ 别名解析差异导致 TS2307。
 import { passLineBooleanFilters, type RailNewIndex } from '../../Navigation/railNewIndex';

@@ -1,4 +1,4 @@
-import type { FeatureRecord } from '../renderRules';
+import type { FeatureRecord } from '@/components/Rules/rendering/renderRules';
 
 /** 外部网页超链接（新标签打开） */
 export type CardExternalLinkValue = {

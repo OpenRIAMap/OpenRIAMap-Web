@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkflowBridge } from './WorkflowHost';
-import { RULE_DATA_SOURCES } from '@/components/Rules/ruleDataSources';
+import { RULE_DATA_SOURCES } from '@/components/Rules/data/ruleDataSources';
 
 type FeatureInfoAny = Record<string, any>;
 

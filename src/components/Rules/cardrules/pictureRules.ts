@@ -7,7 +7,7 @@
  * - 若无任何匹配或未找到图片：回退到 public/pictures/normal.png。
  */
 
-import type { FeatureRecord } from '../renderRules';
+import type { FeatureRecord } from '@/components/Rules/rendering/renderRules';
 
 export type PictureDirRule = {
   /** 规则名（便于维护） */

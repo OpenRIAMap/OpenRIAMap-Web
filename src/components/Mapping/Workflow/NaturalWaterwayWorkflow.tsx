@@ -7,7 +7,7 @@ import {
   EXT_VALUE_TYPE_TEXT,
   type ExtValueType,
   listCatalogSKind2Options,
-} from '@/components/Mapping/featureFormats';
+} from '@/components/Common/featureFormats';
 
 /**
  * NaturalWaterwayWorkflow（工作流：自然要素-河道）

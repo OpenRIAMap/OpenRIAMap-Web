@@ -31,7 +31,7 @@ import {
   Route,
 } from 'lucide-react';
 import type { ParsedStation, ParsedLine, Coordinate, Player, TravelMode } from '@/types';
-import type { ParsedLandmark } from '@/lib/landmarkParser';
+import type { ParsedLandmark } from '@/components/Legacy/data/landmarkParser';
 import {
   buildRailwayGraph,
   simplifyPath,
@@ -43,8 +43,8 @@ import {
   calculateWalkTime,
   calculateRailTime,
   MultiModePathResult,
-} from '@/lib/pathfinding';
-import { findTeleportPath, extractToriiList } from '@/lib/toriiTeleport';
+} from '@/components/Legacy/data/pathfinding';
+import { findTeleportPath, extractToriiList } from '@/components/Legacy/data/toriiTeleport';
 
 
 import { computeRailPlanFromCoords, type NavRailNewIntegratedPlan, type TransferType } from './Navigation_RailNewIntegrated';
@@ -56,9 +56,9 @@ import type { RouteHighlightData, RouteStyledSegment, RouteStationMarker } from 
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
 
-import { getRuleSearchPool } from '@/components/Rules/ruleSearchRegistry';
-import type { FeatureRecord } from '@/components/Rules/renderRules';
-import { formatGridNumber, snapWorldPointByMode } from '@/components/Mapping/GridSnapModeSwitch';
+import { getRuleSearchPool } from '@/components/Rules/search/ruleSearchRegistry';
+import type { FeatureRecord } from '@/components/Rules/rendering/renderRules';
+import { formatGridNumber, snapWorldPointByMode } from '@/components/Mapping/tools/GridSnapModeSwitch';
 import {
   isRuleBlacklisted,
   getRulePriorityIndex,

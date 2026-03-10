@@ -7,7 +7,7 @@ import {
   EXT_VALUE_TYPE_TEXT,
   type ExtValueType,
   listCatalogKindOptions,
-} from '@/components/Mapping/featureFormats';
+} from '@/components/Common/featureFormats';
 import WorkflowFeatureSearchSelect, { type SearchSelectConfig } from './WorkflowFeatureSearchSelect';
 
 /**

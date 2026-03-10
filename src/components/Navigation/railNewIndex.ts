@@ -9,7 +9,7 @@
  * 覆盖对象：STA / STB / PLF / RLE（同时兼容 SBP 作为 building 参与 station 关系）。
  */
 
-import { RULE_DATA_SOURCES, type WorldRuleDataSource } from '../Rules/ruleDataSources';
+import { RULE_DATA_SOURCES, type WorldRuleDataSource } from '../Rules/data/ruleDataSources';
 
 // ===== Lines[] 布尔字段过滤开关（true: 字段为 false 则视为“不包含”；false: 忽略该字段） =====
 // 说明：此开关用于信息卡/导航等“包含线路”聚合逻辑的过滤策略。

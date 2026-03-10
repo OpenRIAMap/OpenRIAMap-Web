@@ -4,8 +4,8 @@ import { X, Filter, Search, Plus, Trash2 } from 'lucide-react';
 import AppCard from '@/components/ui/AppCard';
 import AppButton from '@/components/ui/AppButton';
 
-import { getRuleSearchPool } from '@/components/Rules/ruleSearchRegistry';
-import { getValueByPath, pickIdFieldValue, type FeatureRecord } from '@/components/Rules/renderRules';
+import { getRuleSearchPool } from '@/components/Rules/search/ruleSearchRegistry';
+import { getValueByPath, pickIdFieldValue, type FeatureRecord } from '@/components/Rules/rendering/renderRules';
 import type { SearchResult } from '@/components/Search/SearchBar';
 
 type Op = '=' | '!=' | '>' | '>=' | '<' | '<=';

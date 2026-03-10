@@ -5,10 +5,10 @@
 
 import { create } from 'zustand';
 import type { ParsedLine, ParsedStation, BureausConfig } from '@/types';
-import { fetchRailwayData, parseRailwayData, getAllStations, fetchBureausConfig } from '@/lib/railwayParser';
-import { fetchRMPData, parseRMPData } from '@/lib/rmpParser';
-import { fetchLandmarkData, parseLandmarkData } from '@/lib/landmarkParser';
-import type { ParsedLandmark } from '@/lib/landmarkParser';
+import { fetchRailwayData, parseRailwayData, getAllStations, fetchBureausConfig } from '@/components/Legacy/data/railwayParser';
+import { fetchRMPData, parseRMPData } from '@/components/Legacy/data/rmpParser';
+import { fetchLandmarkData, parseLandmarkData } from '@/components/Legacy/data/landmarkParser';
+import type { ParsedLandmark } from '@/components/Legacy/data/landmarkParser';
 
 // 缓存有效期：7 天
 const CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;

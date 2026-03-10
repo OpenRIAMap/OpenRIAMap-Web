@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, type ComponentType } from 'react';
 import * as L from 'leaflet';
 
-import type { FeatureKey, DrawMode } from '@/components/Mapping/featureFormats';
+import type { FeatureKey, DrawMode } from '@/components/Common/featureFormats';
 import AppButton from '@/components/ui/AppButton';
 
 /** 与 MeasuringModule 内部一致的世界坐标点 */
