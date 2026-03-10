@@ -20,7 +20,7 @@ import {
   type DrawMode,
 } from '@/components/Common/featureFormats';
 
-import TRPTradeEditor, { type TradeGroup as TRPTradeGroup } from '@/components/Mapping/special-input/TRPTradeEditor';
+import TRPTradeEditor, { type TradeGroup as TRPTradeGroup } from '@/components/Mapping/SpecialInput/TRPTradeEditor';
 
 
 import type { DynmapProjection } from '@/lib/DynmapProjection';
@@ -49,13 +49,13 @@ import CurveInputT, { type CurveInputTHandle } from '@/components/Mapping/tools/
 
 import MergePointPlatformStation, {
   type MergePointPlatformStationDraft,
-} from '@/components/Mapping/special/MergePointPlatformStation';
+} from '@/components/Mapping/Special/MergePointPlatformStation';
 
 import MergePolygonOutlineBuilding, {
   type MergePolygonOutlineBuildingDraft,
-} from '@/components/Mapping/special/MergePolygonOutlineBuilding';
+} from '@/components/Mapping/Special/MergePolygonOutlineBuilding';
 
-import RailwayDirectionReverseButton from '@/components/Mapping/special/RailwayDirectionReverseButton';
+import RailwayDirectionReverseButton from '@/components/Mapping/Special/RailwayDirectionReverseButton';
 
 import WorkflowHost, {
   type WorkflowBridge,
@@ -65,24 +65,24 @@ import WorkflowHost, {
   type WorkflowPreviewStyle,
   type WorkflowRegistry,
   type WorldPoint,
-} from '@/components/Mapping/workflow/WorkflowHost';
-import RailwayWorkflow from '@/components/Mapping/workflow/RailwayWorkflow';
-import StationWorkflow from '@/components/Mapping/workflow/StationWorkflow';
-import NaturalLandWorkflow from '@/components/Mapping/workflow/NaturalLandWorkflow';
-import NaturalLandSurfaceWorkflow from '@/components/Mapping/workflow/NaturalLandSurfaceWorkflow';
-import RoadWorkflow from '@/components/Mapping/workflow/RoadWorkflow';
-import NaturalWaterbodyWorkflow from '@/components/Mapping/workflow/NaturalWaterbodyWorkflow';
-import NaturalWaterwayWorkflow from '@/components/Mapping/workflow/NaturalWaterwayWorkflow';
-import NaturalBoundaryWorkflow from '@/components/Mapping/workflow/NaturalBoundaryWorkflow';
-import SettlementBoundaryDeterminedWorkflow from '@/components/Mapping/workflow/SettlementBoundaryDeterminedWorkflow';
-import SettlementBoundaryPlannedWorkflow from '@/components/Mapping/workflow/SettlementBoundaryPlannedWorkflow';
-import SettlementBoundaryLineWorkflow from '@/components/Mapping/workflow/SettlementBoundaryLineWorkflow';
-import SpecialCulturalPointWorkflow from '@/components/Mapping/workflow/SpecialCulturalPointWorkflow';
-import BuildingWorkflow from '@/components/Mapping/workflow/BuildingWorkflow';
-import FloorUnitWorkflow from '@/components/Mapping/workflow/FloorUnitWorkflow';
-import TeleportPointWorkflow from '@/components/Mapping/workflow/TeleportPointWorkflow';
-import WarpPointWorkflow from '@/components/Mapping/workflow/WarpPointWorkflow';
-import TradePointWorkflow from '@/components/Mapping/workflow/TradePointWorkflow';
+} from '@/components/Mapping/Workflow/WorkflowHost';
+import RailwayWorkflow from '@/components/Mapping/Workflow/RailwayWorkflow';
+import StationWorkflow from '@/components/Mapping/Workflow/StationWorkflow';
+import NaturalLandWorkflow from '@/components/Mapping/Workflow/NaturalLandWorkflow';
+import NaturalLandSurfaceWorkflow from '@/components/Mapping/Workflow/NaturalLandSurfaceWorkflow';
+import RoadWorkflow from '@/components/Mapping/Workflow/RoadWorkflow';
+import NaturalWaterbodyWorkflow from '@/components/Mapping/Workflow/NaturalWaterbodyWorkflow';
+import NaturalWaterwayWorkflow from '@/components/Mapping/Workflow/NaturalWaterwayWorkflow';
+import NaturalBoundaryWorkflow from '@/components/Mapping/Workflow/NaturalBoundaryWorkflow';
+import SettlementBoundaryDeterminedWorkflow from '@/components/Mapping/Workflow/SettlementBoundaryDeterminedWorkflow';
+import SettlementBoundaryPlannedWorkflow from '@/components/Mapping/Workflow/SettlementBoundaryPlannedWorkflow';
+import SettlementBoundaryLineWorkflow from '@/components/Mapping/Workflow/SettlementBoundaryLineWorkflow';
+import SpecialCulturalPointWorkflow from '@/components/Mapping/Workflow/SpecialCulturalPointWorkflow';
+import BuildingWorkflow from '@/components/Mapping/Workflow/BuildingWorkflow';
+import FloorUnitWorkflow from '@/components/Mapping/Workflow/FloorUnitWorkflow';
+import TeleportPointWorkflow from '@/components/Mapping/Workflow/TeleportPointWorkflow';
+import WarpPointWorkflow from '@/components/Mapping/Workflow/WarpPointWorkflow';
+import TradePointWorkflow from '@/components/Mapping/Workflow/TradePointWorkflow';
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
 

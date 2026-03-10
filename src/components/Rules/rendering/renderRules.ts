@@ -14,7 +14,7 @@ export {
   getRleExclusiveChoice,
   getStaPlfPointIndex,
   getStationPointColorFromPlatforms,
-} from "../utils/ruleHelpers";
+} from '../utils/ruleHelpers';
 // ------------------------------
 // 基础类型
 // ------------------------------
