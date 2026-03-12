@@ -590,7 +590,7 @@ async function defaultFetcher(url: string): Promise<any[]> {
 function normalizeWorldId(worldId: string): string {
   const wid = String(worldId ?? '').trim();
 
-  // 1) 已经是内部 key（zth/eden/naraku/houtu）直接返回
+  // 1) 已经是内部 key（zth/eden/naraku/houtu/laputa）直接返回
   if (wid && (RULE_DATA_SOURCES as any)[wid]) return wid;
 
   // 2) 兼容数字世界：0..5（你 JSON 规范里 World 是 integer）
@@ -600,7 +600,7 @@ function normalizeWorldId(worldId: string): string {
     if (n === 1) return 'naraku';
     if (n === 2) return 'houtu';
     if (n === 3) return 'eden';
-    // 4/5 你后续可补：laputa / yunduan 等
+    if (n === 4) return 'laputa';
     return wid;
   }
 
@@ -610,6 +610,7 @@ function normalizeWorldId(worldId: string): string {
     奈落: 'naraku',
     后土: 'houtu',
     伊甸: 'eden',
+    拉普塔: 'laputa',
   };
   return map[wid] ?? wid;
 }

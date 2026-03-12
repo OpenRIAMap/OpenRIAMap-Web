@@ -11,6 +11,7 @@ const WORLD_MAP: Record<string, string> = {
   eden: '_eden',
   naraku: '_naraku',
   houtu: '_houtu',
+  laputa: '_laputa',
 };
 
 interface DynmapUpdateResponse {

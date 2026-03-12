@@ -238,8 +238,10 @@ export const ZTH_FLAT_CONFIG: DynmapProjectionOptions = {
 // 世界中心点配置（仅用于初始视图，不影响瓦片坐标）
 export const WORLD_CENTERS = {
   zth: { x: -643, y: 35, z: -1562 },
+  eden: { x: 0, y: 64, z: 0 },
   naraku: { x: 0, y: 64, z: 0 },
-  houtu: { x: 0, y: 64, z: 0 }
+  houtu: { x: 0, y: 64, z: 0 },
+  laputa: { x: 272, y: 64, z: 104 }
 };
 
 /**

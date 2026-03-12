@@ -28,7 +28,7 @@ const RMP_DATA_FILES: Record<string, string> = {
 };
 
 // 世界列表
-const WORLDS = ['zth', 'houtu', 'naraku', 'eden'];
+const WORLDS = ['zth', 'houtu', 'naraku', 'eden', 'laputa'];
 
 export interface WorldData {
   lines: ParsedLine[];

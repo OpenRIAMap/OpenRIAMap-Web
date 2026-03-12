@@ -39,6 +39,7 @@ export const HUB_RETURN_POINTS: Record<string, HubReturnPoint[]> = {
   eden: [],
   naraku: [],
   houtu: [],
+  laputa: [],
 };
 
 export function listHubReturnPoints(worldId: string): HubReturnPoint[] {

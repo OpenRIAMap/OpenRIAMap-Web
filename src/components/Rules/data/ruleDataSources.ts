@@ -76,4 +76,5 @@ export const RULE_DATA_SOURCES: Record<string, WorldRuleDataSource> = {
   eden: { baseUrl: '/data/Mapping/eden', files: [] },
   naraku: { baseUrl: '/data/Mapping/naraku', files: [] },
   houtu: { baseUrl: '/data/Mapping/houtu', files: [] },
+  laputa: { baseUrl: '/data/Mapping/laputa', files: [] },
 };

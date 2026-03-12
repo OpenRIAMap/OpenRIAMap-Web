@@ -137,6 +137,8 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
       { name: 'naraku-landmark', label: '奈落洲地标数据' },
       { name: 'eden-railway', label: '伊甸铁路数据' },
       { name: 'eden-landmark', label: '伊甸地标数据' },
+      { name: 'laputa-railway', label: '拉普塔铁路数据' },
+      { name: 'laputa-landmark', label: '拉普塔地标数据' },
     ]);
 
     await forceRefresh((stage, status) => {

@@ -16,6 +16,7 @@ const WORLD_CENTERS: Record<string, Coordinate> = {
   eden: { x: 0, y: 64, z: 0 },
   naraku: { x: 0, y: 64, z: 0 },
   houtu: { x: 0, y: 64, z: 0 },
+  laputa: { x: 272, y: 64, z: 104 },
 };
 
 /**

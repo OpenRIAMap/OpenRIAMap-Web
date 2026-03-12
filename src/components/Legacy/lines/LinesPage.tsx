@@ -25,7 +25,8 @@ interface RMPData {
 const WORLDS = [
   { id: 'zth', name: '零洲' },
   { id: 'naraku', name: '奈落洲' },
-  { id: 'houtu', name: '后土洲' }
+  { id: 'houtu', name: '后土洲' },
+  { id: 'laputa', name: '拉普塔' }
 ];
 
 interface LinesPageProps {

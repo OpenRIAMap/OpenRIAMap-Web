@@ -179,13 +179,14 @@ function normalizeWorldId(worldId: string): string {
 
   if ((RULE_DATA_SOURCES as any)[wid]) return wid;
 
-  // 兼容数字世界：0..3（与 Navigation_RailNewIntegrated.tsx 一致）
+  // 兼容数字世界：0..4（与 Navigation_RailNewIntegrated.tsx 一致）
   if (/^\d+$/.test(wid)) {
     const n = parseInt(wid, 10);
     if (n === 0) return 'zth';
     if (n === 1) return 'naraku';
     if (n === 2) return 'houtu';
     if (n === 3) return 'eden';
+    if (n === 4) return 'laputa';
     return wid;
   }
 
@@ -194,6 +195,7 @@ function normalizeWorldId(worldId: string): string {
     奈落: 'naraku',
     后土: 'houtu',
     伊甸: 'eden',
+    拉普塔: 'laputa',
   };
   return map[wid] ?? wid;
 }

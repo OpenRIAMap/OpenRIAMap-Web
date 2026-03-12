@@ -63,7 +63,8 @@ const WORLDS = [
   { id: 'zth', name: '零洲', center: { x: -643, y: 35, z: -1562 } },
   { id: 'eden', name: '伊甸', center: { x: 0, y: 64, z: 0 } },
   { id: 'naraku', name: '奈落洲', center: { x: 0, y: 64, z: 0 } },
-  { id: 'houtu', name: '后土洲', center: { x: 0, y: 64, z: 0 } }
+  { id: 'houtu', name: '后土洲', center: { x: 0, y: 64, z: 0 } },
+  { id: 'laputa', name: '拉普塔', center: { x: 272, y: 64, z: 104 } }
 ];
 
 function MapContainer() {
@@ -394,6 +395,8 @@ if (mapStyle === 'sketch') {
       { name: 'naraku-landmark', label: '奈落洲地标数据' },
       { name: 'eden-railway', label: '伊甸铁路数据' },
       { name: 'eden-landmark', label: '伊甸地标数据' },
+      { name: 'laputa-railway', label: '拉普塔铁路数据' },
+      { name: 'laputa-landmark', label: '拉普塔地标数据' },
     ]);
 
     loadAllData((stage, status) => {
