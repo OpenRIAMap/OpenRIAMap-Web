@@ -50,7 +50,7 @@ const RULE_WORLDS: Array<{ id: string; name: string }> = [
 
 export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const { cacheInfo, clearCache, forceRefresh, updateCacheInfo } = useDataStore();
-  const { startLoading, updateStage, finishLoading, isLoading, activeFlowId, activeRuleWorldId } = useLoadingStore();
+  const { startLoading, updateStage, isLoading, activeFlowId, activeRuleWorldId } = useLoadingStore();
   const datasets = useRuleDataStore((s) => s.datasets);
   const refreshWorlds = useRuleDataStore((s) => s.refreshWorlds);
 
