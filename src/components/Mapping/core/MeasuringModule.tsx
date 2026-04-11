@@ -3337,20 +3337,21 @@ const WORKFLOW_SELECT_OPTIONS: Array<{ key: WorkflowKey; label: string; hidden?:
   { key: 'railway', label: '铁路' },
   { key: 'station', label: '车站和站台' },
   { key: 'rod_road', label: '道路' },
-  { key: 'tpp_point', label: '传送点' },
-  { key: 'wrp_point', label: 'Warp点' },
-  { key: 'trp_point', label: '交易点' },
+  { key: 'bud_building', label: '建筑' },
+  { key: 'flr_unit', label: '楼内单元' },
   { key: 'ngf_land', label: '自然要素-陆地' },
   { key: 'ngf_lis', label: '自然要素-陆面要素' },
   { key: 'ngf_wtb', label: '自然要素-水域' },
   { key: 'ngf_wtr', label: '自然要素-河道' },
-  { key: 'ngf_bod', label: '自然要素-地理边界' },
   { key: 'adm_dbz_set', label: '聚落范围-确定范围' },
   { key: 'adm_plz_plan', label: '聚落范围-规划范围' },
+  { key: 'tpp_point', label: '传送点' },
+  { key: 'wrp_point', label: 'Warp点' },
+  { key: 'trp_point', label: '交易点' },
+  { key: 'ngf_bod', label: '自然要素-地理边界' },
   { key: 'adm_line_settlement', label: '聚落边界线要素' },
   { key: 'adm_point_special', label: '特殊人文点要素' },
-  { key: 'bud_building', label: '建筑' },
-  { key: 'flr_unit', label: '楼内单元' },
+
 ];
 
 
