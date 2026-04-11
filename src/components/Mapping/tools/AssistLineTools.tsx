@@ -12,6 +12,7 @@ import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 import type { DynmapProjection } from '@/lib/DynmapProjection';
+import type { FeatureRecord } from '@/components/Rules/rendering/renderRules';
 import { DraggablePanel } from '@/components/DraggablePanel/DraggablePanel';
 import { Link, X } from 'lucide-react';
 import AppButton from '@/components/ui/AppButton';
@@ -174,6 +175,63 @@ function ringsFromLeafletPolyline(poly: L.Polyline): L.LatLng[][] {
   return out;
 }
 
+function visitLayerDeep(layer: L.Layer, visitor: (layer: L.Layer) => void) {
+  visitor(layer);
+  const anyLayer = layer as any;
+  if (typeof anyLayer.eachLayer === 'function') {
+    anyLayer.eachLayer((child: L.Layer) => visitLayerDeep(child, visitor));
+  }
+}
+
+function getLayerPixelDistance(map: L.Map, layer: L.Polyline, latlng: L.LatLng): number | null {
+  const anyLayer = layer as any;
+  const mapPoint = map.latLngToLayerPoint(latlng);
+  const closest = typeof anyLayer.closestLayerPoint === 'function' ? anyLayer.closestLayerPoint(mapPoint) : null;
+  if (!closest) return null;
+  return Math.hypot(closest.x - mapPoint.x, closest.y - mapPoint.y);
+}
+
+function buildTargetLabelFromFeature(r: FeatureRecord): string {
+  const fi = (r as any)?.featureInfo ?? {};
+  const name = String(fi?.Name ?? fi?.name ?? '').trim();
+  const id = String(fi?.ID ?? fi?.id ?? '').trim();
+  const cls = String((r as any)?.meta?.Class ?? '').trim();
+  const core = name || id || cls || 'Rules';
+  return `Rules：${core}`;
+}
+
+function buildTargetFromRuleFeature(r: FeatureRecord): AssistLineTarget | null {
+  if (!r || (r.type !== 'Polyline' && r.type !== 'Polygon')) return null;
+  const coords3 = Array.isArray(r.coords3) ? r.coords3 : [];
+  if (coords3.length < 2) return null;
+  const ring = coords3
+    .map((p) => ({ x: Number((p as any)?.x), z: Number((p as any)?.z) }))
+    .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.z));
+  if (ring.length < 2) return null;
+  return {
+    kind: 'leafletFeature',
+    label: buildTargetLabelFromFeature(r),
+    geom: {
+      rings: [ring],
+      closed: [r.type === 'Polygon'],
+    },
+  };
+}
+
+function buildTargetLabelFromLayer(layer: L.Polyline): string {
+  const bound = (layer as any).__riaAssistRuleFeature as any;
+  if (bound && typeof bound === 'object') {
+    const fi = bound.featureInfo ?? {};
+    const name = String(fi?.Name ?? fi?.name ?? '').trim();
+    const id = String(fi?.ID ?? fi?.id ?? '').trim();
+    const cls = String(bound?.meta?.Class ?? '').trim();
+    const core = name || id || cls || `Rules#${L.Util.stamp(layer)}`;
+    return `Rules：${core}`;
+  }
+  const isPolygon = layer instanceof L.Polygon;
+  return `Leaflet#${L.Util.stamp(layer)}（${isPolygon ? '面' : '线'}）`;
+}
+
 /* -------------------- 组件 -------------------- */
 
 export default forwardRef<AssistLineToolsHandle, AssistLineToolsProps>(function AssistLineTools(props, ref) {
@@ -216,6 +274,8 @@ export default forwardRef<AssistLineToolsHandle, AssistLineToolsProps>(function 
   // 选择模式：记录绑定的 click handler
   const pickLayersRef = useRef<L.Layer[]>([]);
   const pickHandlerRef = useRef<((e: any) => void) | null>(null);
+  const rulePickEventHandlerRef = useRef<EventListener | null>(null);
+  const assistPickModeOwnedRef = useRef(false);
 
   const setMapCursor = useCallback(
     (cursor: string | null) => {
@@ -277,13 +337,15 @@ export default forwardRef<AssistLineToolsHandle, AssistLineToolsProps>(function 
         const latlngs = ring.map((p) => proj.locationToLatLng(p.x, Y_FOR_DISPLAY, p.z)).filter(Boolean) as L.LatLng[];
         if (latlngs.length < 2) continue;
 
-        L.polyline(latlngs, {
+        const hl = L.polyline(latlngs, {
           color: '#ffffff',
           weight: 4,
           dashArray: '4 8',
           opacity: 0.85,
           interactive: false,
-        }).addTo(hg);
+        });
+        (hl as any).__riaAssistIgnore = true;
+        hl.addTo(hg);
       }
       return;
     }
@@ -298,13 +360,15 @@ export default forwardRef<AssistLineToolsHandle, AssistLineToolsProps>(function 
       const llb = toLatLng(b);
       if (!lla || !llb) return;
 
-      L.polyline([lla, llb], {
+      const hl = L.polyline([lla, llb], {
         color: '#ffffff',
         weight: 4,
         dashArray: '4 8',
         opacity: 0.85,
         interactive: false,
-      }).addTo(hg);
+      });
+      (hl as any).__riaAssistIgnore = true;
+      hl.addTo(hg);
 
       return;
     }
@@ -322,41 +386,55 @@ export default forwardRef<AssistLineToolsHandle, AssistLineToolsProps>(function 
       const llbz = toLatLng(bz);
       if (!llax || !llbx || !llaz || !llbz) return;
 
-      L.polyline([llax, llbx], {
+      const hlx = L.polyline([llax, llbx], {
         color: '#ffffff',
         weight: 4,
         dashArray: '4 8',
         opacity: 0.85,
         interactive: false,
-      }).addTo(hg);
+      });
+      (hlx as any).__riaAssistIgnore = true;
+      hlx.addTo(hg);
 
-      L.polyline([llaz, llbz], {
+      const hlz = L.polyline([llaz, llbz], {
         color: '#ffffff',
         weight: 4,
         dashArray: '4 8',
         opacity: 0.85,
         interactive: false,
-      }).addTo(hg);
+      });
+      (hlz as any).__riaAssistIgnore = true;
+      hlz.addTo(hg);
 
       return;
     }
   }, [enabled, target, leafletMapRef, projectionRef, toLatLng]);
+
+  const setRuleAssistPickMode = useCallback((active: boolean) => {
+    if (typeof window === 'undefined') return;
+    if (assistPickModeOwnedRef.current === active) return;
+    assistPickModeOwnedRef.current = active;
+    window.dispatchEvent(new CustomEvent('ria:assist-pick-mode', { detail: { active } }));
+  }, []);
 
   /* -------------------- 选择模式：取消/开始 -------------------- */
   const cancelPicking = useCallback(() => {
     setPicking(false);
     setMapCursor(null);
 
+    const map = leafletMapRef.current;
     const handler = pickHandlerRef.current;
-    if (handler) {
-      for (const lyr of pickLayersRef.current) {
-        (lyr as any).off?.('click', handler);
-      }
+    if (map && handler) map.off('click', handler);
+
+    if (typeof window !== 'undefined' && rulePickEventHandlerRef.current) {
+      window.removeEventListener('ria:assist-pick-feature', rulePickEventHandlerRef.current);
     }
 
     pickLayersRef.current = [];
     pickHandlerRef.current = null;
-  }, [setMapCursor]);
+    rulePickEventHandlerRef.current = null;
+    setRuleAssistPickMode(false);
+  }, [leafletMapRef, setMapCursor, setRuleAssistPickMode]);
 
   const beginPicking = useCallback(() => {
     if (!mapReady) return;
@@ -373,21 +451,29 @@ export default forwardRef<AssistLineToolsHandle, AssistLineToolsProps>(function 
     setPicking(true);
     setMapCursor('crosshair');
     setStatusText('辅助线目标选择中：请点击任意线/面要素');
+    setRuleAssistPickMode(true);
 
-    const candidates: L.Layer[] = [];
-    map.eachLayer((layer: any) => {
-      // Polygon 也属于 Polyline
-      if (layer instanceof L.Polyline) {
-        const opt = layer.options ?? {};
+    const ruleCandidates: L.Polyline[] = [];
+    const fallbackCandidates: L.Polyline[] = [];
+
+    map.eachLayer((layer: L.Layer) => {
+      visitLayerDeep(layer, (child) => {
+        if (!(child instanceof L.Polyline)) return;
+        if ((child as any).__riaAssistIgnore) return;
+        if ((child as any).__riaAssistRuleFeature) {
+          ruleCandidates.push(child);
+          return;
+        }
+        const opt = (child as any).options ?? {};
         if (opt.interactive === false) return;
-        candidates.push(layer);
-      }
+        fallbackCandidates.push(child);
+      });
     });
 
-    const handler = (e: any) => {
-      const layer = e?.target;
-      if (!layer || !(layer instanceof L.Polyline)) return;
+    const allCandidates = [...ruleCandidates, ...fallbackCandidates];
+    pickLayersRef.current = allCandidates;
 
+    const buildTargetFromLayer = (layer: L.Polyline) => {
       const llRings = ringsFromLeafletPolyline(layer);
       const wRings: WorldPoint[][] = [];
 
@@ -400,26 +486,70 @@ export default forwardRef<AssistLineToolsHandle, AssistLineToolsProps>(function 
         if (wr.length >= 2) wRings.push(wr);
       }
 
+      if (!wRings.length) return null;
       const isPolygon = layer instanceof L.Polygon;
-      const closed = wRings.map(() => Boolean(isPolygon));
+      return {
+        kind: 'leafletFeature' as const,
+        label: buildTargetLabelFromLayer(layer),
+        geom: { rings: wRings, closed: wRings.map(() => Boolean(isPolygon)) },
+      };
+    };
 
-      const stamp = L.Util.stamp(layer);
+    const pickNearest = (candidates: L.Polyline[], latlng: L.LatLng) => {
+      let bestLayer: L.Polyline | null = null;
+      let bestDist = Number.POSITIVE_INFINITY;
+      for (const layer of candidates) {
+        const dist = getLayerPixelDistance(map, layer, latlng);
+        if (!Number.isFinite(dist ?? NaN)) continue;
+        if ((dist as number) < bestDist) {
+          bestDist = dist as number;
+          bestLayer = layer;
+        }
+      }
+      if (!bestLayer || bestDist > 18) return null;
+      return bestLayer;
+    };
 
-      setTarget({
-        kind: 'leafletFeature',
-        label: `Leaflet#${stamp}（${isPolygon ? '面' : '线'}）`,
-        geom: { rings: wRings, closed },
-      });
+    const ruleHandler: EventListener = (ev) => {
+      const feature = (ev as CustomEvent<any>)?.detail?.feature as FeatureRecord | undefined;
+      const nextTarget = feature ? buildTargetFromRuleFeature(feature) : null;
+      if (!nextTarget) {
+        setStatusText('目标要素不是可用的线/面几何，请重试');
+        return;
+      }
 
-      setStatusText(`已选择辅助线目标：Leaflet#${stamp}`);
+      setTarget(nextTarget);
+      setStatusText(`已选择辅助线目标：${nextTarget.label}`);
       cancelPicking();
     };
 
-    for (const lyr of candidates) (lyr as any).on?.('click', handler);
+    rulePickEventHandlerRef.current = ruleHandler;
+    if (typeof window !== 'undefined') {
+      window.addEventListener('ria:assist-pick-feature', ruleHandler);
+    }
 
-    pickLayersRef.current = candidates;
-    pickHandlerRef.current = handler;
-  }, [mapReady, enabled, mode, leafletMapRef, toWorld, cancelPicking, setMapCursor]);
+    const handler = (e: L.LeafletMouseEvent) => {
+      const ruleLayer = pickNearest(ruleCandidates, e.latlng);
+      const chosen = ruleLayer ?? pickNearest(fallbackCandidates, e.latlng);
+      if (!chosen) {
+        setStatusText('未命中线/面要素，请更靠近目标几何后重试');
+        return;
+      }
+
+      const nextTarget = buildTargetFromLayer(chosen);
+      if (!nextTarget) {
+        setStatusText('目标几何解析失败，请重试');
+        return;
+      }
+
+      setTarget(nextTarget);
+      setStatusText(`已选择辅助线目标：${nextTarget.label}`);
+      cancelPicking();
+    };
+
+    pickHandlerRef.current = handler as any;
+    map.on('click', handler);
+  }, [mapReady, enabled, mode, leafletMapRef, toWorld, cancelPicking, setMapCursor, setRuleAssistPickMode]);
 
   // 面板关闭、禁用、或切走模式：自动退出拾取
   useEffect(() => {

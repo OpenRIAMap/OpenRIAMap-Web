@@ -81,6 +81,14 @@ type ControlPointsTProps = {
 const Y_FOR_DISPLAY = 64;
 const ADD_SNAP_MAX_DIST = 50;
 
+type GeometryTypeForArrayEditor = 'point' | 'polyline' | 'polygon';
+
+type ParsedArrayCoords = {
+  coords: WorldPoint[];
+  geometryType: GeometryTypeForArrayEditor;
+  defaultY: number;
+};
+
 function clamp01(n: number) {
   if (n < 0) return 0;
   if (n > 1) return 1;
@@ -170,6 +178,71 @@ type EditAction =
       point: WorldPoint;
     };
 
+function getGeometryTypeForArrayEditor(activeMode: ControlPointsTProps['activeMode']): GeometryTypeForArrayEditor | null {
+  if (activeMode === 'point' || activeMode === 'polyline' || activeMode === 'polygon') return activeMode;
+  return null;
+}
+
+function getMinimumCountForGeometryType(type: GeometryTypeForArrayEditor) {
+  if (type === 'point') return 1;
+  if (type === 'polyline') return 2;
+  return 3;
+}
+
+function inferDefaultY(coords: WorldPoint[]) {
+  const y = coords.find((p) => typeof p.y === 'number' && Number.isFinite(p.y))?.y;
+  return typeof y === 'number' ? y : 0;
+}
+
+function buildArrayEditorCoords(coords: WorldPoint[], defaultY?: number): WorldPoint[] {
+  const yFallback = Number.isFinite(defaultY ?? NaN) ? Number(defaultY) : inferDefaultY(coords);
+  return coords.map((p) => ({ x: p.x, y: typeof p.y === 'number' && Number.isFinite(p.y) ? p.y : yFallback, z: p.z }));
+}
+
+function stringifyArrayEditorCoords(coords: WorldPoint[]) {
+  const lines = coords.map((p) => `  [${p.x},${typeof p.y === 'number' ? p.y : 0},${p.z}]`);
+  if (!lines.length) return '[]';
+  return `[\n${lines.join(',\n')}\n]`;
+}
+
+function parseArrayEditorCoords(
+  rawText: string,
+  geometryType: GeometryTypeForArrayEditor,
+  defaultY: number
+): ParsedArrayCoords {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawText);
+  } catch {
+    throw new Error('当前内容不是合法 JSON，请检查中括号、逗号和数字格式。');
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new Error('当前内容必须是 JSON 数组，格式应为 [[x,y,z],[x,y,z]]。');
+  }
+
+  const coords: WorldPoint[] = [];
+  for (let i = 0; i < parsed.length; i++) {
+    const item = parsed[i];
+    if (!Array.isArray(item) || item.length !== 3) {
+      throw new Error(`第 ${i + 1} 个坐标必须严格为 [x,y,z] 三元数组。`);
+    }
+    const [x, y, z] = item;
+    if (![x, y, z].every((n) => typeof n === 'number' && Number.isFinite(n))) {
+      throw new Error(`第 ${i + 1} 个坐标存在非法数值，x / y / z 都必须是有限数字。`);
+    }
+    coords.push({ x, y, z });
+  }
+
+  const minCount = getMinimumCountForGeometryType(geometryType);
+  if (coords.length < minCount) {
+    const name = geometryType === 'point' ? '点' : geometryType === 'polyline' ? '线' : '面';
+    throw new Error(`${name}要素至少需要 ${minCount} 个控制点，当前仅有 ${coords.length} 个。`);
+  }
+
+  return { coords, geometryType, defaultY: Number.isFinite(defaultY) ? defaultY : 0 };
+}
+
 export default forwardRef<ControlPointsTHandle, ControlPointsTProps>(function ControlPointsT(props, ref) {
   const {
     mapReady,
@@ -191,11 +264,13 @@ export default forwardRef<ControlPointsTHandle, ControlPointsTProps>(function Co
     onExitAddModeRestoreAssistLine,
   } = props;
 
+  const [toolPanelOpen, setToolPanelOpen] = useState(false);
   const [editEnabled, setEditEnabled] = useState(false);
   const [addEnabled, setAddEnabled] = useState(false);
 
   const [editPanelOpen, setEditPanelOpen] = useState(false);
   const [addPanelOpen, setAddPanelOpen] = useState(false);
+  const [arrayEditorOpen, setArrayEditorOpen] = useState(false);
 
   const [statusText, setStatusText] = useState<string>('');
 
@@ -207,6 +282,15 @@ export default forwardRef<ControlPointsTHandle, ControlPointsTProps>(function Co
   // 撤回/恢复
   const [undoStack, setUndoStack] = useState<EditAction[]>([]);
   const [redoStack, setRedoStack] = useState<EditAction[]>([]);
+
+  // 数组编辑：文本会话与独立撤回/恢复
+  const [arrayText, setArrayText] = useState('');
+  const [arrayUndoStack, setArrayUndoStack] = useState<string[]>([]);
+  const [arrayRedoStack, setArrayRedoStack] = useState<string[]>([]);
+  const [arrayValidated, setArrayValidated] = useState(false);
+  const [arrayValidatedCoords, setArrayValidatedCoords] = useState<WorldPoint[] | null>(null);
+  const [arrayAppliedText, setArrayAppliedText] = useState('');
+  const [arrayDefaultY, setArrayDefaultY] = useState(0);
 
   // 进入工具前的“显示控制点”状态，用于退出后恢复
   const prevShowStateRef = useRef<{ enabled: boolean; locked: boolean } | null>(null);
@@ -225,18 +309,10 @@ export default forwardRef<ControlPointsTHandle, ControlPointsTProps>(function Co
     [projectionRef]
   );
 
-//  const worldToLatLng = useCallback(
-//    (p: WorldPoint): L.LatLng | null => {
-//      const proj = projectionRef.current;
-//      if (!proj) return null;
-//      return proj.locationToLatLng(p.x, Y_FOR_DISPLAY, p.z);
-//    },
-//    [projectionRef]
-//  );
-
   const fmt = useCallback((p: WorldPoint) => `${formatGridNumber(p.x)}, ${formatGridNumber(p.z)}`, []);
 
   const modeOk = useMemo(() => activeMode === 'polyline' || activeMode === 'polygon', [activeMode]);
+  const arrayGeometryType = useMemo(() => getGeometryTypeForArrayEditor(activeMode), [activeMode]);
 
   const sessionCoords = useMemo<WorldPoint[]>(() => {
     // workingCoords 优先（用于预览与控制点渲染）
@@ -244,6 +320,7 @@ export default forwardRef<ControlPointsTHandle, ControlPointsTProps>(function Co
   }, [workingCoords, activeCoords]);
 
   const dirty = useMemo(() => undoStack.length > 0, [undoStack.length]);
+  const arrayDirty = useMemo(() => arrayText !== arrayAppliedText, [arrayText, arrayAppliedText]);
 
   const forceShowControlPointsOn = useCallback(() => {
     if (!setShowControlPointsEnabled || !setShowControlPointsLocked) return;
@@ -286,8 +363,18 @@ export default forwardRef<ControlPointsTHandle, ControlPointsTProps>(function Co
     setStatusText('');
   }, []);
 
+  const resetArrayEditorState = useCallback(() => {
+    setArrayEditorOpen(false);
+    setArrayText('');
+    setArrayUndoStack([]);
+    setArrayRedoStack([]);
+    setArrayValidated(false);
+    setArrayValidatedCoords(null);
+    setArrayAppliedText('');
+  }, []);
+
   const endAllModes = useCallback(
-    (opts?: { restoreAssistLine?: boolean }) => {
+    (opts?: { restoreAssistLine?: boolean; keepToolPanelOpen?: boolean }) => {
       setEditEnabled(false);
       setAddEnabled(false);
       setEditPanelOpen(false);
@@ -296,7 +383,18 @@ export default forwardRef<ControlPointsTHandle, ControlPointsTProps>(function Co
       setWorkingCoords(null);
       setUndoStack([]);
       setRedoStack([]);
+      setArrayEditorOpen(false);
+      setArrayText('');
+      setArrayUndoStack([]);
+      setArrayRedoStack([]);
+      setArrayValidated(false);
+      setArrayValidatedCoords(null);
+      setArrayAppliedText('');
       setStatusText('');
+
+      if (!opts?.keepToolPanelOpen) {
+        setToolPanelOpen(false);
+      }
 
       onSetDrawClickSuppressed?.(false);
       restoreShowControlPoints();
@@ -308,32 +406,30 @@ export default forwardRef<ControlPointsTHandle, ControlPointsTProps>(function Co
     [onSetDrawClickSuppressed, restoreShowControlPoints, onExitAddModeRestoreAssistLine]
   );
 
-// -------- Leaflet 容器挂载/卸载 --------
-useEffect(() => {
-  if (!mapReady) return;
-  const map = leafletMapRef.current;
-  if (!map) return;
+  // -------- Leaflet 容器挂载/卸载 --------
+  useEffect(() => {
+    if (!mapReady) return;
+    const map = leafletMapRef.current;
+    if (!map) return;
 
-  // 专用 pane：保证控制点点/虚线预览总在更上层，避免被其它 overlay 吃点击
-  const PANE = 'controlPointsT-pane';
-  if (!map.getPane(PANE)) {
-    const pane = map.createPane(PANE);
-    // 650：高于默认 Path pane，确保可交互点在最上层（你也可按项目统一规范改）
-    pane.style.zIndex = '650';
-  }
+    // 专用 pane：保证控制点点/虚线预览总在更上层，避免被其它 overlay 吃点击
+    const PANE = 'controlPointsT-pane';
+    if (!map.getPane(PANE)) {
+      const pane = map.createPane(PANE);
+      pane.style.zIndex = '650';
+    }
 
-  if (!vertexGroupRef.current) vertexGroupRef.current = L.layerGroup();
-  if (!overlayGroupRef.current) overlayGroupRef.current = L.layerGroup();
+    if (!vertexGroupRef.current) vertexGroupRef.current = L.layerGroup();
+    if (!overlayGroupRef.current) overlayGroupRef.current = L.layerGroup();
 
-  if (!map.hasLayer(vertexGroupRef.current)) vertexGroupRef.current.addTo(map);
-  if (!map.hasLayer(overlayGroupRef.current)) overlayGroupRef.current.addTo(map);
+    if (!map.hasLayer(vertexGroupRef.current)) vertexGroupRef.current.addTo(map);
+    if (!map.hasLayer(overlayGroupRef.current)) overlayGroupRef.current.addTo(map);
 
-  return () => {
-    if (vertexGroupRef.current && map.hasLayer(vertexGroupRef.current)) map.removeLayer(vertexGroupRef.current);
-    if (overlayGroupRef.current && map.hasLayer(overlayGroupRef.current)) map.removeLayer(overlayGroupRef.current);
-  };
-}, [mapReady, leafletMapRef]);
-
+    return () => {
+      if (vertexGroupRef.current && map.hasLayer(vertexGroupRef.current)) map.removeLayer(vertexGroupRef.current);
+      if (overlayGroupRef.current && map.hasLayer(overlayGroupRef.current)) map.removeLayer(overlayGroupRef.current);
+    };
+  }, [mapReady, leafletMapRef]);
 
   // -------- overlay：预览未保存几何（虚线）--------
   useEffect(() => {
@@ -402,20 +498,17 @@ useEffect(() => {
       const ll = proj.locationToLatLng(p.x, Y_FOR_DISPLAY, p.z);
       const isSelected = editEnabled && selectedIndex === idx;
 
-const marker = L.circleMarker(ll, {
-  pane: 'controlPointsT-pane',
-  // 关键：阻止事件冒泡到 map（否则 map click 可能也执行）:contentReference[oaicite:3]{index=3}
-  bubblingMouseEvents: false,
+      const marker = L.circleMarker(ll, {
+        pane: 'controlPointsT-pane',
+        bubblingMouseEvents: false,
+        radius: isSelected ? 7 : 5,
+        color: activeColor,
+        fillColor: activeColor,
+        fillOpacity: 0.7,
+        weight: isSelected ? 3 : 2,
+        opacity: 0.95,
+      });
 
-  radius: isSelected ? 7 : 5,
-  color: activeColor,
-  fillColor: activeColor,
-  fillOpacity: 0.7,
-  weight: isSelected ? 3 : 2,
-  opacity: 0.95,
-});
-
-      // hover 显示坐标
       marker.bindTooltip(fmt(p), {
         direction: 'top',
         offset: L.point(0, -6),
@@ -423,153 +516,142 @@ const marker = L.circleMarker(ll, {
         sticky: true,
       });
 
-marker.on('click', (e: any) => {
-  // 兜底：阻止 DOM 事件继续冒泡 :contentReference[oaicite:4]{index=4}
-  if (e?.originalEvent) {
-    L.DomEvent.stop(e.originalEvent);
-  }
+      marker.on('click', (e: any) => {
+        if (e?.originalEvent) {
+          L.DomEvent.stop(e.originalEvent);
+        }
 
-  // 修改模式允许选择控制点；添加模式只作为展示
-  if (!editEnabled) return;
+        if (!editEnabled) return;
 
-  setSelectedIndex(idx);
-  setStatusText(`已选择控制点 #${idx + 1}，请点击地图设置新位置（参考线过滤将先执行）`);
-});
+        setSelectedIndex(idx);
+        setStatusText(`已选择控制点 #${idx + 1}，请点击地图设置新位置（参考线过滤将先执行）`);
+      });
 
       vg.addLayer(marker);
     });
   }, [editEnabled, addEnabled, modeOk, sessionCoords, activeColor, selectedIndex, fmt, projectionRef]);
 
-// -------- map click：修改模式“选点后下一次点击移动”--------
-useEffect(() => {
-  const map = leafletMapRef.current;
-  if (!map) return;
+  // -------- map click：修改模式“选点后下一次点击移动”--------
+  useEffect(() => {
+    const map = leafletMapRef.current;
+    if (!map) return;
 
-  const onMapClick = (e: L.LeafletMouseEvent) => {
-    if (!editEnabled) return;
-    if (!editPanelOpen) return;
-    if (!modeOk) return;
-    if (selectedIndex === null) return;
+    const onMapClick = (e: L.LeafletMouseEvent) => {
+      if (!editEnabled) return;
+      if (!editPanelOpen) return;
+      if (!modeOk) return;
+      if (selectedIndex === null) return;
 
-    const w0 = projToWorld(e.latlng);
-    if (!w0) return;
+      const w0 = projToWorld(e.latlng);
+      if (!w0) return;
 
-    // 参考线过滤（高优先级）
-    const wFiltered = filterWorldPointByAssistLine ? filterWorldPointByAssistLine(w0) : w0;
+      const wFiltered = filterWorldPointByAssistLine ? filterWorldPointByAssistLine(w0) : w0;
+      const wSnapped = snapWorldPointByMode(wFiltered);
 
-    // 网格化（整数 / 0.5 / 强制中心）：在“参考线修正”之后对坐标做修正
-    const wSnapped = snapWorldPointByMode(wFiltered);
+      setWorkingCoords((prev) => {
+        const base = (prev ?? activeCoords).slice();
+        if (selectedIndex < 0 || selectedIndex >= base.length) return prev ?? activeCoords;
 
-    setWorkingCoords((prev) => {
-      const base = (prev ?? activeCoords).slice();
-      if (selectedIndex < 0 || selectedIndex >= base.length) return prev ?? activeCoords;
+        const from = base[selectedIndex];
+        const to: WorldPoint = { ...wSnapped, y: from?.y };
+        base[selectedIndex] = to;
 
-      const from = base[selectedIndex];
-      const to: WorldPoint = { ...wSnapped, y: from?.y };
-      base[selectedIndex] = to;
+        setUndoStack((u) => [...u, { kind: 'move', index: selectedIndex, from, to }]);
+        setRedoStack([]);
 
-      // 记录动作
-      setUndoStack((u) => [...u, { kind: 'move', index: selectedIndex, from, to }]);
-      setRedoStack([]); // 新动作清空 redo
+        setStatusText(`已修改控制点 #${selectedIndex + 1} -> ${fmt(to)}`);
+        return base;
+      });
+    };
 
-      setStatusText(`已修改控制点 #${selectedIndex + 1} -> ${fmt(to)}`);
-      return base;
-    });
-  };
+    map.on('click', onMapClick);
+    return () => {
+      map.off('click', onMapClick);
+    };
+  }, [
+    leafletMapRef,
+    editEnabled,
+    editPanelOpen,
+    modeOk,
+    selectedIndex,
+    projToWorld,
+    activeCoords,
+    filterWorldPointByAssistLine,
+    fmt,
+  ]);
 
-  map.on('click', onMapClick);
-  return () => {
-    map.off('click', onMapClick);
-  };
-}, [
-  leafletMapRef,
-  editEnabled,
-  editPanelOpen,
-  modeOk,
-  selectedIndex,
-  projToWorld,
-  activeCoords,
-  filterWorldPointByAssistLine,
-  fmt,
-]);
+  // -------- map click：添加模式“点击插入（阈值 50）”--------
+  useEffect(() => {
+    const map = leafletMapRef.current;
+    if (!map) return;
 
+    const onMapClick = (e: L.LeafletMouseEvent) => {
+      if (!addEnabled) return;
+      if (!addPanelOpen) return;
+      if (!modeOk) return;
 
-// -------- map click：添加模式“点击插入（阈值 50）”--------
-useEffect(() => {
-  const map = leafletMapRef.current;
-  if (!map) return;
+      const w = projToWorld(e.latlng);
+      if (!w) return;
 
-  const onMapClick = (e: L.LeafletMouseEvent) => {
-    if (!addEnabled) return;
-    if (!addPanelOpen) return;
-    if (!modeOk) return;
+      setWorkingCoords((prev) => {
+        const baseRaw = prev ?? activeCoords;
+        const isPolygon = activeMode === 'polygon';
 
-    const w = projToWorld(e.latlng);
-    if (!w) return;
+        const geom = normalizeRingsForPolygonLike(baseRaw, isPolygon);
+        const coords = geom.rings[0];
 
-    setWorkingCoords((prev) => {
-      const baseRaw = prev ?? activeCoords;
-      const isPolygon = activeMode === 'polygon';
-
-      const geom = normalizeRingsForPolygonLike(baseRaw, isPolygon);
-      const coords = geom.rings[0];
-
-      if (coords.length < 2) {
-        setStatusText('控制点添加：当前要素控制点不足 2 个，无法插入');
-        return prev ?? activeCoords;
-      }
-
-      const best = closestPointOnRings(w, geom);
-      if (!best.point || !Number.isFinite(best.dist)) return prev ?? activeCoords;
-
-      if (best.dist > ADD_SNAP_MAX_DIST) {
-        setStatusText(`未插入：距离当前要素超过 ${ADD_SNAP_MAX_DIST} 格`);
-        return prev ?? activeCoords;
-      }
-
-      const segIndex = best.segIndex;
-      const n = coords.length;
-
-      const insertIndex = (() => {
-        if (isPolygon) {
-          if (segIndex >= n - 1) return n; // last->first
-          return segIndex + 1;
+        if (coords.length < 2) {
+          setStatusText('控制点添加：当前要素控制点不足 2 个，无法插入');
+          return prev ?? activeCoords;
         }
-        // polyline
-        if (segIndex < 0) return n;
-        return Math.min(segIndex + 1, n);
-      })();
 
-      const next = coords.slice();
+        const best = closestPointOnRings(w, geom);
+        if (!best.point || !Number.isFinite(best.dist)) return prev ?? activeCoords;
 
-      const segA = coords[segIndex];
-      const segB = coords[(segIndex + 1) % n];
-      const yInterp =
-        typeof segA?.y === 'number' && typeof segB?.y === 'number'
-          ? segA.y + (segB.y - segA.y) * (best.t ?? 0)
-          : undefined;
+        if (best.dist > ADD_SNAP_MAX_DIST) {
+          setStatusText(`未插入：距离当前要素超过 ${ADD_SNAP_MAX_DIST} 格`);
+          return prev ?? activeCoords;
+        }
 
-      // ① 最近点（落点修正到当前要素）
-      // ② 网格化（整数 / 0.5 / 强制中心）：在“最近点修正”之后对坐标做修正
-      const snapped = snapWorldPointByMode(best.point);
-      const inserted: WorldPoint = { ...snapped, y: yInterp };
+        const segIndex = best.segIndex;
+        const n = coords.length;
 
-      next.splice(insertIndex, 0, inserted);
+        const insertIndex = (() => {
+          if (isPolygon) {
+            if (segIndex >= n - 1) return n;
+            return segIndex + 1;
+          }
+          if (segIndex < 0) return n;
+          return Math.min(segIndex + 1, n);
+        })();
 
-      // 记录动作：必须记录 inserted（而不是 best.point），否则撤回/恢复与“保存前显示”都会出现未网格化的问题
-      setUndoStack((u) => [...u, { kind: 'insert', index: insertIndex, point: inserted }]);
-      setRedoStack([]);
+        const next = coords.slice();
 
-      setStatusText(`已插入控制点：${fmt(inserted)}（阈值 ${ADD_SNAP_MAX_DIST}）`);
-      return next;
-    });
-  };
+        const segA = coords[segIndex];
+        const segB = coords[(segIndex + 1) % n];
+        const yInterp =
+          typeof segA?.y === 'number' && typeof segB?.y === 'number'
+            ? segA.y + (segB.y - segA.y) * (best.t ?? 0)
+            : undefined;
 
-  map.on('click', onMapClick);
-  return () => {
-    map.off('click', onMapClick);
-  };
-}, [leafletMapRef, addEnabled, addPanelOpen, modeOk, projToWorld, activeCoords, activeMode, fmt]);
+        const snapped = snapWorldPointByMode(best.point);
+        const inserted: WorldPoint = { ...snapped, y: yInterp };
+
+        next.splice(insertIndex, 0, inserted);
+
+        setUndoStack((u) => [...u, { kind: 'insert', index: insertIndex, point: inserted }]);
+        setRedoStack([]);
+
+        setStatusText(`已插入控制点：${fmt(inserted)}（阈值 ${ADD_SNAP_MAX_DIST}）`);
+        return next;
+      });
+    };
+
+    map.on('click', onMapClick);
+    return () => {
+      map.off('click', onMapClick);
+    };
+  }, [leafletMapRef, addEnabled, addPanelOpen, modeOk, projToWorld, activeCoords, activeMode, fmt]);
 
   // -------- 撤回/恢复 --------
   const doUndo = useCallback(() => {
@@ -627,81 +709,238 @@ useEffect(() => {
     (mode: 'edit' | 'add') => {
       const coords = (workingCoords ?? activeCoords).slice();
 
-      // 应用结果
       onApplyActiveCoords?.(coords);
 
-      // 退出模式
       if (mode === 'add') {
-        endAllModes({ restoreAssistLine: true });
+        endAllModes({ restoreAssistLine: true, keepToolPanelOpen: true });
       } else {
-        endAllModes({ restoreAssistLine: false });
+        endAllModes({ restoreAssistLine: false, keepToolPanelOpen: true });
       }
+      setToolPanelOpen(true);
     },
     [workingCoords, activeCoords, onApplyActiveCoords, endAllModes]
   );
 
   const tryClosePanelDiscard = useCallback(
     (mode: 'edit' | 'add') => {
-      // 未保存提醒：仅当“修改操作记录”非空（这里以 undoStack 非空为准）
       if (undoStack.length > 0) {
         const ok = window.confirm('修改未保存，确定关闭并丢弃本次修改吗？');
-        if (!ok) return;
+        if (!ok) return false;
       }
 
-      // 丢弃：清理会话并退出
       if (mode === 'add') {
         onExitAddModeRestoreAssistLine?.();
       }
-      endAllModes({ restoreAssistLine: mode === 'add' });
+      endAllModes({ restoreAssistLine: mode === 'add', keepToolPanelOpen: true });
+      setToolPanelOpen(true);
+      return true;
     },
     [undoStack.length, endAllModes, onExitAddModeRestoreAssistLine]
   );
 
-  // -------- 互斥开关：控制点修改 / 控制点添加 --------
-  const toggleEdit = useCallback(() => {
-    // 若正在添加，先关闭添加（按互斥逻辑）
-    if (addEnabled || addPanelOpen) {
-      // 有未保存修改时，由添加窗口自己的关闭逻辑负责提醒
-      tryClosePanelDiscard('add');
+  const recordArrayTextChange = useCallback((nextText: string) => {
+    setArrayText((current) => {
+      if (nextText === current) return current;
+      setArrayUndoStack((u) => [...u, current]);
+      setArrayRedoStack([]);
+      setArrayValidated(false);
+      setArrayValidatedCoords(null);
+      return nextText;
+    });
+  }, []);
+
+  const openArrayEditor = useCallback(() => {
+    if (arrayEditorOpen) return;
+    if (!arrayGeometryType) {
+      setStatusText('数组编辑：当前没有可编辑的要素类型');
+      return;
+    }
+    if (editEnabled || addEnabled) {
+      setStatusText('数组编辑开启前，请先结束控制点修改或控制点添加');
+      return;
+    }
+    if (!activeCoords.length) {
+      setStatusText('数组编辑：当前没有可导入的控制点');
+      return;
     }
 
-    setEditEnabled((v) => {
-      const next = !v;
-      if (next) {
-        if (!modeOk) {
-          setStatusText('控制点修改仅支持线/面要素');
-          return false;
-        }
+    const defaultY = inferDefaultY(activeCoords);
+    const importedCoords = buildArrayEditorCoords(activeCoords, defaultY);
+    const importedText = stringifyArrayEditorCoords(importedCoords);
 
-        // 开启 edit
-        setAddEnabled(false);
-        setAddPanelOpen(false);
+    setArrayDefaultY(defaultY);
+    setArrayText(importedText);
+    setArrayAppliedText(importedText);
+    setArrayUndoStack([]);
+    setArrayRedoStack([]);
+    setArrayValidated(true);
+    setArrayValidatedCoords(importedCoords);
+    setArrayEditorOpen(true);
+    onSetDrawClickSuppressed?.(true);
+    setStatusText('数组编辑已开启：当前控制点数组已导入并标记为“已校验”');
+  }, [arrayEditorOpen, arrayGeometryType, editEnabled, addEnabled, activeCoords, onSetDrawClickSuppressed]);
 
-        setEditPanelOpen(true);
-        setSelectedIndex(null);
+  const closeArrayEditorNow = useCallback(() => {
+    resetArrayEditorState();
+    if (!(editEnabled || addEnabled)) {
+      onSetDrawClickSuppressed?.(false);
+    }
+  }, [resetArrayEditorState, editEnabled, addEnabled, onSetDrawClickSuppressed]);
 
-        // 开启会话副本（未保存）
-        setWorkingCoords(activeCoords.slice());
-        setUndoStack([]);
-        setRedoStack([]);
+  const tryCloseArrayEditor = useCallback(() => {
+    if (arrayDirty) {
+      const ok = window.confirm('数组编辑中存在未应用的修改，确定关闭并放弃这些修改吗？');
+      if (!ok) return false;
+    }
+    closeArrayEditorNow();
+    return true;
+  }, [arrayDirty, closeArrayEditorNow]);
 
-        // 强制显示控制点 + 锁定
-        forceShowControlPointsOn();
+  const validateArrayEditor = useCallback(() => {
+    if (!arrayGeometryType) {
+      window.alert('当前没有可校验的要素类型。');
+      return;
+    }
 
-        // 屏蔽绘制区 click 加点
-        onSetDrawClickSuppressed?.(true);
+    try {
+      const parsed = parseArrayEditorCoords(arrayText, arrayGeometryType, arrayDefaultY);
+      setArrayValidated(true);
+      setArrayValidatedCoords(parsed.coords);
+      setStatusText(`数组校验通过：当前控制点数 ${parsed.coords.length}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '数组校验失败';
+      setArrayValidated(false);
+      setArrayValidatedCoords(null);
+      window.alert(message);
+    }
+  }, [arrayGeometryType, arrayText, arrayDefaultY]);
 
-        setStatusText('控制点修改已开启：点击控制点后，再点击地图设置新位置');
-      } else {
-        // 关闭 edit：若有修改，提醒丢弃
-        tryClosePanelDiscard('edit');
-      }
-      return next;
+  const applyArrayEditorToDraft = useCallback(() => {
+    if (!arrayValidated || !arrayValidatedCoords) return false;
+
+    const applied = arrayValidatedCoords.map((p) => ({ ...p }));
+    onApplyActiveCoords?.(applied);
+    setWorkingCoords(applied);
+    setSelectedIndex(null);
+    setArrayAppliedText(arrayText);
+    setStatusText(`已应用数组编辑结果：当前控制点数 ${applied.length}`);
+    return true;
+  }, [arrayValidated, arrayValidatedCoords, onApplyActiveCoords, arrayText]);
+
+  const finishArrayEditor = useCallback(() => {
+    if (!arrayValidated) return;
+    if (arrayDirty) {
+      const ok = applyArrayEditorToDraft();
+      if (!ok) return;
+    }
+    closeArrayEditorNow();
+  }, [arrayValidated, arrayDirty, applyArrayEditorToDraft, closeArrayEditorNow]);
+
+  const doArrayUndo = useCallback(() => {
+    setArrayUndoStack((u) => {
+      if (!u.length) return u;
+      const last = u[u.length - 1];
+      setArrayText((current) => {
+        setArrayRedoStack((r) => [...r, current]);
+        return last;
+      });
+      setArrayValidated(false);
+      setArrayValidatedCoords(null);
+      return u.slice(0, u.length - 1);
     });
+  }, []);
+
+  const doArrayRedo = useCallback(() => {
+    setArrayRedoStack((r) => {
+      if (!r.length) return r;
+      const last = r[r.length - 1];
+      setArrayText((current) => {
+        setArrayUndoStack((u) => [...u, current]);
+        return last;
+      });
+      setArrayValidated(false);
+      setArrayValidatedCoords(null);
+      return r.slice(0, r.length - 1);
+    });
+  }, []);
+
+  const canArrayReverse = useMemo(() => {
+    return Boolean(arrayValidated && arrayValidatedCoords && arrayValidatedCoords.length >= 2);
+  }, [arrayValidated, arrayValidatedCoords]);
+
+  const doArrayReverse = useCallback(() => {
+    if (!canArrayReverse || !arrayValidatedCoords) return;
+    const reversed = arrayValidatedCoords.slice().reverse();
+    setArrayUndoStack((u) => [...u, arrayText]);
+    setArrayRedoStack([]);
+    setArrayText(stringifyArrayEditorCoords(reversed));
+    setArrayValidated(false);
+    setArrayValidatedCoords(null);
+    setStatusText('数组编辑：已执行反转，请重新校验后再应用');
+  }, [canArrayReverse, arrayValidatedCoords, arrayText]);
+
+  const tryCloseToolPanel = useCallback(() => {
+    if (arrayEditorOpen) {
+      const ok = tryCloseArrayEditor();
+      if (!ok) return;
+    }
+
+    if (editEnabled && editPanelOpen) {
+      const ok = tryClosePanelDiscard('edit');
+      if (!ok) return;
+    }
+
+    if (addEnabled && addPanelOpen) {
+      const ok = tryClosePanelDiscard('add');
+      if (!ok) return;
+    }
+
+    setToolPanelOpen(false);
+    setStatusText('');
+  }, [arrayEditorOpen, tryCloseArrayEditor, editEnabled, editPanelOpen, addEnabled, addPanelOpen, tryClosePanelDiscard]);
+
+  // -------- 互斥开关：控制点修改 / 控制点添加 --------
+  const toggleEdit = useCallback(() => {
+    if (arrayEditorOpen) {
+      setStatusText('数组编辑开启中，其他控制点功能已锁定');
+      return;
+    }
+
+    if (addEnabled || addPanelOpen) {
+      const closed = tryClosePanelDiscard('add');
+      if (!closed) return;
+    }
+
+    if (editEnabled) {
+      tryClosePanelDiscard('edit');
+      return;
+    }
+
+    if (!modeOk) {
+      setStatusText('控制点修改仅支持线/面要素');
+      return;
+    }
+
+    setAddEnabled(false);
+    setAddPanelOpen(false);
+
+    setEditEnabled(true);
+    setEditPanelOpen(true);
+    setSelectedIndex(null);
+    setWorkingCoords(activeCoords.slice());
+    setUndoStack([]);
+    setRedoStack([]);
+
+    forceShowControlPointsOn();
+    onSetDrawClickSuppressed?.(true);
+
+    setStatusText('控制点修改已开启：点击控制点后，再点击地图设置新位置');
   }, [
+    arrayEditorOpen,
     addEnabled,
     addPanelOpen,
     tryClosePanelDiscard,
+    editEnabled,
     modeOk,
     activeCoords,
     forceShowControlPointsOn,
@@ -709,58 +948,53 @@ useEffect(() => {
   ]);
 
   const toggleAdd = useCallback(() => {
-    // 若正在修改，先关闭修改（按互斥逻辑）
-    if (editEnabled || editPanelOpen) {
-      tryClosePanelDiscard('edit');
+    if (arrayEditorOpen) {
+      setStatusText('数组编辑开启中，其他控制点功能已锁定');
+      return;
     }
 
-    setAddEnabled((v) => {
-      const next = !v;
-      if (next) {
-        if (!modeOk) {
-          setStatusText('控制点添加仅支持线/面要素');
-          return false;
-        }
+    if (editEnabled || editPanelOpen) {
+      const closed = tryClosePanelDiscard('edit');
+      if (!closed) return;
+    }
 
-        // 开启 add
-        setEditEnabled(false);
-        setEditPanelOpen(false);
-        setSelectedIndex(null);
+    if (addEnabled) {
+      tryClosePanelDiscard('add');
+      return;
+    }
 
-        setAddPanelOpen(true);
+    if (!modeOk) {
+      setStatusText('控制点添加仅支持线/面要素');
+      return;
+    }
 
-        // 开启会话副本（未保存）
-        setWorkingCoords(activeCoords.slice());
-        setUndoStack([]);
-        setRedoStack([]);
+    setEditEnabled(false);
+    setEditPanelOpen(false);
+    setSelectedIndex(null);
 
-        // 强制显示控制点 + 锁定
-        forceShowControlPointsOn();
+    setAddEnabled(true);
+    setAddPanelOpen(true);
+    setWorkingCoords(activeCoords.slice());
+    setUndoStack([]);
+    setRedoStack([]);
 
-        // 屏蔽绘制区 click 加点
-        onSetDrawClickSuppressed?.(true);
+    forceShowControlPointsOn();
+    onSetDrawClickSuppressed?.(true);
+    onEnterAddModeConfigureAssistLine?.();
 
-        // 按需求：重置并配置参考线为“选择要素=当前要素，阈值=50”
-        onEnterAddModeConfigureAssistLine?.();
-
-        setStatusText(`控制点添加已开启：点击地图将按最近点插入（阈值 ${ADD_SNAP_MAX_DIST}）`);
-      } else {
-        // 关闭 add：若有修改，提醒丢弃
-        tryClosePanelDiscard('add');
-      }
-      return next;
-    });
+    setStatusText(`控制点添加已开启：点击地图将按最近点插入（阈值 ${ADD_SNAP_MAX_DIST}）`);
   }, [
+    arrayEditorOpen,
     editEnabled,
     editPanelOpen,
     tryClosePanelDiscard,
+    addEnabled,
     modeOk,
     activeCoords,
     forceShowControlPointsOn,
     onSetDrawClickSuppressed,
     onEnterAddModeConfigureAssistLine,
   ]);
-
 
   // -------- 关闭时清理 overlay/markers --------
   useEffect(() => {
@@ -769,41 +1003,48 @@ useEffect(() => {
     vertexGroupRef.current?.clearLayers();
     overlayGroupRef.current?.clearLayers();
     clearSession();
-    // 退出后确保解除主控件 click 屏蔽
-    onSetDrawClickSuppressed?.(false);
+    if (!arrayEditorOpen) {
+      onSetDrawClickSuppressed?.(false);
+    }
     restoreShowControlPoints();
-  }, [editEnabled, addEnabled, clearSession, onSetDrawClickSuppressed, restoreShowControlPoints]);
+  }, [editEnabled, addEnabled, arrayEditorOpen, clearSession, onSetDrawClickSuppressed, restoreShowControlPoints]);
+
+  useEffect(() => {
+    return () => {
+      onSetDrawClickSuppressed?.(false);
+      onExitAddModeRestoreAssistLine?.();
+    };
+  }, [onSetDrawClickSuppressed, onExitAddModeRestoreAssistLine]);
 
   useImperativeHandle(
     ref,
     () => ({
-      isBusy: () => Boolean(editEnabled || addEnabled),
+      isBusy: () => Boolean(editEnabled || addEnabled || arrayEditorOpen),
       getMode: () => (editEnabled ? 'edit' : addEnabled ? 'add' : 'none'),
     }),
-    [editEnabled, addEnabled]
+    [editEnabled, addEnabled, arrayEditorOpen]
   );
 
   const canEdit = useMemo(() => modeOk && activeCoords.length >= 1, [modeOk, activeCoords.length]);
   const canAdd = useMemo(() => modeOk && activeCoords.length >= 2, [modeOk, activeCoords.length]);
+  const canArrayEdit = useMemo(() => Boolean(arrayGeometryType) && activeCoords.length >= 1, [arrayGeometryType, activeCoords.length]);
 
-  // 控制点反转：线/面 且 控制点数 > 2 时可用；edit/add 启动时禁用避免冲突
   const busy = useMemo(() => Boolean(editEnabled || addEnabled), [editEnabled, addEnabled]);
 
   const canReverse = useMemo(() => {
     if (!modeOk) return false;
-    if (activeCoords.length <= 1) return false; // “超过两个控制点”
-    if (busy) return false; // edit/add 启动中禁用
-    if (!onApplyActiveCoords) return false; // 没有回写通道则禁用
+    if (activeCoords.length <= 1) return false;
+    if (busy) return false;
+    if (arrayEditorOpen) return false;
+    if (!onApplyActiveCoords) return false;
     return true;
-  }, [modeOk, activeCoords.length, busy, onApplyActiveCoords]);
+  }, [modeOk, activeCoords.length, busy, arrayEditorOpen, onApplyActiveCoords]);
 
   const doReverse = useCallback(() => {
     if (!canReverse) return;
 
-    // 关键：reverse() 会原地修改数组，因此必须先 copy 再 reverse :contentReference[oaicite:1]{index=1}
     const base = activeCoords.slice();
 
-    // 兼容：若 polygon 意外包含闭合点（首尾相同），先去掉末尾闭合点再处理
     if (activeMode === 'polygon' && base.length >= 2 && samePoint(base[0], base[base.length - 1])) {
       base.pop();
     }
@@ -814,79 +1055,155 @@ useEffect(() => {
     setStatusText('已执行：控制点顺序反转');
   }, [canReverse, activeCoords, activeMode, onApplyActiveCoords]);
 
-
   return (
     <div className="mt-2">
-      {/* 主按钮行：在参考线按钮下面，仅 3 个按键 */}
       <div className="flex flex-wrap items-center gap-2">
         <AppButton
           type="button"
           className={`px-2 py-1 rounded text-xs border flex items-center gap-1 ${
-            editEnabled ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-gray-800 border-gray-300'
-          } ${canEdit ? '' : 'opacity-50 cursor-not-allowed'}`}
-          onClick={() => {
-            if (!canEdit) {
-              setStatusText('控制点修改：需要线/面要素且至少 1 个控制点');
-              return;
-            }
-            toggleEdit();
-          }}
-          title="控制点修改"
-        >
-          <Pencil size={14} />
-          控制点修改
-        </AppButton>
-
-        <AppButton
-          type="button"
-          className={`px-2 py-1 rounded text-xs border flex items-center gap-1 ${
-            addEnabled ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-gray-800 border-gray-300'
-          } ${canAdd ? '' : 'opacity-50 cursor-not-allowed'}`}
-          onClick={() => {
-            if (!canAdd) {
-              setStatusText('控制点添加：需要线/面要素且至少 2 个控制点');
-              return;
-            }
-            toggleAdd();
-          }}
-          title="控制点添加"
-        >
-          <Plus size={14} />
-          控制点添加
-        </AppButton>
-
-        <AppButton
-          type="button"
-          className={`px-2 py-1 rounded text-xs border flex items-center gap-1 ${
-            canReverse ? 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50' : 'opacity-50 cursor-not-allowed bg-white text-gray-800 border-gray-300'
+            toolPanelOpen || editEnabled || addEnabled || arrayEditorOpen
+              ? 'bg-blue-600 text-white border-blue-700'
+              : 'bg-white text-gray-800 border-gray-300'
           }`}
           onClick={() => {
-            if (!canReverse) {
-              if (busy) {
-                setStatusText('控制点反转：控制点修改/添加启动中，为避免冲突已禁用');
-                return;
-              }
-              setStatusText('控制点反转：需要线/面要素且控制点数 > 2');
+            if (toolPanelOpen) {
+              tryCloseToolPanel();
               return;
             }
-            doReverse();
+            setToolPanelOpen(true);
           }}
-          disabled={!canReverse}
-          title="控制点反转"
+          title="控制点工具"
         >
-          <ArrowLeftRight size={14} />
-          控制点反转
+          <Pencil size={14} />
+          控制点工具
         </AppButton>
-
-
-        {(editEnabled || addEnabled) && dirty && <div className="text-xs text-orange-700">未保存修改</div>}
       </div>
 
-      {statusText && <div className="mt-2 text-xs text-gray-700">{statusText}</div>}
+      {toolPanelOpen && (
+        <DraggablePanel id="cpT-main-panel" defaultPosition={{ x: 16, y: 320 }} zIndex={1840}>
+          <AppCard className="w-[360px] overflow-hidden border">
+            <div className="flex items-center justify-between px-4 py-3 border-b">
+              <h3 className="font-bold text-gray-800">控制点工具</h3>
+              <AppButton
+                onClick={tryCloseToolPanel}
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
+                aria-label="关闭"
+                title="关闭"
+                type="button"
+              >
+                <X className="w-4 h-4" />
+              </AppButton>
+            </div>
 
-      {/* 控制点修改窗口 */}
+            <div className="p-3 space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <AppButton
+                  type="button"
+                  className={`px-2 py-2 rounded text-sm border flex items-center justify-center gap-1 ${
+                    editEnabled ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-gray-800 border-gray-300'
+                  } ${canEdit && !arrayEditorOpen ? '' : 'opacity-50 cursor-not-allowed'}`}
+                  onClick={() => {
+                    if (arrayEditorOpen) {
+                      setStatusText('数组编辑开启中，控制点修改已锁定');
+                      return;
+                    }
+                    if (!canEdit) {
+                      setStatusText('控制点修改：需要线/面要素且至少 1 个控制点');
+                      return;
+                    }
+                    toggleEdit();
+                  }}
+                  title="控制点修改"
+                >
+                  <Pencil size={14} />
+                  控制点修改
+                </AppButton>
+
+                <AppButton
+                  type="button"
+                  className={`px-2 py-2 rounded text-sm border flex items-center justify-center gap-1 ${
+                    addEnabled ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-gray-800 border-gray-300'
+                  } ${canAdd && !arrayEditorOpen ? '' : 'opacity-50 cursor-not-allowed'}`}
+                  onClick={() => {
+                    if (arrayEditorOpen) {
+                      setStatusText('数组编辑开启中，控制点添加已锁定');
+                      return;
+                    }
+                    if (!canAdd) {
+                      setStatusText('控制点添加：需要线/面要素且至少 2 个控制点');
+                      return;
+                    }
+                    toggleAdd();
+                  }}
+                  title="控制点添加"
+                >
+                  <Plus size={14} />
+                  控制点添加
+                </AppButton>
+
+                <AppButton
+                  type="button"
+                  className={`px-2 py-2 rounded text-sm border flex items-center justify-center gap-1 ${
+                    canReverse ? 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50' : 'opacity-50 cursor-not-allowed bg-white text-gray-800 border-gray-300'
+                  }`}
+                  onClick={() => {
+                    if (arrayEditorOpen) {
+                      setStatusText('数组编辑开启中，控制点反转已锁定');
+                      return;
+                    }
+                    if (!canReverse) {
+                      if (busy) {
+                        setStatusText('控制点反转：控制点修改/添加启动中，为避免冲突已禁用');
+                        return;
+                      }
+                      setStatusText('控制点反转：需要线/面要素且控制点数 ≥ 2');
+                      return;
+                    }
+                    doReverse();
+                  }}
+                  disabled={!canReverse}
+                  title="控制点反转"
+                >
+                  <ArrowLeftRight size={14} />
+                  控制点反转
+                </AppButton>
+
+                <AppButton
+                  type="button"
+                  className={`px-2 py-2 rounded text-sm border flex items-center justify-center gap-1 ${
+                    arrayEditorOpen ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-gray-800 border-gray-300'
+                  } ${canArrayEdit && !busy ? '' : 'opacity-50 cursor-not-allowed'}`}
+                  onClick={() => {
+                    if (busy) {
+                      setStatusText('请先结束控制点修改或控制点添加，再进入数组编辑');
+                      return;
+                    }
+                    if (!canArrayEdit) {
+                      setStatusText('数组编辑：当前没有可导入的控制点');
+                      return;
+                    }
+                    if (arrayEditorOpen) {
+                      tryCloseArrayEditor();
+                      return;
+                    }
+                    openArrayEditor();
+                  }}
+                  title="数组编辑"
+                >
+                  数组编辑
+                </AppButton>
+              </div>
+
+              {(editEnabled || addEnabled) && dirty && <div className="text-xs text-orange-700">未保存修改</div>}
+              {arrayEditorOpen && <div className="text-xs text-blue-700">数组编辑开启中，其他控制点功能已锁定</div>}
+              {statusText && <div className="text-xs text-gray-700">{statusText}</div>}
+            </div>
+          </AppCard>
+        </DraggablePanel>
+      )}
+
       {editEnabled && editPanelOpen && (
-        <DraggablePanel id="cpT-edit-panel" defaultPosition={{ x: 16, y: 320 }} zIndex={1850}>
+        <DraggablePanel id="cpT-edit-panel" defaultPosition={{ x: 16, y: 470 }} zIndex={1850}>
           <AppCard className="w-80 overflow-hidden border">
             <div className="flex items-center justify-between px-4 py-3 border-b">
               <h3 className="font-bold text-gray-800">控制点修改</h3>
@@ -950,9 +1267,8 @@ useEffect(() => {
         </DraggablePanel>
       )}
 
-      {/* 控制点添加窗口 */}
       {addEnabled && addPanelOpen && (
-        <DraggablePanel id="cpT-add-panel" defaultPosition={{ x: 16, y: 320 }} zIndex={1850}>
+        <DraggablePanel id="cpT-add-panel" defaultPosition={{ x: 16, y: 470 }} zIndex={1850}>
           <AppCard className="w-80 overflow-hidden border">
             <div className="flex items-center justify-between px-4 py-3 border-b">
               <h3 className="font-bold text-gray-800">控制点添加</h3>
@@ -1009,6 +1325,112 @@ useEffect(() => {
               </div>
 
               <div className="text-[11px] text-gray-500">当前控制点数：{sessionCoords.length}</div>
+            </div>
+          </AppCard>
+        </DraggablePanel>
+      )}
+
+      {arrayEditorOpen && (
+        <DraggablePanel id="cpT-array-editor-panel" defaultPosition={{ x: 392, y: 320 }} zIndex={1860}>
+          <AppCard className="w-[420px] overflow-hidden border">
+            <div className="flex items-center justify-between px-4 py-3 border-b">
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-gray-800">数组编辑</h3>
+                {arrayValidated && <span className="text-[11px] px-2 py-0.5 rounded bg-green-100 text-green-700">已校验</span>}
+              </div>
+              <AppButton
+                onClick={tryCloseArrayEditor}
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
+                aria-label="关闭"
+                title="关闭"
+                type="button"
+              >
+                <X className="w-4 h-4" />
+              </AppButton>
+            </div>
+
+            <div className="p-3 space-y-3">
+              <AppButton
+                type="button"
+                className={`px-3 py-2 rounded text-sm border flex items-center justify-center gap-1 ${
+                  canArrayReverse ? 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50' : 'opacity-50 cursor-not-allowed bg-white text-gray-800 border-gray-300'
+                }`}
+                onClick={() => {
+                  if (!canArrayReverse) return;
+                  doArrayReverse();
+                }}
+                disabled={!canArrayReverse}
+                title="反转"
+              >
+                <ArrowLeftRight size={14} />
+                反转
+              </AppButton>
+
+              <textarea
+                value={arrayText}
+                onChange={(e) => recordArrayTextChange(e.target.value)}
+                className="w-full h-56 px-3 py-2 border rounded text-sm font-mono"
+                placeholder="请输入严格 JSON 数组，例如：[[1,-64,2],[3,-64,4]]"
+              />
+
+              <div className="flex gap-2">
+                <AppButton
+                  className={`flex-1 px-2 py-2 rounded-lg text-sm bg-yellow-400 text-white flex items-center justify-center gap-2 ${
+                    arrayUndoStack.length ? '' : 'opacity-50 cursor-not-allowed'
+                  }`}
+                  onClick={doArrayUndo}
+                  disabled={!arrayUndoStack.length}
+                  type="button"
+                >
+                  <Undo2 className="w-4 h-4" />
+                  撤回
+                </AppButton>
+
+                <AppButton
+                  className={`flex-1 px-2 py-2 rounded-lg text-sm bg-orange-400 text-white flex items-center justify-center gap-2 ${
+                    arrayRedoStack.length ? '' : 'opacity-50 cursor-not-allowed'
+                  }`}
+                  onClick={doArrayRedo}
+                  disabled={!arrayRedoStack.length}
+                  type="button"
+                >
+                  <Redo2 className="w-4 h-4" />
+                  恢复
+                </AppButton>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <AppButton
+                  className={`px-2 py-2 rounded-lg text-sm ${arrayValidated ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white'}`}
+                  onClick={validateArrayEditor}
+                  disabled={arrayValidated}
+                  type="button"
+                >
+                  校验
+                </AppButton>
+
+                <AppButton
+                  className={`px-2 py-2 rounded-lg text-sm ${arrayValidated ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
+                  onClick={applyArrayEditorToDraft}
+                  disabled={!arrayValidated}
+                  type="button"
+                >
+                  应用
+                </AppButton>
+
+                <AppButton
+                  className={`px-2 py-2 rounded-lg text-sm ${arrayValidated ? 'bg-emerald-700 text-white' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
+                  onClick={finishArrayEditor}
+                  disabled={!arrayValidated}
+                  type="button"
+                >
+                  完成
+                </AppButton>
+              </div>
+
+              <div className="text-[11px] text-gray-500">
+                仅支持严格 [x,y,z] JSON 数组；点/线/面的最小控制点数会在校验时检查。
+              </div>
             </div>
           </AppCard>
         </DraggablePanel>

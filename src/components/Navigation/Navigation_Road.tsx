@@ -18,6 +18,7 @@
 import type { Coordinate } from '@/types';
 import type { RouteHighlightData, RouteStyledSegment, RouteStationMarker } from '@/components/Map/RouteHighlightLayer';
 import { RULE_DATA_SOURCES, type WorldRuleDataSource } from '@/components/Rules/data/ruleDataSources';
+import { loadEffectiveRuleItemsForWorld } from '@/components/Rules/data/effectiveRuleItems';
 
 // ------------------------------
 // types
@@ -201,14 +202,9 @@ function coordKey2D(c: Coordinate, eps: number, level: number): string {
 }
 
 
-function fetchJsonArray(url: string, fetcher?: (url: string) => Promise<any[]>) {
-  if (fetcher) return fetcher(url);
-  return fetch(url).then(async (res) => {
-    if (!res.ok) throw new Error(`fetch failed: ${res.status} ${url}`);
-    const data = await res.json();
-    return Array.isArray(data) ? data : [];
-  });
-}
+
+
+
 
 // ------------------------------
 // load & parse ROD
@@ -234,70 +230,6 @@ type RoadFeature = {
 
 const ROD_CACHE: Record<string, { key: string; roads: RoadFeature[]; loadedAt: number }> = {};
 
-// 临时挂载（MeasuringModule）
-const TEMP_RULE_SOURCES_KEY = 'ria_temp_rule_sources_v1';
-// 每次写入临时挂载源时 bump 的 revision（用于让道路图缓存感知内容更新，即使 items 数量不变）
-const TEMP_RULE_SOURCES_REV_KEY = 'ria_temp_rule_sources_v1_rev';
-const TEMP_RULE_OVERRIDE_IDS_KEY = 'ria_temp_rule_override_ids_v1';
-
-type TempRuleSource = {
-  uid: string;
-  worldId: string;
-  enabled: boolean;
-  items: any[];
-};
-
-function readTempSources(worldId: string): TempRuleSource[] {
-  try {
-    const raw = localStorage.getItem(TEMP_RULE_SOURCES_KEY);
-    if (!raw) return [];
-    const obj = JSON.parse(raw);
-    const list = (obj?.[worldId] ?? []) as any[];
-    if (!Array.isArray(list)) return [];
-    return list
-      .filter((x) => x && typeof x === 'object')
-      .map((x) => ({
-        uid: String((x as any).uid ?? ''),
-        worldId: String((x as any).worldId ?? worldId),
-        enabled: Boolean((x as any).enabled),
-        items: Array.isArray((x as any).items) ? (x as any).items : [],
-      }))
-      .filter((x) => x.uid && x.worldId === worldId);
-  } catch {
-    return [];
-  }
-}
-
-function readTempOverrideIds(worldId: string): Set<string> {
-  try {
-    const raw = localStorage.getItem(TEMP_RULE_OVERRIDE_IDS_KEY);
-    if (!raw) return new Set();
-    const obj = JSON.parse(raw);
-    const list = (obj?.[worldId] ?? []) as any[];
-    if (!Array.isArray(list)) return new Set();
-    return new Set(list.map((x) => String(x ?? '').trim()).filter((s) => s));
-  } catch {
-    return new Set();
-  }
-}
-
-function readTempSourcesRev(): string {
-  try {
-    return localStorage.getItem(TEMP_RULE_SOURCES_REV_KEY) ?? '';
-  } catch {
-    return '';
-  }
-}
-
-function hashString(s: string): string {
-  // djb2
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) {
-    h = ((h << 5) + h) ^ s.charCodeAt(i);
-  }
-  // 32-bit
-  return String(h >>> 0);
-}
 
 function parseRoadFromRaw(it: any): RoadFeature | null {
   const Class = String(it?.Class ?? '').trim().toUpperCase();
@@ -373,63 +305,31 @@ async function loadRoadFeatures(worldId: string, opt: {
   dataSourceOverride?: Partial<WorldRuleDataSource>;
   filesOverride?: string[];
   fetcher?: (url: string) => Promise<any[]>;
-}): Promise<RoadFeature[]> {
+}): Promise<{ roads: RoadFeature[]; signature: string }> {
   const base = RULE_DATA_SOURCES[worldId];
-  if (!base) return [];
+  if (!base) return { roads: [], signature: `eff::${worldId}::none` };
 
   const ds: WorldRuleDataSource = {
     baseUrl: opt.dataSourceOverride?.baseUrl ?? base.baseUrl,
     files: opt.filesOverride ?? opt.dataSourceOverride?.files ?? base.files,
+    sourceMode: (opt.dataSourceOverride as any)?.sourceMode ?? base.sourceMode,
+    pictureSourceMode: (opt.dataSourceOverride as any)?.pictureSourceMode ?? base.pictureSourceMode,
   };
 
-  // 将临时挂载源纳入 cache key，确保挂载/取消挂载后能触发重新读取与重建。
-  const enabledTemps = readTempSources(worldId).filter((t) => t.enabled);
-  const tempRev = enabledTemps.length > 0 ? readTempSourcesRev() : '';
-  const rawTemp = (() => {
-    try {
-      // 仅纳入“启用的源”的结构信息（避免 key 过长）
-      return JSON.stringify(enabledTemps.map((t) => ({ uid: t.uid, n: (t.items?.length ?? 0) })));
-    } catch {
-      return '';
-    }
-  })();
-  const overrideIds = enabledTemps.length > 0 ? readTempOverrideIds(worldId) : new Set<string>();
-  const rawOverride = enabledTemps.length > 0 ? JSON.stringify(Array.from(overrideIds).sort()) : '';
-
-  const key = `${ds.baseUrl}::${(ds.files ?? []).join('|')}::temp=${hashString(rawTemp)}::rev=${tempRev}::ovr=${hashString(rawOverride)}`;
+  const effective = await loadEffectiveRuleItemsForWorld(worldId, { fetcher: opt.fetcher });
+  const key = `${ds.baseUrl}::${(ds.files ?? []).join('|')}::src=${ds.sourceMode ?? 'pub'}::sig=${effective.signature}`;
   const cached = ROD_CACHE[worldId];
-  if (cached && cached.key === key && Array.isArray(cached.roads)) return cached.roads;
+  if (cached && cached.key === key && Array.isArray(cached.roads)) return { roads: cached.roads, signature: effective.signature };
 
   const out: RoadFeature[] = [];
-
-  // (A) 固定数据源：若存在 overrideIds（且至少有 enabled temp），则屏蔽同 ID 要素
-  for (const f of ds.files ?? []) {
-    const url = `${ds.baseUrl}/${f}`;
-    let arr: any[] = [];
-    try {
-      arr = await fetchJsonArray(url, opt.fetcher);
-    } catch {
-      continue;
-    }
-    for (const it of arr) {
-      const parsed = parseRoadFromRaw(it);
-      if (!parsed) continue;
-      if (overrideIds.size > 0 && overrideIds.has(parsed.id)) continue;
-      out.push(parsed);
-    }
-  }
-
-  // (B) 临时挂载源（MeasuringModule）：直接并入（与铁路要素同预期）
-  for (const src of enabledTemps) {
-    for (const it of src.items ?? []) {
-      const parsed = parseRoadFromRaw(it);
-      if (!parsed) continue;
-      out.push(parsed);
-    }
+  for (const it of effective.items) {
+    const parsed = parseRoadFromRaw(it);
+    if (!parsed) continue;
+    out.push(parsed);
   }
 
   ROD_CACHE[worldId] = { key, roads: out, loadedAt: Date.now() };
-  return out;
+  return { roads: out, signature: effective.signature };
 }
 
 /**
@@ -437,26 +337,15 @@ async function loadRoadFeatures(worldId: string, opt: {
  * - 若数据源未变更，会命中内部 cache，不会重复做重活。
  */
 export async function rebuildRoadGraphCacheForWorld(worldId: string, eps: number = DEFAULT_EPS): Promise<void> {
-  const roads = await loadRoadFeatures(worldId, {});
+  const loaded = await loadRoadFeatures(worldId, {});
+  const roads = loaded.roads;
   if (!roads.length) return;
   const base = RULE_DATA_SOURCES[worldId];
   const ds: WorldRuleDataSource = {
     baseUrl: base?.baseUrl ?? '',
     files: base?.files ?? [],
   };
-  // cache key 需与 computeRoadPlanFromCoords 一致（包含 eps + 临时挂载 hash）
-  const enabledTemps = readTempSources(worldId).filter((t) => t.enabled);
-  const tempRev = enabledTemps.length > 0 ? readTempSourcesRev() : '';
-  const rawTemp = (() => {
-    try {
-      return JSON.stringify(enabledTemps.map((t) => ({ uid: t.uid, n: (t.items?.length ?? 0) })));
-    } catch {
-      return '';
-    }
-  })();
-  const overrideIds = enabledTemps.length > 0 ? readTempOverrideIds(worldId) : new Set<string>();
-  const rawOverride = enabledTemps.length > 0 ? JSON.stringify(Array.from(overrideIds).sort()) : '';
-  const cacheKey = `road::${worldId}::${ds.baseUrl}::${(ds.files ?? []).join('|')}::temp=${hashString(rawTemp)}::rev=${tempRev}::ovr=${hashString(rawOverride)}::eps=${eps}`;
+  const cacheKey = `road::${worldId}::${ds.baseUrl}::${(ds.files ?? []).join('|')}::sig=${loaded.signature}::eps=${eps}`;
   const built = buildRoadGraph(roads, eps);
   built.key = cacheKey;
   ROAD_GRAPH_CACHE[cacheKey] = built;
@@ -1477,11 +1366,12 @@ export async function computeRoadPlanFromCoords(opt: NavigationRoadComputeOption
   const elytraThreshold = Math.max(0, Number.isFinite(Number(opt.elytraThreshold)) ? Number(opt.elytraThreshold) : 50);
 
   // 1) load roads
-  const roads = await loadRoadFeatures(worldId, {
+  const loadedRoads = await loadRoadFeatures(worldId, {
     dataSourceOverride: opt.dataSourceOverride,
     filesOverride: opt.filesOverride,
     fetcher: opt.fetcher,
   });
+  const roads = loadedRoads.roads;
   if (!roads.length) {
     return {
       ok: false,
@@ -1504,19 +1394,8 @@ export async function computeRoadPlanFromCoords(opt: NavigationRoadComputeOption
     baseUrl: opt.dataSourceOverride?.baseUrl ?? base?.baseUrl ?? '',
     files: opt.filesOverride ?? opt.dataSourceOverride?.files ?? base?.files ?? [],
   };
-  // 将临时挂载/覆盖屏蔽纳入 road graph cache key
-  const enabledTemps = readTempSources(worldId).filter((t) => t.enabled);
-  const tempRev = enabledTemps.length > 0 ? readTempSourcesRev() : '';
-  const rawTemp = (() => {
-    try {
-      return JSON.stringify(enabledTemps.map((t) => ({ uid: t.uid, n: (t.items?.length ?? 0) })));
-    } catch {
-      return '';
-    }
-  })();
-  const overrideIds = enabledTemps.length > 0 ? readTempOverrideIds(worldId) : new Set<string>();
-  const rawOverride = enabledTemps.length > 0 ? JSON.stringify(Array.from(overrideIds).sort()) : '';
-  const cacheKey = `road::${worldId}::${ds.baseUrl}::${(ds.files ?? []).join('|')}::temp=${hashString(rawTemp)}::rev=${tempRev}::ovr=${hashString(rawOverride)}::eps=${eps}`;
+  // 将“当前有效规则数据集合”的签名纳入道路图缓存 key
+  const cacheKey = `road::${worldId}::${ds.baseUrl}::${(ds.files ?? []).join('|')}::sig=${loadedRoads.signature}::eps=${eps}`;
   let g = ROAD_GRAPH_CACHE[cacheKey];
   if (!g) {
     const built = buildRoadGraph(roads, eps);

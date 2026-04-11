@@ -5,9 +5,9 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, MapPin, Navigation, RefreshCw, Users } from 'lucide-react';
+import { MapPin, Navigation, RefreshCw, Users } from 'lucide-react';
 import type { Player } from '@/types';
-import { fetchPlayers } from '@/lib/playerApi';
+import { fetchPlayersDetailed } from '@/lib/playerApi';
 import { getPlayerAvatarUrl } from '@/components/Map/PlayerLayer';
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
@@ -27,12 +27,21 @@ export function PlayersList({
 }: PlayersListProps) {
   const [players, setPlayers] = useState<Player[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // 加载玩家数据
   const loadPlayers = useCallback(async () => {
-    const data = await fetchPlayers(worldId);
-    setPlayers(data);
-    setLoading(false);
+    setLoading(true);
+    try {
+      const result = await fetchPlayersDetailed(worldId);
+      setPlayers(result.players);
+      setLoadError(result.error);
+    } catch (error) {
+      setPlayers([]);
+      setLoadError(String((error as Error)?.message ?? error ?? '玩家信息读取失败'));
+    } finally {
+      setLoading(false);
+    }
   }, [worldId]);
 
   // 初始加载和自动刷新
@@ -46,29 +55,35 @@ export function PlayersList({
 
   return (
     <AppCard className="w-full sm:w-72 max-h-[50vh] flex flex-col">
+      <button
+        type="button"
+        onClick={onClose}
+        data-draggable-close
+        aria-label="关闭"
+        title="关闭"
+        className="hidden"
+        tabIndex={-1}
+      />
       {/* 头部 */}
-      <div className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <Users className="w-5 h-5 text-cyan-500" />
-          <h3 className="font-bold text-gray-800">在线玩家</h3>
-          <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+      <div className="flex items-center gap-3 border-b px-4 py-3 pr-28 flex-shrink-0">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <Users className="h-5 w-5 shrink-0 text-cyan-500" />
+          <h3 className="truncate font-bold text-gray-800" data-draggable-title>
+            在线玩家
+          </h3>
+          <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
             {players.length}
           </span>
         </div>
-        <div className="flex items-center gap-1">
+
+        <div className="flex shrink-0 items-center">
           <AppButton
             onClick={loadPlayers}
             disabled={loading}
-            className={`p-1.5 hover:bg-gray-100 rounded text-gray-400 hover:text-gray-600 ${loading ? 'animate-spin' : ''}`}
+            className="rounded p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-50"
             title="刷新"
           >
-            <RefreshCw className="w-4 h-4" />
-          </AppButton>
-          <AppButton
-            onClick={onClose}
-            className="p-1.5 hover:bg-gray-100 rounded text-gray-400 hover:text-gray-600"
-          >
-            <X className="w-4 h-4" />
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           </AppButton>
         </div>
       </div>
@@ -79,7 +94,7 @@ export function PlayersList({
           <div className="text-center py-6 text-sm text-gray-500">加载中...</div>
         ) : players.length === 0 ? (
           <div className="text-center py-6 text-sm text-gray-500">
-            当前没有在线玩家
+            {loadError ? `玩家信息读取失败：${loadError}` : '当前没有在线玩家'}
           </div>
         ) : (
           <div className="divide-y">
@@ -114,7 +129,7 @@ function PlayerItem({ player, worldId, onSelect, onNavigate }: PlayerItemProps) 
   const healthPercent = (player.health / 20) * 100;
 
   return (
-    <div className="px-3 py-2 hover:bg-gray-50 flex items-center gap-3">
+    <div className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50">
       {/* 头像 */}
       <AppButton
         onClick={() => onSelect?.(player)}
@@ -125,7 +140,8 @@ function PlayerItem({ player, worldId, onSelect, onNavigate }: PlayerItemProps) 
           alt={player.name}
           className="w-8 h-8 rounded-full border-2 border-cyan-500"
           onError={(e) => {
-            (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%2306b6d4"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>';
+            (e.target as HTMLImageElement).src =
+              'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%2306b6d4"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>';
           }}
         />
       </AppButton>
@@ -134,13 +150,13 @@ function PlayerItem({ player, worldId, onSelect, onNavigate }: PlayerItemProps) 
       <div className="flex-1 min-w-0">
         <AppButton
           onClick={() => onSelect?.(player)}
-          className="text-sm font-medium text-gray-800 hover:text-cyan-600 transition-colors block truncate"
+          className="block truncate text-sm font-medium text-gray-800 transition-colors hover:text-cyan-600"
         >
           {player.name}
         </AppButton>
-        <div className="flex items-center gap-2 mt-0.5">
+        <div className="mt-0.5 flex items-center gap-2">
           {/* 生命值小条 */}
-          <div className="w-12 h-1 bg-gray-200 rounded-full overflow-hidden">
+          <div className="h-1 w-12 overflow-hidden rounded-full bg-gray-200">
             <div
               className="h-full bg-red-500"
               style={{ width: `${healthPercent}%` }}
@@ -156,7 +172,7 @@ function PlayerItem({ player, worldId, onSelect, onNavigate }: PlayerItemProps) 
       <div className="flex items-center gap-1">
         <AppButton
           onClick={() => onSelect?.(player)}
-          className="p-1.5 hover:bg-gray-200 rounded text-gray-400 hover:text-cyan-600"
+          className="rounded p-1.5 text-gray-400 hover:bg-gray-200 hover:text-cyan-600"
           title="定位"
         >
           <MapPin className="w-4 h-4" />
@@ -164,7 +180,7 @@ function PlayerItem({ player, worldId, onSelect, onNavigate }: PlayerItemProps) 
         {onNavigate && (
           <AppButton
             onClick={() => onNavigate(player)}
-            className="p-1.5 hover:bg-gray-200 rounded text-gray-400 hover:text-blue-600"
+            className="rounded p-1.5 text-gray-400 hover:bg-gray-200 hover:text-blue-600"
             title="导航"
           >
             <Navigation className="w-4 h-4" />

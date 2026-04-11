@@ -9,7 +9,8 @@
  * 覆盖对象：STA / STB / PLF / RLE（同时兼容 SBP 作为 building 参与 station 关系）。
  */
 
-import { RULE_DATA_SOURCES, type WorldRuleDataSource } from '../Rules/data/ruleDataSources';
+import { RULE_DATA_SOURCES, normalizeRuleSourceWorldId, type WorldRuleDataSource } from '../Rules/data/ruleDataSources';
+import { loadEffectiveRuleItemsForWorld } from '../Rules/data/effectiveRuleItems';
 
 // ===== Lines[] 布尔字段过滤开关（true: 字段为 false 则视为“不包含”；false: 忽略该字段） =====
 // 说明：此开关用于信息卡/导航等“包含线路”聚合逻辑的过滤策略。
@@ -174,87 +175,41 @@ function splitIds(v: any): string[] {
 }
 
 function normalizeWorldId(worldId: string): string {
-  const wid = str(worldId);
-  if (!wid) return wid;
-
-  if ((RULE_DATA_SOURCES as any)[wid]) return wid;
-
-  // 兼容数字世界：0..4（与 Navigation_RailNewIntegrated.tsx 一致）
-  if (/^\d+$/.test(wid)) {
-    const n = parseInt(wid, 10);
-    if (n === 0) return 'zth';
-    if (n === 1) return 'naraku';
-    if (n === 2) return 'houtu';
-    if (n === 3) return 'eden';
-    if (n === 4) return 'laputa';
-    return wid;
-  }
-
-  const map: Record<string, string> = {
-    零洲: 'zth',
-    奈落: 'naraku',
-    后土: 'houtu',
-    伊甸: 'eden',
-    拉普塔: 'laputa',
-  };
-  return map[wid] ?? wid;
+  return normalizeRuleSourceWorldId(worldId);
 }
 
-function makeRuleCacheKey(wid: string, merged: WorldRuleDataSource): string {
+function makeRuleCacheKey(wid: string, merged: WorldRuleDataSource, signature: string): string {
   const files = Array.isArray(merged.files) ? merged.files : [];
-  return `${wid}::${merged.baseUrl ?? ''}::${files.join('|')}`;
+  return `${wid}::${merged.baseUrl ?? ''}::${files.join('|')}::sig=${signature}`;
 }
 
-async function defaultFetcher(url: string): Promise<any[]> {
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
-  const data = await resp.json();
-  return Array.isArray(data) ? data : [];
-}
-
-async function loadRuleItems(worldId: string): Promise<any[]> {
+async function loadRuleItems(worldId: string): Promise<{ items: any[]; cacheKey: string }> {
   const wid = normalizeWorldId(worldId);
   const base = RULE_DATA_SOURCES[wid];
   const merged: WorldRuleDataSource = {
     baseUrl: base?.baseUrl ?? '/data/JSON',
     files: base?.files ?? [],
+    sourceMode: base?.sourceMode ?? 'pub',
+    pictureSourceMode: base?.pictureSourceMode ?? base?.sourceMode ?? 'pub',
   };
 
-  const cacheKey = makeRuleCacheKey(wid, merged);
+  const effective = await loadEffectiveRuleItemsForWorld(wid);
+  const cacheKey = makeRuleCacheKey(wid, merged, effective.signature);
   const cached = RULE_ITEMS_CACHE.get(cacheKey);
-  if (cached) return cached;
+  if (cached) return { items: cached, cacheKey };
 
   const pending = RULE_ITEMS_PENDING.get(cacheKey);
-  if (pending) return pending;
+  if (pending) return { items: await pending, cacheKey };
 
   const p = (async () => {
-    const items: any[] = [];
-    if (!merged.files || merged.files.length === 0) {
-      RULE_ITEMS_CACHE.set(cacheKey, items);
-      return items;
-    }
-    const results = await Promise.all(
-      merged.files.map(async (file) => {
-        const url = `${merged.baseUrl.replace(/\/$/, '')}/${file}`;
-        try {
-          return await defaultFetcher(url);
-        } catch {
-          // 单文件失败不中断（与导航/RuleLayer 一致）
-          return [];
-        }
-      })
-    );
-    for (const arr of results) {
-      if (!Array.isArray(arr)) continue;
-      for (const it of arr) items.push(it);
-    }
+    const items = effective.items;
     RULE_ITEMS_CACHE.set(cacheKey, items);
     return items;
   })();
 
   RULE_ITEMS_PENDING.set(cacheKey, p);
   try {
-    return await p;
+    return { items: await p, cacheKey };
   } finally {
     RULE_ITEMS_PENDING.delete(cacheKey);
   }
@@ -517,10 +472,9 @@ function buildStationBuildingIndex(stas: Map<string, RailSta>, buildings: Map<st
 
 export async function loadRailNewIndex(worldId: string): Promise<RailNewIndex> {
   const wid = normalizeWorldId(worldId);
-  const cached = RAIL_INDEX_CACHE.get(wid);
+  const { items, cacheKey } = await loadRuleItems(wid);
+  const cached = RAIL_INDEX_CACHE.get(cacheKey);
   if (cached) return cached;
-
-  const items = await loadRuleItems(wid);
 
   const stas = parseSta(items);
   const plfs = parsePlf(items);
@@ -538,6 +492,10 @@ export async function loadRailNewIndex(worldId: string): Promise<RailNewIndex> {
     buildingToStations,
   };
 
-  RAIL_INDEX_CACHE.set(wid, idx);
+  RAIL_INDEX_CACHE.set(cacheKey, idx);
   return idx;
+}
+
+export async function rebuildRailNewIndexCacheForWorld(worldId: string): Promise<void> {
+  await loadRailNewIndex(worldId);
 }

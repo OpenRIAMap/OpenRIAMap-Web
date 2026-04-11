@@ -35,6 +35,7 @@
 
 import type { Coordinate } from '@/types';
 import { RULE_DATA_SOURCES, type WorldRuleDataSource } from '@/components/Rules/data/ruleDataSources';
+import { loadEffectiveRuleItemsForWorld } from '@/components/Rules/data/effectiveRuleItems';
 
 // ------------------------------
 // 公共输出类型：供 NavigationPanel / RouteHighlightLayer 使用
@@ -580,12 +581,6 @@ function concatCoordsSafe(a: Coordinate[], b: Coordinate[]): Coordinate[] {
 // 加载 Rule JSON（只读 STA/PLF/STB/SBP/RLE）
 // ------------------------------
 
-async function defaultFetcher(url: string): Promise<any[]> {
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
-  const data = await resp.json();
-  return Array.isArray(data) ? data : [];
-}
 
 function normalizeWorldId(worldId: string): string {
   const wid = String(worldId ?? '').trim();
@@ -620,12 +615,12 @@ type RuleLoadOptions = Pick<NavigationRailComputeOptions, 'dataSourceOverride' |
   strict?: boolean;
 };
 
-function makeRuleCacheKey(wid: string, merged: WorldRuleDataSource): string {
+function makeRuleCacheKey(wid: string, merged: WorldRuleDataSource, signature: string): string {
   const files = Array.isArray(merged.files) ? merged.files : [];
-  return `${wid}::${merged.baseUrl ?? ''}::${files.join('|')}`;
+  return `${wid}::${merged.baseUrl ?? ''}::${files.join('|')}::sig=${signature}`;
 }
 
-function resolveRuleSource(worldId: string, opt: RuleLoadOptions) {
+async function resolveRuleSource(worldId: string, opt: RuleLoadOptions) {
   const wid = normalizeWorldId(worldId);
   const base = RULE_DATA_SOURCES[wid];
 
@@ -634,78 +629,30 @@ function resolveRuleSource(worldId: string, opt: RuleLoadOptions) {
     files: opt.filesOverride ?? opt.dataSourceOverride?.files ?? base?.files ?? [],
   };
 
-  const cacheKey = makeRuleCacheKey(wid, merged);
-  return { wid, merged, cacheKey };
+  const effective = await loadEffectiveRuleItemsForWorld(wid, { fetcher: opt.fetcher });
+  const cacheKey = makeRuleCacheKey(wid, merged, effective.signature);
+  return { wid, merged, cacheKey, items: effective.items as RawItem[] };
 }
 
 async function loadRuleItems(worldId: string, opt: RuleLoadOptions): Promise<any[]> {
-  const { wid, merged, cacheKey } = resolveRuleSource(worldId, opt);
-
-  if (opt.strict && merged.files.length === 0) {
-    throw new Error(`RULE_DATA_SOURCES[${wid}] 未配置 files（worldId=${worldId} -> ${wid}），无法加载 STB/STA/PLF/RLE`);
-  }
-
+  const { cacheKey, items } = await resolveRuleSource(worldId, opt);
   const allowCache = !opt.fetcher;
   if (allowCache) {
     const cached = RULE_ITEMS_CACHE.get(cacheKey);
-    if (cached) {
-      if (opt.strict && cached.length === 0) {
-        throw new Error(
-          `未能从任何文件加载到 Rule JSON（worldId=${worldId} -> ${wid}）。` +
-            `请检查 baseUrl=${merged.baseUrl} 与 files 是否 404/路径不一致。`
-        );
-      }
-      return cached;
-    }
+    if (cached) return cached;
     const pending = RULE_ITEMS_PENDING.get(cacheKey);
-    if (pending) {
-      const items = await pending;
-      if (opt.strict && items.length === 0) {
-        throw new Error(
-          `未能从任何文件加载到 Rule JSON（worldId=${worldId} -> ${wid}）。` +
-            `请检查 baseUrl=${merged.baseUrl} 与 files 是否 404/路径不一致。`
-        );
-      }
-      return items;
-    }
+    if (pending) return pending;
   }
 
-  const fetcher = opt.fetcher ?? defaultFetcher;
-  const items: RawItem[] = [];
-
-  let loadedAnyFile = false;
-
   const loadPromise = (async () => {
-    const results = await Promise.all(
-      merged.files.map(async (file) => {
-        const url = `${merged.baseUrl.replace(/\/$/, '')}/${file}`;
-        try {
-          const arr = await fetcher(url);
-          return Array.isArray(arr) ? arr : [];
-        } catch {
-          // 允许单文件失败不中断（与 RuleLayer 行为一致）
-          return [];
-        }
-      })
-    );
-
-    for (const arr of results) {
-      if (arr.length > 0) loadedAnyFile = true;
-      for (const it of arr) items.push(it);
+    const result = items;
+    if (opt.strict && result.length === 0) {
+      throw new Error(`未能从当前世界数据集加载到 Rule JSON（worldId=${worldId}）。请确认 Data 仓库 world 数据集、临时挂载数据或兼容 public 数据可用。`);
     }
-
-    if (opt.strict && !loadedAnyFile) {
-      throw new Error(
-        `未能从任何文件加载到 Rule JSON（worldId=${worldId} -> ${wid}）。` +
-          `请检查 baseUrl=${merged.baseUrl} 与 files 是否 404/路径不一致。`
-      );
-    }
-
-    return items;
+    return result as RawItem[];
   })();
 
   if (allowCache) RULE_ITEMS_PENDING.set(cacheKey, loadPromise);
-
   try {
     const result = await loadPromise;
     if (allowCache) RULE_ITEMS_CACHE.set(cacheKey, result);
@@ -716,7 +663,7 @@ async function loadRuleItems(worldId: string, opt: RuleLoadOptions): Promise<any
 }
 
 async function loadRuleParsed(worldId: string, opt: RuleLoadOptions): Promise<RuleParsedBundle> {
-  const { cacheKey } = resolveRuleSource(worldId, opt);
+  const { cacheKey } = await resolveRuleSource(worldId, opt);
   const allowCache = !opt.fetcher;
   if (allowCache) {
     const cached = RULE_PARSED_CACHE.get(cacheKey);
@@ -2522,7 +2469,7 @@ export async function computeRailPlanBetweenBuildings(opt: NavigationRailCompute
     // ------------------------------
     const interEnabled = opt.interCompEnabled ?? true;
     if (interEnabled) {
-      const { cacheKey } = resolveRuleSource(opt.worldId, opt);
+      const { cacheKey } = await resolveRuleSource(opt.worldId, opt);
 
       const prep = await prepareInterComponentRouting(opt, {
         cacheKey,
@@ -2705,6 +2652,11 @@ export function getBuildingDisplayInfo(worldBuildings: Map<string, Building>, id
   return { name: b.name, point: b.representativePoint };
 }
 
+
+
+export async function rebuildRailNewNavigationCacheForWorld(worldId: string): Promise<void> {
+  await loadRuleParsed(worldId, {});
+}
 
 // ------------------------------
 // 新增：从“任意起终点坐标”直接计算（集成 Start + Rail）

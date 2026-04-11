@@ -268,8 +268,7 @@ export default function SettlementBoundaryLineWorkflow(props: WorkflowComponentP
     }
 
     if (step !== 'draw') {
-      bridgeRef.current.setDrawMode('none');
-      bridgeRef.current.clearTempPoints();
+      bridgeRef.current.suspendDrawMode();
       setSaveError('');
       return;
     }

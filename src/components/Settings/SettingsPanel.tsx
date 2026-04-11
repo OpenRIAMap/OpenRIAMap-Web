@@ -1,9 +1,9 @@
 /**
  * 设置面板组件
- * 显示缓存状态、PWA 状态等信息
+ * 显示 Rules 世界版本、缓存状态、PWA 状态等信息
  */
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { X, RefreshCw, Trash2, Database, Smartphone, CheckCircle, AlertCircle, Loader2, Download } from 'lucide-react';
 
 // PWA 安装事件类型
@@ -13,6 +13,15 @@ interface BeforeInstallPromptEvent extends Event {
 }
 import { useDataStore } from '@/store/dataStore';
 import { useLoadingStore } from '@/store/loadingStore';
+import { useRuleDataStore } from '@/store/ruleDataStore';
+import { downloadDataToolSchema } from '@/components/Common/exportDataToolSchema';
+import { fetchWorldMergeVersion } from '@/components/Rules/data/worldRuleDatasetLoader';
+import {
+  calculateRuleCacheSize,
+  clearAllRuleWorldCaches,
+  getRuleWorldFeatureCount,
+  readRuleWorldMeta,
+} from '@/components/Rules/data/worldRuleCache';
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
 
@@ -20,10 +29,36 @@ interface SettingsPanelProps {
   onClose: () => void;
 }
 
+type RuleWorldRow = {
+  worldId: string;
+  name: string;
+  remoteVersion: string;
+  remoteOk: boolean;
+  localVersion: string | null;
+  cachedAt: number | null;
+  featureCount: number | null;
+  isLoaded: boolean;
+};
+
+const RULE_WORLDS: Array<{ id: string; name: string }> = [
+  { id: 'zth', name: '零洲' },
+  { id: 'eden', name: '伊甸' },
+  { id: 'naraku', name: '奈落洲' },
+  { id: 'houtu', name: '后土洲' },
+  { id: 'laputa', name: '拉普塔' },
+];
+
 export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const { cacheInfo, clearCache, forceRefresh, updateCacheInfo } = useDataStore();
-  const { startLoading, updateStage, finishLoading } = useLoadingStore();
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const { startLoading, updateStage, finishLoading, isLoading, activeFlowId, activeRuleWorldId } = useLoadingStore();
+  const datasets = useRuleDataStore((s) => s.datasets);
+  const refreshWorlds = useRuleDataStore((s) => s.refreshWorlds);
+
+  const [isRefreshingRules, setIsRefreshingRules] = useState(false);
+  const [isRefreshingLegacy, setIsRefreshingLegacy] = useState(false);
+  const [isSyncingRules, setIsSyncingRules] = useState(false);
+  const [ruleCacheSize, setRuleCacheSize] = useState(0);
+  const [ruleWorldRows, setRuleWorldRows] = useState<RuleWorldRow[]>([]);
   const [pwaStatus, setPwaStatus] = useState<{
     isInstalled: boolean;
     canInstall: boolean;
@@ -35,6 +70,51 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   });
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
+
+  const anyRefreshBusy = isRefreshingRules || isRefreshingLegacy || isSyncingRules;
+  const rulesRefreshBlocked = anyRefreshBusy || (isLoading && !!activeRuleWorldId);
+  const legacyRefreshBlocked = anyRefreshBusy || (isLoading && !!activeRuleWorldId) || (isLoading && activeFlowId === 'legacy-refresh');
+
+  const buildRuleWorldRow = (worldId: string, remoteVersion: string, remoteOk: boolean): RuleWorldRow => {
+    const meta = readRuleWorldMeta(worldId);
+    const loadedDataset = datasets[worldId];
+    const loadedFeatureCount = Array.isArray(loadedDataset?.features) ? loadedDataset.features.length : null;
+    return {
+      worldId,
+      name: RULE_WORLDS.find((item) => item.id === worldId)?.name ?? worldId,
+      remoteVersion,
+      remoteOk,
+      localVersion: meta ? String(meta.mergeVersion) : null,
+      cachedAt: meta?.cachedAt ?? null,
+      featureCount: loadedFeatureCount ?? getRuleWorldFeatureCount(worldId),
+      isLoaded: !!loadedDataset,
+    };
+  };
+
+  const syncRuleWorldRows = async () => {
+    setIsSyncingRules(true);
+    try {
+      const rows = await Promise.all(
+        RULE_WORLDS.map(async (world) => {
+          try {
+            const remoteVersion = await fetchWorldMergeVersion(world.id);
+            return buildRuleWorldRow(world.id, String(remoteVersion), true);
+          } catch {
+            return buildRuleWorldRow(world.id, '读取失败', false);
+          }
+        })
+      );
+      setRuleWorldRows(rows);
+      setRuleCacheSize(calculateRuleCacheSize());
+    } finally {
+      setIsSyncingRules(false);
+    }
+  };
+
+  const syncRuleWorldRowsFromLocal = () => {
+    setRuleWorldRows((prev) => prev.map((row) => buildRuleWorldRow(row.worldId, row.remoteVersion, row.remoteOk)));
+    setRuleCacheSize(calculateRuleCacheSize());
+  };
 
   // 检查 PWA 状态
   useEffect(() => {
@@ -83,11 +163,17 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 
     // 更新缓存信息
     updateCacheInfo();
+    syncRuleWorldRows();
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     };
   }, [updateCacheInfo]);
+
+  useEffect(() => {
+    if (ruleWorldRows.length === 0) return;
+    syncRuleWorldRowsFromLocal();
+  }, [datasets]);
 
   // 格式化文件大小
   const formatSize = (bytes: number): string => {
@@ -121,10 +207,47 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     return `${hours} 小时后`;
   };
 
-  // 刷新数据
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
+  const getRuleRowStatus = (row: RuleWorldRow): { text: string; className: string; icon: 'ok' | 'warn' | 'none' } => {
+    if (!row.remoteOk) return { text: '远端读取失败', className: 'text-orange-600', icon: 'warn' };
+    if (!row.localVersion) return { text: row.isLoaded ? '仅内存已加载' : '未缓存', className: 'text-gray-600', icon: 'none' };
+    if (String(row.localVersion) === String(row.remoteVersion)) return { text: '已缓存', className: 'text-green-600', icon: 'ok' };
+    return { text: '缓存待刷新', className: 'text-orange-600', icon: 'warn' };
+  };
 
+  // 刷新当前主数据（Rules）
+  const handleRefreshRules = async () => {
+    if (rulesRefreshBlocked) return;
+    setIsRefreshingRules(true);
+    try {
+      const cachedWorldIds = RULE_WORLDS
+        .map((world) => world.id)
+        .filter((worldId) => !!readRuleWorldMeta(worldId));
+      const loadedWorldIds = Object.keys(datasets);
+      const targetWorldIds = Array.from(new Set([...cachedWorldIds, ...loadedWorldIds]));
+
+      if (targetWorldIds.length > 0) {
+        await refreshWorlds(targetWorldIds);
+        syncRuleWorldRowsFromLocal();
+      }
+      await syncRuleWorldRows();
+    } finally {
+      setIsRefreshingRules(false);
+    }
+  };
+
+  // 清除当前主数据缓存（Rules）
+  const handleClearRuleCache = async () => {
+    if (!confirm('确定要清除当前世界数据缓存吗？已加载到内存的数据会在后续按需重新缓存。')) return;
+    clearAllRuleWorldCaches();
+    await syncRuleWorldRows();
+  };
+
+  // 刷新兼容旧数据源
+  const handleRefreshLegacy = async () => {
+    if (legacyRefreshBlocked) return;
+    setIsRefreshingLegacy(true);
+
+    const legacyFlowId = 'legacy-refresh';
     startLoading([
       { name: 'bureaus', label: '铁路局配置' },
       { name: 'zth-railway', label: '零洲铁路数据' },
@@ -139,24 +262,42 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
       { name: 'eden-landmark', label: '伊甸地标数据' },
       { name: 'laputa-railway', label: '拉普塔铁路数据' },
       { name: 'laputa-landmark', label: '拉普塔地标数据' },
-    ]);
+    ], { flowId: legacyFlowId });
 
-    await forceRefresh((stage, status) => {
-      updateStage(stage, status);
-    });
+    try {
+      await forceRefresh((stage, status) => {
+        updateStage(stage, status);
+      });
 
-    setTimeout(() => {
-      finishLoading();
-      setIsRefreshing(false);
-    }, 500);
+      setTimeout(() => {
+        const latest = useLoadingStore.getState();
+        if (latest.isLoading && latest.activeFlowId === legacyFlowId && !latest.activeRuleWorldId) {
+          latest.finishLoading();
+        }
+        setIsRefreshingLegacy(false);
+        updateCacheInfo();
+      }, 500);
+    } catch (e) {
+      const latest = useLoadingStore.getState();
+      if (latest.isLoading && latest.activeFlowId === legacyFlowId && !latest.activeRuleWorldId) {
+        latest.finishLoading();
+      }
+      setIsRefreshingLegacy(false);
+      throw e;
+    }
   };
 
-  // 清除缓存
-  const handleClearCache = () => {
-    if (confirm('确定要清除所有缓存数据吗？下次打开时需要重新加载。')) {
+  // 清除兼容旧数据源缓存
+  const handleClearLegacyCache = () => {
+    if (confirm('确定要清除旧数据源缓存吗？下次使用对应旧模块时需要重新加载。')) {
       clearCache();
       updateCacheInfo();
     }
+  };
+
+  // 导出 Data Tool Schema
+  const handleExportDataSchema = () => {
+    downloadDataToolSchema();
   };
 
   // 安装 PWA
@@ -195,11 +336,93 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 
       {/* 内容 */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* 数据缓存 */}
+        {/* 世界数据版本 */}
         <div className="space-y-3">
           <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
             <Database className="w-4 h-4" />
-            <span>数据缓存</span>
+            <span>世界数据版本</span>
+          </div>
+
+          <div className="bg-gray-50 rounded-lg p-3 space-y-3 text-sm">
+            <div className="flex items-center justify-between text-xs text-gray-500">
+              <span>缓存大小</span>
+              <span>{formatSize(ruleCacheSize)}</span>
+            </div>
+
+            {isSyncingRules && ruleWorldRows.length === 0 ? (
+              <div className="flex items-center justify-center gap-2 py-4 text-gray-500">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>正在读取世界版本…</span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {ruleWorldRows.map((row) => {
+                  const status = getRuleRowStatus(row);
+                  return (
+                    <div key={row.worldId} className="rounded-md border border-gray-200 bg-white px-3 py-2 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-gray-800">{row.name}</span>
+                        <span className={`flex items-center gap-1 text-xs ${status.className}`}>
+                          {status.icon === 'ok' ? <CheckCircle className="w-3.5 h-3.5" /> : null}
+                          {status.icon === 'warn' ? <AlertCircle className="w-3.5 h-3.5" /> : null}
+                          {status.text}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-gray-600">
+                        <div className="flex justify-between gap-2">
+                          <span className="text-gray-500">远端版本</span>
+                          <span className="text-gray-700">{row.remoteVersion}</span>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                          <span className="text-gray-500">本地版本</span>
+                          <span className="text-gray-700">{row.localVersion ?? '—'}</span>
+                        </div>
+                        <div className="flex justify-between gap-2 col-span-2">
+                          <span className="text-gray-500">缓存时间</span>
+                          <span className="text-gray-700">{formatDate(row.cachedAt)}</span>
+                        </div>
+                        <div className="flex justify-between gap-2 col-span-2">
+                          <span className="text-gray-500">Features</span>
+                          <span className="text-gray-700">{row.featureCount ?? '—'}{row.isLoaded ? '（已加载）' : ''}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2">
+            <AppButton
+              onClick={handleRefreshRules}
+              disabled={rulesRefreshBlocked}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white text-sm rounded-lg transition-colors"
+            >
+              {isRefreshingRules ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+              <span>刷新数据</span>
+            </AppButton>
+
+            <AppButton
+              onClick={handleClearRuleCache}
+              disabled={rulesRefreshBlocked}
+              className="flex items-center justify-center gap-1.5 px-3 py-2 bg-gray-200 hover:bg-gray-300 disabled:bg-gray-100 text-gray-700 text-sm rounded-lg transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>清除缓存</span>
+            </AppButton>
+          </div>
+        </div>
+
+        {/* 兼容旧数据源 */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+            <Database className="w-4 h-4" />
+            <span>数据源缓存（兼容）</span>
           </div>
 
           <div className="bg-gray-50 rounded-lg p-3 space-y-2 text-sm">
@@ -236,24 +459,23 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             </div>
           </div>
 
-          {/* 操作按钮 */}
           <div className="flex gap-2">
             <AppButton
-              onClick={handleRefresh}
-              disabled={isRefreshing}
+              onClick={handleRefreshLegacy}
+              disabled={legacyRefreshBlocked}
               className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white text-sm rounded-lg transition-colors"
             >
-              {isRefreshing ? (
+              {isRefreshingLegacy ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <RefreshCw className="w-4 h-4" />
               )}
-              <span>刷新数据</span>
+              <span>数据源刷新</span>
             </AppButton>
 
             <AppButton
-              onClick={handleClearCache}
-              disabled={isRefreshing}
+              onClick={handleClearLegacyCache}
+              disabled={legacyRefreshBlocked}
               className="flex items-center justify-center gap-1.5 px-3 py-2 bg-gray-200 hover:bg-gray-300 disabled:bg-gray-100 text-gray-700 text-sm rounded-lg transition-colors"
             >
               <Trash2 className="w-4 h-4" />
@@ -316,10 +538,32 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
           )}
         </div>
 
+
+        {/* Data Tool Schema */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+            <Download className="w-4 h-4" />
+            <span>Data Tool Schema</span>
+          </div>
+
+          <div className="bg-gray-50 rounded-lg p-3 space-y-2 text-sm text-gray-600">
+            <p>导出当前 Web 注册体系对应的 data_tool_schema.json。</p>
+            <p>可提供给 OpenRIAMap-Data 的 Tool 进行 sync-web-schema 使用。</p>
+          </div>
+
+          <AppButton
+            onClick={handleExportDataSchema}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-sm rounded-lg transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            <span>导出 Data Schema</span>
+          </AppButton>
+        </div>
+
         {/* 关于 */}
         <div className="text-xs text-gray-400 text-center pt-2">
-          <p>数据每 7 天自动更新一次</p>
-          <p>也可以手动刷新获取最新数据</p>
+          <p>当前默认主数据源为 Rules 仓库数据</p>
+          <p>兼容旧数据源入口仍可手动刷新</p>
         </div>
       </div>
     </AppCard>

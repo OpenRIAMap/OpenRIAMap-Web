@@ -62,6 +62,9 @@ export type WorkflowBridge = {
   /** 切换绘制模式（none/point/polyline/polygon） */
   setDrawMode: (mode: 'none' | DrawMode) => void;
 
+  /** 暂停绘制但保留当前草稿（用于多页工作流返回上一步） */
+  suspendDrawMode: () => void;
+
   /** 设置绘制颜色（#rrggbb） */
   setDrawColor: (hex: string) => void;
 

@@ -64,8 +64,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_SB",
-    "staBuildingName": "山滨站",
+    "ID": "ZRTSTB_SB",
+    "Name": "山滨站",
     "Conpoints": [
       [
         7060.5,
@@ -168,8 +168,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_JC",
-    "staBuildingName": "旧城站",
+    "ID": "ZRTSTB_JC",
+    "Name": "旧城站",
     "Conpoints": [
       [
         6783.5,
@@ -257,8 +257,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_SL",
-    "staBuildingName": "杉林站",
+    "ID": "ZRTSTB_SL",
+    "Name": "杉林站",
     "Conpoints": [
       [
         6508.5,
@@ -326,8 +326,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_TM",
-    "staBuildingName": "天门站",
+    "ID": "ZRTSTB_TM",
+    "Name": "天门站",
     "Conpoints": [
       [
         5866.5,
@@ -435,8 +435,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_WB",
-    "staBuildingName": "湾北站",
+    "ID": "ZRTSTB_WB",
+    "Name": "湾北站",
     "Conpoints": [
       [
         5751.5,
@@ -536,8 +536,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_BSG",
-    "staBuildingName": "北溯工站",
+    "ID": "ZRTSTB_BSG",
+    "Name": "北溯工站",
     "Conpoints": [
       [
         5280.5,
@@ -645,8 +645,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_YY",
-    "staBuildingName": "原央站",
+    "ID": "ZRTSTB_YY",
+    "Name": "原央站",
     "Conpoints": [
       [
         5128.5,
@@ -830,8 +830,8 @@
     "ModifityBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_SYHA",
-    "staBuildingName": "四叶海岸站",
+    "ID": "ZRTSTB_SYHA",
+    "Name": "四叶海岸站",
     "Conpoints": [
       [
         4543.5,
@@ -901,8 +901,8 @@
     "ModifityBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_GLNJ",
-    "staBuildingName": "格兰南角站",
+    "ID": "ZRTSTB_GLNJ",
+    "Name": "格兰南角站",
     "Conpoints": [
       [
         4545.5,
@@ -972,8 +972,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_BLYH",
-    "staBuildingName": "白令运河站",
+    "ID": "ZRTSTB_BLYH",
+    "Name": "白令运河站",
     "Conpoints": [
       [
         4545.5,
@@ -1041,8 +1041,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_KLXJ",
-    "staBuildingName": "快乐小镇站",
+    "ID": "ZRTSTB_KLXJ",
+    "Name": "快乐小镇站",
     "Conpoints": [
       [
         3699.5,
@@ -1110,8 +1110,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_LSSS",
-    "staBuildingName": "岭上神社站",
+    "ID": "ZRTSTB_LSSS",
+    "Name": "岭上神社站",
     "Conpoints": [
       [
         3404.5,
@@ -1179,8 +1179,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_LSW",
-    "staBuildingName": "岭上西站",
+    "ID": "ZRTSTB_LSW",
+    "Name": "岭上西站",
     "Conpoints": [
       [
         3007.5,
@@ -1248,8 +1248,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_MZ",
-    "staBuildingName": "幕沼站",
+    "ID": "ZRTSTB_MZ",
+    "Name": "幕沼站",
     "Conpoints": [
       [
         2867.5,
@@ -1317,8 +1317,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_BGEH",
-    "staBuildingName": "白给二号站",
+    "ID": "ZRTSTB_BGEH",
+    "Name": "白给二号站",
     "Conpoints": [
       [
         2148.5,
@@ -1386,8 +1386,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_XT",
-    "staBuildingName": "星台站",
+    "ID": "ZRTSTB_XT",
+    "Name": "星台站",
     "Conpoints": [
       [
         1922.5,
@@ -1519,8 +1519,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_XQ",
-    "staBuildingName": "新桥站",
+    "ID": "ZRTSTB_XQ",
+    "Name": "新桥站",
     "Conpoints": [
       [
         1241.5,

@@ -8,6 +8,8 @@ import { loadMapSettings } from '@/lib/cookies';
 import type { FeatureRecord } from '@/components/Rules/rendering/renderRules';
 import { buildInfoSectionsForFeature, pickFeatureDisplayName } from '@/components/Rules/cardrules/fieldRules';
 import { buildPictureUrlsForFeature } from '@/components/Rules/cardrules/pictureRules';
+import { buildMinimalFeatureEditPackage } from '@/components/Mapping/core/minimalFeatureEditPackage';
+import { stringifyFeatureJsonArray } from '@/components/Common/featureJsonSerializer';
 import {
   isExternalLinkValue,
   isFeatureLinkValue,
@@ -16,6 +18,7 @@ import {
 } from '@/components/Rules/cardrules/cardInteractions';
 // 使用相对路径，避免不同构建环境下 @ 别名解析差异导致 TS2307。
 import { loadRailNewIndex, type RailNewIndex } from '@/components/Navigation/railNewIndex';
+import { X } from 'lucide-react';
 
 type Props = {
   open: boolean;
@@ -138,6 +141,22 @@ export default function FeatureInteractionCard(props: Props) {
   const title = useMemo(() => pickFeatureDisplayName(feature), [feature]);
 
   const [pictures, setPictures] = useState<string[]>(['/pictures/normal.png']);
+  const [measuringModeActive, setMeasuringModeActive] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return Boolean((window as any).__riaMeasuringActive);
+  });
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setMeasuringModeActive(Boolean((window as any).__riaMeasuringActive));
+    }
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent<any>).detail;
+      setMeasuringModeActive(Boolean(detail?.active));
+    };
+    window.addEventListener('ria:measuringActiveChanged', handler as EventListener);
+    return () => window.removeEventListener('ria:measuringActiveChanged', handler as EventListener);
+  }, []);
+
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -242,9 +261,9 @@ export default function FeatureInteractionCard(props: Props) {
     if (!feature) return '[]';
     // 以数组形式导出，便于直接作为“导入数据”的 JSON 内容
     try {
-      return JSON.stringify([feature.featureInfo ?? {}], null, 2);
+      return stringifyFeatureJsonArray([feature.featureInfo ?? {}]);
     } catch {
-      return JSON.stringify([{}], null, 2);
+      return stringifyFeatureJsonArray([{}]);
     }
   }, [feature]);
 
@@ -270,6 +289,12 @@ export default function FeatureInteractionCard(props: Props) {
     return `${id}.json`;
   }, [feature]);
 
+  const handleImportLayer = async () => {
+    const pkg = await buildMinimalFeatureEditPackage(feature);
+    if (!pkg) return;
+    window.dispatchEvent(new CustomEvent('ria:importFeatureEditPackage', { detail: pkg }));
+  };
+
   const handleJsonOpen = () => {
     if (variant === 'embedded' && onOpenJsonPanel) {
       onOpenJsonPanel({
@@ -283,22 +308,43 @@ export default function FeatureInteractionCard(props: Props) {
   };
 
   const cardBody = (
-    <AppCard className={cardClassName ?? 'w-[360px]'} onWheel={(e) => e.stopPropagation()}>
+    <AppCard
+      className={`${cardClassName ?? 'w-[360px]'}`}
+      onWheel={(e) => e.stopPropagation()}
+    >
         <div className="flex items-center justify-between px-3 py-2 border-b border-black/10">
-          <div className="text-sm font-semibold truncate" title={title}>
+          <div className="min-w-0 pr-2 text-sm font-semibold truncate" title={title} data-draggable-title>
             {title || '（未命名要素）'}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="ml-2 flex shrink-0 items-center gap-1">
+            {measuringModeActive ? (
+              <AppButton
+                className="min-w-[44px] px-2 py-1 text-xs bg-transparent hover:bg-black/5"
+                onClick={() => { void handleImportLayer(); }}
+                type="button"
+                title="导入图层"
+              >
+                导入
+              </AppButton>
+            ) : null}
             <AppButton
-              className="px-2 py-1 text-xs bg-transparent hover:bg-black/5"
+              className="min-w-[46px] px-2 py-1 text-xs bg-transparent hover:bg-black/5"
               onClick={handleJsonOpen}
               type="button"
             >
               JSON
             </AppButton>
+            {variant === 'embedded' ? null : <div className="w-9 shrink-0" aria-hidden="true" />}
             {variant === 'embedded' ? null : (
-              <AppButton className="px-2 py-1 text-xs bg-transparent hover:bg-black/5" onClick={onClose} type="button">
-                关闭
+              <AppButton
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-black/5 rounded"
+                onClick={onClose}
+                type="button"
+                aria-label="关闭"
+                title="关闭"
+                data-draggable-close
+              >
+                <X className="w-4 h-4" />
               </AppButton>
             )}
           </div>
@@ -338,8 +384,8 @@ export default function FeatureInteractionCard(props: Props) {
         </div>
 
         <div className="px-3 pb-3" onWheel={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
-          {/* 图片幕以下：统一纵向滚动（与常规信息卡一致），包含可插入的 midSection */}
-          <div className="mt-1 rounded-md border border-black/10 bg-white max-h-[60vh] overflow-y-auto">
+          {/* 图片幕以下：作为唯一滚动宿主承担内容滚动；外层卡片不再额外裁切，避免双层限高互相打架。 */}
+          <div className="mt-1 rounded-md border border-black/10 bg-white max-h-[46vh] overflow-y-auto">
             {midSection ? <div className="px-3 pt-3 pb-2">{midSection}</div> : null}
             {mainRows.length > 0 ? (
               mainRows.map((r, i) => {
@@ -548,22 +594,35 @@ export default function FeatureInteractionCard(props: Props) {
   return (
     <>
       {variant === 'embedded' ? cardBody : (
-        <DraggablePanel id="featureInteractionCard" defaultPosition={{ x: 16, y: 180 }}>
+        <DraggablePanel
+          id="featureInteractionCard"
+          defaultPosition={{ x: 16, y: 180 }}
+          stackGroup="feature-interaction"
+          stackGroupOrder={0}
+        >
           {cardBody}
         </DraggablePanel>
       )}
 
       {jsonOpen && (
-        <DraggablePanel id="featureJsonPanel" defaultPosition={{ x: 400, y: 200 }}>
+        <DraggablePanel
+          id="featureJsonPanel"
+          defaultPosition={{ x: 400, y: 200 }}
+          stackGroup="feature-interaction"
+          stackGroupOrder={1}
+        >
           <AppCard className="w-[420px] max-h-[70vh] overflow-hidden" onWheel={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-3 py-2 border-b border-black/10">
-              <div className="text-sm font-semibold">当前要素 JSON</div>
+              <div className="text-sm font-semibold" data-draggable-title>当前要素 JSON</div>
               <AppButton
-                className="px-2 py-1 text-xs bg-transparent hover:bg-black/5"
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-black/5 rounded"
                 onClick={() => setJsonOpen(false)}
                 type="button"
+                aria-label="关闭"
+                title="关闭"
+                data-draggable-close
               >
-                关闭
+                <X className="w-4 h-4" />
               </AppButton>
             </div>
 

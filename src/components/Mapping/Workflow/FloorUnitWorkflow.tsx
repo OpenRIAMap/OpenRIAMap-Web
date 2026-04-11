@@ -24,6 +24,7 @@ type Step = 'creator' | 'info' | 'draw';
 type InfoForm = {
   typeKey: string; // `${kind}|${skind}`
   name: string;
+  catAbbr: string; // 仅用于组装 ID 的所属分类代号（不落盘）
   abbr: string;
   nomenclator: string;
   wiki?: string;
@@ -197,6 +198,7 @@ export default function FloorUnitWorkflow(props: WorkflowComponentProps) {
   const [info, setInfo] = useState<InfoForm>({
     typeKey: '',
     name: '',
+    catAbbr: '',
     abbr: '',
     nomenclator: '',
     wiki: '',
@@ -277,8 +279,7 @@ export default function FloorUnitWorkflow(props: WorkflowComponentProps) {
     }
 
     if (step !== 'draw') {
-      bridgeRef.current.setDrawMode('none');
-      bridgeRef.current.clearTempPoints();
+      bridgeRef.current.suspendDrawMode();
       setSaveError('');
       return;
     }
@@ -452,6 +453,7 @@ export default function FloorUnitWorkflow(props: WorkflowComponentProps) {
           </label>
 
           <LabeledInput label="名称" value={info.name} placeholder="例如：站厅" onChange={(v) => setInfo((p) => ({ ...p, name: v }))} />
+          <LabeledInput label="所属分类代号（仅用于ID组装，可选）" value={info.catAbbr} placeholder="例如：HH" onChange={(v) => setInfo((p) => ({ ...p, catAbbr: v }))} />
           <LabeledInput label="字符简称（用于ID后缀）" value={info.abbr} placeholder="例如：HALL" onChange={(v) => setInfo((p) => ({ ...p, abbr: v }))} />
           <LabeledInput label="命名者（tags.nomenclator，可选）" value={info.nomenclator} placeholder="例如：YZ" onChange={(v) => setInfo((p) => ({ ...p, nomenclator: v }))} />
 
@@ -603,7 +605,7 @@ export default function FloorUnitWorkflow(props: WorkflowComponentProps) {
       </div>
 
       <div className="mt-3 text-xs text-gray-600">
-        将写入：ID = {worldPrefix}FLR{selected?.kind ?? '...'}{selected?.skind ?? '...'}_{abbrNormalized}；BuildingID = {String(info.buildingId ?? '').trim() || '...'}；NofFloor = {String(info.nofFloor ?? '').trim() || '...'}
+        将写入：ID = {worldPrefix}FLR{info.catAbbr ? `_${normalizeAbbr(info.catAbbr)}` : ''}_{abbrNormalized}；BuildingID = {String(info.buildingId ?? '').trim() || '...'}；NofFloor = {String(info.nofFloor ?? '').trim() || '...'}
       </div>
     </div>
   );

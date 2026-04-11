@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkflowBridge } from './WorkflowHost';
-import { RULE_DATA_SOURCES } from '@/components/Rules/data/ruleDataSources';
+import { loadRuleItemsForWorld } from '@/components/Rules/data/ruleDataSources';
+import { useRuleDataStore } from '@/store/ruleDataStore';
 
 type FeatureInfoAny = Record<string, any>;
 
@@ -30,47 +31,51 @@ type Props = {
   disabled?: boolean;
 };
 
-type Option = { id: string; name: string; display: string };
+export type SearchPoolOption = { id: string; name: string; display: string; className?: string };
 
-const POOL_CACHE: Record<string, Option[]> = {};
+const POOL_CACHE: Record<string, SearchPoolOption[]> = {};
 
-async function fetchJsonArray(url: string): Promise<any[]> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`fetch failed: ${res.status} ${url}`);
-  const data = await res.json();
-  return Array.isArray(data) ? data : [];
+export function buildWorkflowSearchOptionsFromFeatures(features: FeatureInfoAny[], cfg: SearchSelectConfig): SearchPoolOption[] {
+  const out: SearchPoolOption[] = [];
+  for (const item of features) {
+    if (!item || typeof item !== 'object') continue;
+    const fi = item as FeatureInfoAny;
+    if (!cfg.filter(fi)) continue;
+    const id = String(cfg.getId(fi) ?? '').trim();
+    const name = String(cfg.getName(fi) ?? '').trim();
+    if (!id || !name) continue;
+    out.push({
+      id,
+      name,
+      display: cfg.formatOption(name, id),
+      className: String(fi?.Class ?? '').trim() || undefined,
+    });
+  }
+  return out;
 }
 
-async function loadPool(worldId: string, cfg: SearchSelectConfig, bridge: WorkflowBridge): Promise<Option[]> {
-  const cacheId = `${worldId}::${cfg.cacheKey}`;
+export function filterWorkflowSearchOptions(pool: SearchPoolOption[], q: string, limit = 50): SearchPoolOption[] {
+  const s = q.trim().toLowerCase();
+  if (!s) return pool.slice(0, limit);
+  return pool
+    .filter((o) =>
+      o.name.toLowerCase().includes(s) ||
+      o.id.toLowerCase().includes(s) ||
+      o.display.toLowerCase().includes(s) ||
+      String(o.className ?? '').toLowerCase().includes(s)
+    )
+    .slice(0, limit);
+}
+
+async function loadPool(worldId: string, cfg: SearchSelectConfig, bridge: WorkflowBridge, datasetLoadedAt: number): Promise<SearchPoolOption[]> {
+  const cacheId = `${worldId}::${cfg.cacheKey}::${datasetLoadedAt}`;
   if (POOL_CACHE[cacheId]) return POOL_CACHE[cacheId];
 
-  const out: Option[] = [];
+  const out: SearchPoolOption[] = [];
 
-  // (1) 预加载规则数据：RULE_DATA_SOURCES
-  const ds = (RULE_DATA_SOURCES as any)?.[worldId];
-  if (ds && ds.baseUrl && Array.isArray(ds.files)) {
-    for (const f of ds.files as string[]) {
-      const url = `${ds.baseUrl}/${f}`;
-      let arr: any[] = [];
-      try {
-        arr = await fetchJsonArray(url);
-      } catch {
-        continue;
-      }
-      for (const item of arr) {
-        if (!item || typeof item !== 'object') continue;
-        const fi = item as FeatureInfoAny;
-        if (!cfg.filter(fi)) continue;
-        const id = String(cfg.getId(fi) ?? '').trim();
-        const name = String(cfg.getName(fi) ?? '').trim();
-        if (!id || !name) continue;
-        out.push({ id, name, display: cfg.formatOption(name, id) });
-      }
-    }
-  }
+  const arr = await loadRuleItemsForWorld(worldId);
+  out.push(...buildWorkflowSearchOptionsFromFeatures(arr as FeatureInfoAny[], cfg));
 
-  // (2) 当前已绘制但未预加载挂载的数据（可选）：bridge.getCommittedLayerJsonInfos
   const committed = bridge.getCommittedLayerJsonInfos?.() ?? [];
   for (const j of committed) {
     const fi = (j?.featureInfo ?? {}) as FeatureInfoAny;
@@ -79,11 +84,10 @@ async function loadPool(worldId: string, cfg: SearchSelectConfig, bridge: Workfl
     const id = String(cfg.getId(fi) ?? '').trim();
     const name = String(cfg.getName(fi) ?? '').trim();
     if (!id || !name) continue;
-    out.push({ id, name, display: cfg.formatOption(name, id) });
+    out.push({ id, name, display: cfg.formatOption(name, id), className: String(fi?.Class ?? '').trim() || undefined });
   }
 
-  // 去重（以 id 为主键）
-  const map = new Map<string, Option>();
+  const map = new Map<string, SearchPoolOption>();
   for (const o of out) map.set(o.id, o);
   const list = Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'));
 
@@ -91,17 +95,12 @@ async function loadPool(worldId: string, cfg: SearchSelectConfig, bridge: Workfl
   return list;
 }
 
-function matchOption(o: Option, q: string) {
-  const s = q.trim().toLowerCase();
-  if (!s) return false;
-  return o.name.toLowerCase().includes(s) || o.id.toLowerCase().includes(s) || o.display.toLowerCase().includes(s);
-}
-
 export default function WorkflowFeatureSearchSelect(props: Props) {
   const { bridge, label, value, onChange, placeholder, config, disabled } = props;
 
   const worldId = bridge.getCurrentWorldId();
-  const [pool, setPool] = useState<Option[]>([]);
+  const datasetLoadedAt = useRuleDataStore((s) => s.datasets[worldId]?.loadedAt ?? 0);
+  const [pool, setPool] = useState<SearchPoolOption[]>([]);
   const [poolError, setPoolError] = useState<string>('');
   const [open, setOpen] = useState(false);
   const mountedRef = useRef(true);
@@ -116,7 +115,7 @@ export default function WorkflowFeatureSearchSelect(props: Props) {
   useEffect(() => {
     let cancelled = false;
     setPoolError('');
-    loadPool(worldId, config, bridge)
+    loadPool(worldId, config, bridge, datasetLoadedAt)
       .then((list) => {
         if (cancelled || !mountedRef.current) return;
         setPool(list);
@@ -129,14 +128,9 @@ export default function WorkflowFeatureSearchSelect(props: Props) {
     return () => {
       cancelled = true;
     };
-  }, [worldId, bridge, config]);
+  }, [worldId, bridge, config, datasetLoadedAt]);
 
-  const suggestions = useMemo(() => {
-    const q = String(value ?? '').trim();
-    if (!q) return [];
-    const list = pool.filter((o) => matchOption(o, q));
-    return list.slice(0, 50);
-  }, [pool, value]);
+  const suggestions = useMemo(() => filterWorkflowSearchOptions(pool, String(value ?? ''), 50), [pool, value]);
 
   return (
     <div className="space-y-1">
@@ -152,7 +146,6 @@ export default function WorkflowFeatureSearchSelect(props: Props) {
         }}
         onFocus={() => setOpen(true)}
         onBlur={() => {
-          // 延迟关闭：允许点击下拉项时不被 blur 打断
           window.setTimeout(() => setOpen(false), 120);
         }}
         onMouseDownCapture={(e) => e.stopPropagation()}
@@ -171,7 +164,6 @@ export default function WorkflowFeatureSearchSelect(props: Props) {
               className="w-full text-left px-2 py-1 text-sm hover:bg-gray-50"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
-                // 选择后直接把“返回值”写入输入框（并保持可继续编辑）
                 onChange(o.id);
                 setOpen(false);
               }}

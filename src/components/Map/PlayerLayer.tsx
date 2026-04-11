@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as L from 'leaflet';
 import type { Player } from '@/types';
-import { fetchPlayers } from '@/lib/playerApi';
+import { fetchPlayersDetailed } from '@/lib/playerApi';
 import { DynmapProjection } from '@/lib/DynmapProjection';
 
 /**
@@ -61,13 +61,22 @@ export function PlayerLayer({
   onPlayerClick,
 }: PlayerLayerProps) {
   const [players, setPlayers] = useState<Player[]>([]);
+  const lastErrorRef = useRef<string | null>(null);
   const layerGroupRef = useRef<L.LayerGroup | null>(null);
   const intervalRef = useRef<number | null>(null);
 
   // 加载玩家数据
   const loadPlayers = useCallback(async () => {
-    const data = await fetchPlayers(worldId);
-    setPlayers(data);
+    const result = await fetchPlayersDetailed(worldId);
+    setPlayers(result.players);
+    if (result.error) {
+      if (lastErrorRef.current !== result.error) {
+        console.warn('[PlayerLayer] 玩家信息读取失败：', result.error);
+        lastErrorRef.current = result.error;
+      }
+      return;
+    }
+    lastErrorRef.current = null;
   }, [worldId]);
 
   // 初始加载和定时刷新

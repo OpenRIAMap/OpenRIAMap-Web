@@ -32,20 +32,9 @@ import {
 } from 'lucide-react';
 import type { ParsedStation, ParsedLine, Coordinate, Player, TravelMode } from '@/types';
 import type { ParsedLandmark } from '@/components/Legacy/data/landmarkParser';
-import {
-  buildRailwayGraph,
-  simplifyPath,
-  findAutoPath,
-  findRailOnlyPath,
-  findWalkPath,
-  calculateEstimatedTime,
-  calculateElytraConsumption,
-  calculateWalkTime,
-  calculateRailTime,
-  MultiModePathResult,
-} from '@/components/Legacy/data/pathfinding';
-import { findTeleportPath, extractToriiList } from '@/components/Legacy/data/toriiTeleport';
-
+import type { MultiModePathResult } from '@/components/Legacy/data/pathfinding';
+import { loadLegacyModuleBundle, type LegacyModuleBundle } from '@/entrypoints/legacyEntry';
+import { useFeatureModuleStore } from '@/store/featureModuleStore';
 
 import { computeRailPlanFromCoords, type NavRailNewIntegratedPlan, type TransferType } from './Navigation_RailNewIntegrated';
 import { listRailNewStaBuildingsForSearch, type RailNewStaBuildingSearchItem } from './Navigation_RailNewIntegrated';
@@ -87,6 +76,11 @@ function formatArrivalTime(secondsFromNow: number): string {
   const hh = String(t.getHours()).padStart(2, '0');
   const mm = String(t.getMinutes()).padStart(2, '0');
   return `${hh}:${mm}`;
+}
+
+function calculateWalkTime(distance: number, useElytra: boolean = true): number {
+  const speed = useElytra ? 40 : 4.317;
+  return distance / speed;
 }
 
 function getRepresentativeCoordForRule(r: FeatureRecord): Coordinate | null {
@@ -824,6 +818,12 @@ export function NavigationPanel({
   const [resultTeleportNew, setResultTeleportNew] = useState<NavTeleportNewIntegratedPlan | null>(null);
   const [resultRoad, setResultRoad] = useState<NavRoadPlan | null>(null);
   const [searching, setSearching] = useState(false);
+  const legacyModuleState = useFeatureModuleStore((s) => s.modules.legacy);
+  const featureDialogState = useFeatureModuleStore((s) => s.dialog);
+  const requestFeatureModuleActivation = useFeatureModuleStore((s) => s.requestModuleActivation);
+  const legacyModuleLoaded = legacyModuleState.status === 'loaded';
+  const [legacyBundle, setLegacyBundle] = useState<LegacyModuleBundle | null>(null);
+  const [pendingLegacyMode, setPendingLegacyMode] = useState<null | 'rail' | 'teleport'>(null);
 
   // 寻路超过阈值时显示进度窗（所有导航模式通用）
   const [searchProgressOpen, setSearchProgressOpen] = useState(false);
@@ -947,6 +947,54 @@ useEffect(() => {
   }, [hubReturnPoints, returnPointId]);
 
   const [railNewStaBuildingItems, setRailNewStaBuildingItems] = useState<SearchItem[]>([]);
+
+  useEffect(() => {
+    if (!legacyModuleLoaded) return;
+    let cancelled = false;
+    loadLegacyModuleBundle()
+      .then((bundle) => {
+        if (!cancelled) setLegacyBundle(bundle);
+      })
+      .catch(() => {
+        if (!cancelled) setLegacyBundle(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [legacyModuleLoaded]);
+
+  useEffect(() => {
+    if (!pendingLegacyMode || !legacyModuleLoaded || !legacyBundle) return;
+    setTravelMode(pendingLegacyMode);
+    closeAndResetPick();
+    setResultLegacy(null);
+    setResultRailNew(null);
+    setResultTeleportNew(null);
+    setResultRoad(null);
+    setPendingLegacyMode(null);
+  }, [pendingLegacyMode, legacyModuleLoaded, legacyBundle]);
+
+  useEffect(() => {
+    if (!pendingLegacyMode) return;
+    if (featureDialogState.isOpen) return;
+    if (legacyModuleLoaded) return;
+    if (legacyModuleState.status === 'loading') return;
+    setPendingLegacyMode(null);
+  }, [pendingLegacyMode, featureDialogState.isOpen, legacyModuleLoaded, legacyModuleState.status]);
+
+  const requestLegacyModeActivation = useCallback((mode: 'rail' | 'teleport') => {
+    if (legacyModuleLoaded) {
+      setTravelMode(mode);
+      closeAndResetPick();
+      setResultLegacy(null);
+      setResultRailNew(null);
+      setResultTeleportNew(null);
+      setResultRoad(null);
+      return;
+    }
+    setPendingLegacyMode(mode);
+    requestFeatureModuleActivation('legacy');
+  }, [legacyModuleLoaded, requestFeatureModuleActivation]);
 
 useEffect(() => {
   let alive = true;
@@ -1113,8 +1161,8 @@ useEffect(() => {
     return items;
   }, [stations, landmarks, players, railNewStaBuildingItems, worldId]);
 
-  const railwayGraph = useMemo(() => buildRailwayGraph(lines), [lines]);
-  const toriiList = useMemo(() => extractToriiList(landmarks), [landmarks]);
+  const railwayGraph = useMemo(() => (legacyBundle ? legacyBundle.buildRailwayGraph(lines) : null), [legacyBundle, lines]);
+  const toriiList = useMemo(() => (legacyBundle ? legacyBundle.extractToriiList(landmarks) : []), [legacyBundle, landmarks]);
 
   // 交换起终点
   const handleSwap = () => {
@@ -1267,15 +1315,25 @@ if (travelMode === 'road') {
       // legacy pathfinding
       // ---------------------------
 
+      if (!legacyModuleLoaded && (travelMode === 'walk' || travelMode === 'auto' || travelMode === 'rail' || travelMode === 'teleport')) {
+        requestFeatureModuleActivation('legacy');
+        return;
+      }
+
+      const legacy = legacyBundle ?? await loadLegacyModuleBundle();
+      if (!legacyBundle) setLegacyBundle(legacy);
+      const activeRailwayGraph = railwayGraph ?? legacy.buildRailwayGraph(lines);
+      const activeToriiList = toriiList.length ? toriiList : legacy.extractToriiList(landmarks);
+
       let pathResult: MultiModePathResult;
 
       switch (travelMode) {
         case 'walk':
-          pathResult = findWalkPath(startPoint.coord, endPoint.coord);
+          pathResult = legacy.findWalkPath(startPoint.coord, endPoint.coord);
           break;
 
         case 'teleport': {
-          const teleportPath = findTeleportPath(startPoint.coord, endPoint.coord, toriiList, worldId);
+          const teleportPath = legacy.findTeleportPath(startPoint.coord, endPoint.coord, activeToriiList, worldId);
           let reverseTeleportCount = 0;
           const teleportSegments = teleportPath.segments.map((seg) => {
             if (seg.type === 'teleport' && seg.torii) {
@@ -1305,12 +1363,12 @@ if (travelMode === 'road') {
         }
 
         case 'rail':
-          pathResult = findRailOnlyPath(startPoint.coord, endPoint.coord, railwayGraph, stations, preferLessTransfer);
+          pathResult = legacy.findRailOnlyPath(startPoint.coord, endPoint.coord, activeRailwayGraph, stations, preferLessTransfer);
           break;
 
         case 'auto':
         default:
-          pathResult = findAutoPath(startPoint.coord, endPoint.coord, railwayGraph, landmarks, stations, worldId, preferLessTransfer);
+          pathResult = legacy.findAutoPath(startPoint.coord, endPoint.coord, activeRailwayGraph, landmarks, stations, worldId, preferLessTransfer);
           break;
       }
 
@@ -1386,6 +1444,10 @@ if (travelMode === 'road') {
                 : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
             }`}
             onClick={() => {
+              if (mode === 'rail' || mode === 'teleport') {
+                requestLegacyModeActivation(mode);
+                return;
+              }
               setTravelMode(mode);
               closeAndResetPick();
               setResultLegacy(null);
@@ -2036,7 +2098,7 @@ if (travelMode === 'road') {
                     <div className="flex items-center gap-1">
                       <Clock className="w-3 h-3 text-gray-400" />
                       <span className="text-gray-500">预计:</span>
-                      <span className="font-medium text-orange-600">{formatTime(calculateEstimatedTime(resultLegacy, useElytra))}</span>
+                      <span className="font-medium text-orange-600">{formatTime((legacyBundle?.calculateEstimatedTime?.(resultLegacy, useElytra) ?? 0))}</span>
                     </div>
                     {resultLegacy.totalTransfers > 0 && (
                       <div className="flex items-center gap-1">
@@ -2063,7 +2125,15 @@ if (travelMode === 'road') {
                   </div>
 
                   {useElytra && resultLegacy.totalWalkDistance > 0 && (() => {
-                    const consumption = calculateElytraConsumption(resultLegacy.totalWalkDistance);
+                    const consumption: ReturnType<NonNullable<LegacyModuleBundle['calculateElytraConsumption']>> =
+                      legacyBundle?.calculateElytraConsumption?.(resultLegacy.totalWalkDistance) ?? {
+                        flightTime: 0,
+                        durabilityUsed: 0,
+                        durabilityUsedUnbreaking: 0,
+                        fireworksUsed: 0,
+                        elytraCount: 1,
+                        elytraCountUnbreaking: 1,
+                      };
                     return (
                       <div className="bg-amber-50 rounded p-2 mb-3 text-xs">
                         <div className="flex items-center gap-1 mb-1 text-amber-700 font-medium">
@@ -2093,7 +2163,7 @@ if (travelMode === 'road') {
                   <div className="space-y-2">
                     {resultLegacy.segments.map((segment, index) => {
                       if (segment.type === 'walk') {
-                        const walkTime = calculateWalkTime(segment.distance, useElytra);
+                        const walkTime = (legacyBundle?.calculateWalkTime?.(segment.distance, useElytra) ?? 0);
                         return (
                           <div key={index} className="relative pl-5">
                             {index < resultLegacy.segments.length - 1 && (
@@ -2172,7 +2242,7 @@ if (travelMode === 'road') {
                       }
 
                       if (segment.type === 'rail') {
-                        const railSegments = simplifyPath(segment.railPath.path);
+                        const railSegments = (legacyBundle?.simplifyPath?.(segment.railPath.path) ?? []);
                         const totalRailDist = segment.railPath.totalDistance;
                         const avgDistPerSeg = railSegments.length > 0 ? totalRailDist / railSegments.length : 0;
 
@@ -2180,7 +2250,7 @@ if (travelMode === 'road') {
                           const segDist = Math.sqrt(
                             Math.pow(railSeg.endCoord.x - railSeg.startCoord.x, 2) + Math.pow(railSeg.endCoord.z - railSeg.startCoord.z, 2)
                           );
-                          const segTime = calculateRailTime(segDist || avgDistPerSeg);
+                          const segTime = (legacyBundle?.calculateRailTime?.(segDist || avgDistPerSeg) ?? 0);
 
                           return (
                             <div key={`${index}-${railIndex}`} className="relative pl-5">

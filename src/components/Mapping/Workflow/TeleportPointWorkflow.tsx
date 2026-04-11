@@ -4,7 +4,7 @@ import type { WorkflowComponentProps, WorldPoint } from './WorkflowHost';
 import AppButton from '@/components/ui/AppButton';
 import { EXT_VALUE_TYPE_TEXT, listCatalogClassOptions, type FeatureKey } from '@/components/Common/featureFormats';
 import { listHubReturnPoints, type HubReturnPoint } from '@/components/Navigation/teleportHubReturnPoints';
-import { RULE_DATA_SOURCES } from '@/components/Rules/data/ruleDataSources';
+import { loadRuleItemsForWorld } from '@/components/Rules/data/ruleDataSources';
 import WorkflowFeatureSearchSelect, { type SearchSelectConfig } from './WorkflowFeatureSearchSelect';
 
 /**
@@ -110,42 +110,21 @@ type WarpOption = { i2d: string; name: string };
 
 const WRP_POOL_CACHE: Record<string, WarpOption[]> = {};
 
-async function fetchJsonArray(url: string): Promise<any[]> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`fetch failed: ${res.status} ${url}`);
-  const data = await res.json();
-  return Array.isArray(data) ? data : [];
-}
-
 async function loadWarpPool(worldId: string): Promise<WarpOption[]> {
   const cached = WRP_POOL_CACHE[worldId];
   if (cached) return cached;
 
-  const ds = (RULE_DATA_SOURCES as any)?.[worldId];
-  if (!ds || !ds.baseUrl || !Array.isArray(ds.files)) {
-    WRP_POOL_CACHE[worldId] = [];
-    return [];
-  }
-
+  const arr = await loadRuleItemsForWorld(worldId);
   const out: WarpOption[] = [];
-  for (const f of ds.files as string[]) {
-    const url = `${ds.baseUrl}/${f}`;
-    let arr: any[] = [];
-    try {
-      arr = await fetchJsonArray(url);
-    } catch {
-      continue;
-    }
-    for (const item of arr) {
-      if (!item || typeof item !== 'object') continue;
-      const cls = String((item as any).Class ?? (item as any).class ?? '').trim();
-      if (cls !== 'WRP') continue;
+  for (const item of arr) {
+    if (!item || typeof item !== 'object') continue;
+    const cls = String((item as any).Class ?? (item as any).class ?? '').trim();
+    if (cls !== 'WRP') continue;
 
-      const i2d = String((item as any).WRPointI2D ?? (item as any).wrPointI2D ?? '').trim();
-      const name = String((item as any).Name ?? (item as any).Name ?? i2d).trim();
-      if (!i2d || !name) continue;
-      out.push({ i2d, name });
-    }
+    const i2d = String((item as any).WRPointI2D ?? (item as any).wrPointI2D ?? '').trim();
+    const name = String((item as any).Name ?? (item as any).Name ?? i2d).trim();
+    if (!i2d || !name) continue;
+    out.push({ i2d, name });
   }
 
   // 去重（以 i2d 为主键）

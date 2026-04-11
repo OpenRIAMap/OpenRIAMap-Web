@@ -1223,7 +1223,7 @@ labelClick: {
   // ------------------------------
   {
     name: '传送点 TPP：STA 风格（橙色圆心，zoom>4）',
-    match: { Class: 'TPP', Type: 'Points' },
+    match: { Class: 'TPP' },
     zoom: [5, 99],
     symbol: {
       pane: 'ria-point-top',
@@ -1270,7 +1270,7 @@ labelClick: {
   // ------------------------------
   {
     name: '传送点 WRP：STA 风格（橙色圆心，zoom>4）',
-    match: { Class: 'WRP', Type: 'Points' },
+    match: { Class: 'WRP' },
     zoom: [5, 99],
     symbol: {
       pane: 'ria-point-top',

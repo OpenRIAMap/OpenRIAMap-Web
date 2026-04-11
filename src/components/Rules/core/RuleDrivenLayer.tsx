@@ -7,7 +7,6 @@ import 'leaflet/dist/leaflet.css';
 
 import type { DynmapProjection } from '@/lib/DynmapProjection';
 
-import { RULE_DATA_SOURCES } from '@/components/Rules/data/ruleDataSources';
 import { FeatureStore } from '@/components/Rules/data/featureStore';
 import { DEFAULT_FLOOR_VIEW, buildFeatureMeta, findFirstRule, toZoomLevel, type FeatureRecord, type GeoType, type RenderContext } from '@/components/Rules/rendering/renderRules';
 import { layoutLabelsOnMap, type LabelRequest, type AvoidRectPx } from '@/components/Rules/rendering/labelLayout';
@@ -20,6 +19,8 @@ import { createHighlightLayerForFeature, makeClickableLabelMarker, type LabelCli
 
 import { filterRecordsByRuleButtons } from '@/components/Rules/ButtonRule/buttonRuleFilter';
 import { setRuleSearchPool } from '@/components/Rules/search/ruleSearchRegistry';
+import { useRuleDataStore } from '@/store/ruleDataStore';
+import { useLoadingStore } from '@/store/loadingStore';
 
 
 const FLOOR_VIEW_MIN_LEVEL = Math.max(0, DEFAULT_FLOOR_VIEW.minLevel);
@@ -45,6 +46,7 @@ const Y_FOR_DISPLAY = 64;
 type LayerBundle = {
   main: L.Layer;
   label?: L.Layer;
+  hitProxy?: L.Layer;
 
   /** 新增：用于 declutter label 复用，避免 refresh 每次重建 marker */
   labelKey?: string;
@@ -53,6 +55,50 @@ type LayerBundle = {
   iconUrl?: string;
   pane?: string;
 };
+
+function bindAssistPickFeature(layer: L.Layer, r: FeatureRecord) {
+  if (layer instanceof L.Polyline || layer instanceof L.Polygon) {
+    (layer as any).__riaAssistRuleFeature = r;
+  }
+}
+
+function isAssistPickTargetFeature(r: FeatureRecord): boolean {
+  return r.type === 'Polyline' || r.type === 'Polygon';
+}
+
+function isDeletePickTargetFeature(r: FeatureRecord): boolean {
+  return r.type === 'Points' || r.type === 'Polyline' || r.type === 'Polygon';
+}
+
+function dispatchAssistPickFeature(r: FeatureRecord) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('ria:assist-pick-feature', { detail: { feature: r } }));
+}
+
+function dispatchDeletePickFeature(r: FeatureRecord) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('ria:delete-pick-feature', { detail: { feature: r } }));
+}
+
+function bindDeletePick(layer: L.Layer, r: FeatureRecord) {
+  (layer as any).off?.('click');
+  (layer as any).on?.('click', (e: L.LeafletMouseEvent) => {
+    (e as any)?.originalEvent?.stopPropagation?.();
+    (e as any)?.originalEvent?.preventDefault?.();
+    dispatchDeletePickFeature(r);
+  });
+}
+
+function createDeletePickPointHitProxy(latlng: L.LatLng): L.CircleMarker {
+  return L.circleMarker(latlng, {
+    pane: 'ria-overlay-top',
+    radius: 12,
+    weight: 0,
+    opacity: 0,
+    fillOpacity: 0,
+    interactive: true,
+  });
+}
 
 
 function toP3(v: any): { x: number; y: number; z: number } | null {
@@ -414,13 +460,6 @@ function makeLabelMarker(
 
 
 
-async function fetchJsonArray(url: string): Promise<any[]> {
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
-  const data = await resp.json();
-  if (!Array.isArray(data)) return [];
-  return data;
-}
 
 function detectGeoType(featureInfo: any): GeoType | null {
   const t = String((featureInfo as any)?.Type ?? '').trim();
@@ -484,16 +523,24 @@ function buildRecordsFromJson(
 export default function RuleDrivenLayer(props: Props) {
   const { mapReady, map, projection, worldId, visible, activeButtonIds = [] } = props;
 
+  const worldDataset = useRuleDataStore((s) => s.datasets[worldId] ?? null);
+  const ensureWorldLoaded = useRuleDataStore((s) => s.ensureWorldLoaded);
+
   const rootRef = useRef<L.LayerGroup | null>(null);
   const highlightGroupRef = useRef<L.LayerGroup | null>(null);
 
   const [selectedFeature, setSelectedFeature] = useState<FeatureRecord | null>(null);
   const [featureCardOpen, setFeatureCardOpen] = useState(false);
+  const [assistPickActive, setAssistPickActive] = useState(false);
+  const [deletePickActive, setDeletePickActive] = useState(false);
 
   const cacheRef = useRef<Map<string, LayerBundle>>(new Map());
   const allRecordsRef = useRef<FeatureRecord[]>([]);
   const recordsRef = useRef<FeatureRecord[]>([]);
   const storeRef = useRef<FeatureStore | null>(null);
+  const pendingRuleFirstPaintWorldRef = useRef<string | null>(null);
+  const pendingRuleFirstPaintFlowRef = useRef<string | null>(null);
+  const renderCompletionScheduledRef = useRef(false);
 
   // floor UI
   const [floorOptions, setFloorOptions] = useState<Array<{ value: string; label: string }>>([]);
@@ -515,6 +562,27 @@ const [tempSourceVersion, setTempSourceVersion] = useState(0);
 
 const TEMP_RULE_SOURCES_KEY = 'ria_temp_rule_sources_v1';
 const TEMP_RULE_OVERRIDE_IDS_KEY = 'ria_temp_rule_override_ids_v1';
+const TEMP_RULE_DELETE_IDS_KEY = 'ria_temp_rule_delete_ids_v1';
+
+function isActiveRuleLoading(worldId: string, stageName?: string): boolean {
+  const state = useLoadingStore.getState();
+  if (!state.isRuleWorldFlow(worldId)) return false;
+  return stageName ? state.hasStage(stageName) : true;
+}
+
+function updateRuleLoadingStage(worldId: string, name: string, status: 'pending' | 'loading' | 'success' | 'error', message?: string) {
+  const state = useLoadingStore.getState();
+  if (!state.isRuleWorldFlow(worldId) || !state.hasStage(name)) return;
+  state.updateStage(name, status, message);
+}
+
+function finishRuleLoading(worldId: string, flowId?: string | null) {
+  const state = useLoadingStore.getState();
+  if (!state.isRuleWorldFlow(worldId)) return;
+  if (flowId && state.activeFlowId !== flowId) return;
+  state.finishLoading();
+}
+
 
 type TempRuleSource = {
   uid: string;
@@ -558,6 +626,18 @@ function readTempOverrideIds(worldId: string): Set<string> {
     return new Set();
   }
 }
+function readTempDeleteIds(worldId: string): Set<string> {
+  try {
+    const raw = localStorage.getItem(TEMP_RULE_DELETE_IDS_KEY);
+    if (!raw) return new Set();
+    const obj = JSON.parse(raw);
+    const list = (obj?.[worldId] ?? []) as any[];
+    if (!Array.isArray(list)) return new Set();
+    return new Set(list.map((x) => String(x ?? '').trim()).filter((s) => s));
+  } catch {
+    return new Set();
+  }
+}
 
 
 useEffect(() => {
@@ -589,48 +669,67 @@ useEffect(() => {
   };
   window.addEventListener('ria-temp-rule-sources-changed', handler);
   window.addEventListener('ria-temp-rule-overrides-changed', handler as any);
+  window.addEventListener('ria-temp-rule-deletes-changed', handler as any);
   return () => {
     window.removeEventListener('ria-temp-rule-sources-changed', handler);
     window.removeEventListener('ria-temp-rule-overrides-changed', handler as any);
+    window.removeEventListener('ria-temp-rule-deletes-changed', handler as any);
   };
 }, [mapReady, worldId]);
 
+useEffect(() => {
+  const handler = (ev: Event) => {
+    const active = Boolean((ev as CustomEvent<any>)?.detail?.active);
+    setAssistPickActive(active);
+  };
+  window.addEventListener('ria:assist-pick-mode', handler as EventListener);
+  return () => window.removeEventListener('ria:assist-pick-mode', handler as EventListener);
+}, []);
 
-// (1) 加载数据（worldId + dataSources）
+useEffect(() => {
+  const handler = (ev: Event) => {
+    const active = Boolean((ev as CustomEvent<any>)?.detail?.active);
+    setDeletePickActive(active);
+  };
+  window.addEventListener('ria:delete-pick-mode', handler as EventListener);
+  return () => window.removeEventListener('ria:delete-pick-mode', handler as EventListener);
+}, []);
+
+
+// (1) 加载数据（当前 world 数据集 + 临时挂载）
 useEffect(() => {
   let cancelled = false;
 
   async function load() {
     if (!mapReady) return;
-    const ds = RULE_DATA_SOURCES[worldId];
-    const all: FeatureRecord[] = [];
 
-    // 覆盖屏蔽列表：仅当“临时挂载源”处于启用状态时才生效。
-    // 说明：之前的实现会在 localStorage 残留 overrideIds 时永久屏蔽固定数据源，导致用户以为要素“消失”。
-    // 这里做最小修复：没有任何 enabled 的临时挂载源时，不应用 override 屏蔽。
-    const enabledTemps = readTempSources(worldId).filter((t) => t.enabled);
-    const overrideIds = enabledTemps.length > 0 ? readTempOverrideIds(worldId) : new Set<string>();
-
-    // (A) 固定数据源（public 下文件）
-    // 注意：即使该 world 没有配置 files，也不应直接 return。
-    // “临时挂载”应当仍然可以在该 world 中生效（用于测试显示/去重/关联）。
-    if (ds && Array.isArray(ds.files) && ds.files.length > 0) {
-      for (const file of ds.files) {
-        const url = `${ds.baseUrl.replace(/\/$/, '')}/${file}`;
-        try {
-          const items = await fetchJsonArray(url);
-          all.push(...buildRecordsFromJson(items, file, { excludeIds: overrideIds }));
-        } catch (e) {
-          // 单文件失败不阻塞其余文件
-          console.warn(`[RuleDrivenLayer] failed to load ${url}`, e);
-        }
+    let dataset = worldDataset;
+    if (!dataset) {
+      try {
+        dataset = await ensureWorldLoaded(worldId);
+      } catch (e) {
+        console.warn('[RuleDrivenLayer] ensureWorldLoaded failed', e);
+        return;
       }
     }
 
+    updateRuleLoadingStage(worldId, 'world-record-build', 'loading');
+
+    const all: FeatureRecord[] = [];
+
+    // 覆盖屏蔽列表：仅当“临时挂载源”处于启用状态时才生效。
+    const enabledTemps = readTempSources(worldId).filter((t) => t.enabled);
+    const overrideIds = enabledTemps.length > 0 ? readTempOverrideIds(worldId) : new Set<string>();
+    const deleteIds = enabledTemps.length > 0 ? readTempDeleteIds(worldId) : new Set<string>();
+    const excludeIds = new Set<string>([...overrideIds, ...deleteIds]);
+
+    // (A) 当前 world 的 Rule 数据集（由 ruleDataStore 负责版本校验与缓存）
+    const datasetItems = Array.isArray(dataset?.features) ? dataset.features : [];
+    all.push(...buildRecordsFromJson(datasetItems as any[], `rule-world:${worldId}`, { excludeIds }));
+
     // (B) 临时挂载数据源（来自 MeasuringModule，本地存储）
     try {
-      const temps = enabledTemps;
-      for (const t of temps) {
+      for (const t of enabledTemps) {
         try {
           const label = t.label ?? t.uid;
           all.push(...buildRecordsFromJson(t.items, label));
@@ -644,14 +743,15 @@ useEffect(() => {
 
     if (cancelled) return;
 
-    // 预加载池：固定源 + 临时源（用于后续按“分组开关”筛选）
     allRecordsRef.current = all;
-
-    // ✅ 供 SearchBar 使用的“规则搜索池”：包含当前世界 Rules 源预加载 + 临时挂载启用的数据。
-    // - 仅写入模块变量，不触发 React 状态更新，避免造成循环渲染/白屏。
     setRuleSearchPool(worldId, all);
-
-    // ✅ 关键：通知“预加载池已更新”（实际进入渲染/索引的数据会在后续 effect 中由开关筛选决定）
+    if (isActiveRuleLoading(worldId)) {
+      const loadingState = useLoadingStore.getState();
+      pendingRuleFirstPaintWorldRef.current = worldId;
+      pendingRuleFirstPaintFlowRef.current = loadingState.activeFlowId;
+    }
+    renderCompletionScheduledRef.current = false;
+    updateRuleLoadingStage(worldId, 'world-record-build', 'success', `要素数 ${all.length}`);
     setRawDataVersion((v) => v + 1);
   }
 
@@ -659,8 +759,7 @@ useEffect(() => {
   return () => {
     cancelled = true;
   };
-}, [mapReady, worldId, tempSourceVersion]);
-
+}, [mapReady, worldId, worldDataset, ensureWorldLoaded, tempSourceVersion]);
 
 // =========================
 // SearchBar -> RuleDrivenLayer：按 uid 打开信息卡
@@ -734,6 +833,8 @@ useEffect(() => {
 useEffect(() => {
   if (!mapReady) return;
 
+  updateRuleLoadingStage(worldId, 'world-filter-apply', 'loading');
+
   const all = allRecordsRef.current;
   const filtered = filterRecordsByRuleButtons(all, activeButtonIds);
 
@@ -780,6 +881,7 @@ useEffect(() => {
   }
 
   // ✅ 关键：告诉 React “进入渲染池的数据已更新”
+  updateRuleLoadingStage(worldId, 'world-filter-apply', 'success', `渲染池 ${filtered.length}`);
   setDataVersion((v) => v + 1);
 // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [mapReady, worldId, rawDataVersion, JSON.stringify(activeButtonIds)]);
@@ -827,6 +929,7 @@ useEffect(() => {
 	}, [ctx]);
 
   const handleLabelClick = (r: FeatureRecord, plan: LabelClickPlan) => {
+    if (assistPickActive || deletePickActive) return;
     if (!highlightGroupRef.current) highlightGroupRef.current = L.layerGroup();
     highlightGroupRef.current.clearLayers();
 
@@ -1178,13 +1281,30 @@ useEffect(() => {
   // (5) 渲染：根据规则 + zoom + bounds + floor context 进行增量 add/remove
   useEffect(() => {
     if (!mapReady) return;
-    if (!visible) return;
+    if (!visible) {
+      if (pendingRuleFirstPaintWorldRef.current === worldId) {
+        updateRuleLoadingStage(worldId, 'world-layer-render', 'success', '图层不可见，跳过首帧等待');
+        updateRuleLoadingStage(worldId, 'world-first-paint', 'success', '图层当前不可见');
+        pendingRuleFirstPaintWorldRef.current = null;
+        pendingRuleFirstPaintFlowRef.current = null;
+        renderCompletionScheduledRef.current = false;
+        finishRuleLoading(worldId, pendingRuleFirstPaintFlowRef.current);
+      }
+      return;
+    }
     const root = rootRef.current;
     if (!root) return;
     const store = storeRef.current;
     if (!store) return;
 
 const refresh = () => {
+  const waitingFirstPaint = pendingRuleFirstPaintWorldRef.current === worldId
+    && isActiveRuleLoading(worldId)
+    && (!pendingRuleFirstPaintFlowRef.current || useLoadingStore.getState().activeFlowId === pendingRuleFirstPaintFlowRef.current);
+  if (waitingFirstPaint) {
+    updateRuleLoadingStage(worldId, 'world-layer-render', 'loading');
+    updateRuleLoadingStage(worldId, 'world-first-paint', 'loading', '等待地图首帧显示');
+  }
   const leafletZoom = map.getZoom();
   const zoomLevel = toZoomLevel(leafletZoom);
   const inFloorView = zoomLevel >= DEFAULT_FLOOR_VIEW.minLevel;
@@ -1205,7 +1325,7 @@ const refresh = () => {
 
   // declutter labels：先收集 request，后统一跑布局，再回写到各个 bundle.label
   const declutterLabelRequests: LabelRequest[] = [];
-  const declutterLabelMeta = new Map<string, { styleKey: any; plan: LabelClickPlan | null; }>();
+  const declutterLabelMeta = new Map<string, { styleKey: any; plan: LabelClickPlan | null; deletePick: boolean; }>();
 
   // ✅ 新增：点图标避让矩形（屏幕像素）
 const avoidRectsPx: AvoidRectPx[] = [];
@@ -1238,6 +1358,7 @@ const avoidRectsPx: AvoidRectPx[] = [];
     const rawClick = (rule.symbol as any)?.labelClick;
     const clickPlan: LabelClickPlan | null = rawClick ? (typeof rawClick === 'function' ? rawClick(r, context, store) : rawClick) : null;
     const labelOnly = !!(clickPlan && (clickPlan as any).enabled && (clickPlan as any).mode === 'labelOnly');
+    const pickModeActive = assistPickActive || deletePickActive;
 
     // 屏幕范围裁剪（点/线/面统一做 bounds.contains）
     let pointLatLng: L.LatLng | undefined;
@@ -1310,15 +1431,17 @@ if (r.type === 'Points' && pointLatLng && !labelOnly) {
     // 确保 layer 存在
     const existing = cacheRef.current.get(r.uid);
     if (!existing) {
-      const bundle = createLayerBundle(r, hiddenSymbol, context, store, projection, handleLabelClick, viewportWorldRectXZ);
+      const bundle = createLayerBundle(r, hiddenSymbol, context, store, projection, handleLabelClick, viewportWorldRectXZ, assistPickActive, deletePickActive);
       if (!bundle) continue;
       cacheRef.current.set(r.uid, bundle);
       root.addLayer(bundle.main);
+      if (bundle.hitProxy) root.addLayer(bundle.hitProxy);
       if (bundle.label) root.addLayer(bundle.label);
     } else {
       // 更新样式（动态色/透明度/楼层淡化）
-      updateLayerBundle(existing, r, hiddenSymbol, context, store, projection, root, handleLabelClick, viewportWorldRectXZ);
+      updateLayerBundle(existing, r, hiddenSymbol, context, store, projection, root, handleLabelClick, viewportWorldRectXZ, assistPickActive, deletePickActive);
       if (!root.hasLayer(existing.main)) root.addLayer(existing.main);
+      if (existing.hitProxy && !root.hasLayer(existing.hitProxy)) root.addLayer(existing.hitProxy);
       if (existing.label && !root.hasLayer(existing.label)) root.addLayer(existing.label);
     }
 
@@ -1326,7 +1449,7 @@ if (r.type === 'Points' && pointLatLng && !labelOnly) {
     const rawLabelPlan = rule.symbol?.label;
     const labelPlan = typeof rawLabelPlan === 'function' ? rawLabelPlan(r, context, store) : rawLabelPlan;
     if (labelPlan?.enabled && labelPlan.declutter) {
-      const req = buildLabelRequest(r, labelPlan, context, store, projection, pointLatLng, clickPlan, viewportWorldRectXZ);
+      const req = buildLabelRequest(r, labelPlan, context, store, projection, pointLatLng, pickModeActive ? null : clickPlan, viewportWorldRectXZ);
       if (req) {
         declutterLabelRequests.push(req);
         let styleKey: any = (labelPlan as any)?.styleKey ?? (clickPlan as any)?.labelStyleKey ?? 'bubble-dark';
@@ -1356,7 +1479,7 @@ if (r.type === 'Points' && pointLatLng && !labelOnly) {
           // pill 等保持屏幕朝向
           styleKey = { ...(styleKey as any), rotateDeg: 0 };
         }
-declutterLabelMeta.set(req.id, { styleKey, plan: (clickPlan && (clickPlan as any).enabled) ? clickPlan : null });
+declutterLabelMeta.set(req.id, { styleKey, plan: (!pickModeActive && clickPlan && (clickPlan as any).enabled) ? clickPlan : null, deletePick: !!(deletePickActive && isDeletePickTargetFeature(r)) });
       } else {
         // 该要素当前不应显示 label（minLevel/text 空等）→ 移除旧 label
         const b = cacheRef.current.get(r.uid);
@@ -1403,6 +1526,7 @@ declutterLabelMeta.set(req.id, { styleKey, plan: (clickPlan && (clickPlan as any
 
       const meta = declutterLabelMeta.get(req.id);
         const plan = meta?.plan ?? null;
+        const deletePick = !!meta?.deletePick;
         let styleKey = meta?.styleKey ?? 'bubble-dark';
 
         // Polyline：沿线文字的旋转角以“最终放置点对应的 anchor”优先
@@ -1428,7 +1552,21 @@ declutterLabelMeta.set(req.id, { styleKey, plan: (clickPlan && (clickPlan as any
         b.label.setLatLng(ll);
       } else {
         if (b.label && root.hasLayer(b.label)) root.removeLayer(b.label);
-        if (plan) {
+        if (deletePick) {
+          b.label = makeClickableLabelMarker({
+            latlng: ll,
+            text: p.text,
+            placement: req.placement,
+            withDot: !!req.withDot,
+            offsetY: req.offsetY,
+            styleKey: (styleKey as any),
+            onClick: () => {
+              const uid = req.featureUid ?? '';
+              const rr = recordsRef.current.find((x) => x.uid === uid);
+              if (rr) dispatchDeletePickFeature(rr);
+            },
+          });
+        } else if (plan) {
           b.label = makeClickableLabelMarker({
             latlng: ll,
             text: p.text,
@@ -1456,7 +1594,22 @@ declutterLabelMeta.set(req.id, { styleKey, plan: (clickPlan && (clickPlan as any
   for (const [uid, bundle] of cacheRef.current.entries()) {
     if (shouldShow.has(uid)) continue;
     if (root.hasLayer(bundle.main)) root.removeLayer(bundle.main);
+    if (bundle.hitProxy && root.hasLayer(bundle.hitProxy)) root.removeLayer(bundle.hitProxy);
     if (bundle.label && root.hasLayer(bundle.label)) root.removeLayer(bundle.label);
+  }
+
+  if (waitingFirstPaint && !renderCompletionScheduledRef.current) {
+    renderCompletionScheduledRef.current = true;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        updateRuleLoadingStage(worldId, 'world-layer-render', 'success', `图层数 ${shouldShow.size}`);
+        updateRuleLoadingStage(worldId, 'world-first-paint', 'success', '地图已显示');
+        pendingRuleFirstPaintWorldRef.current = null;
+        pendingRuleFirstPaintFlowRef.current = null;
+        renderCompletionScheduledRef.current = false;
+        finishRuleLoading(worldId, pendingRuleFirstPaintFlowRef.current);
+      });
+    });
   }
 };
 
@@ -1468,7 +1621,7 @@ declutterLabelMeta.set(req.id, { styleKey, plan: (clickPlan && (clickPlan as any
       map.off('moveend', refresh);
       map.off('zoomend', refresh);
     };
-  }, [mapReady, visible, map, projection, worldId, activeBuildingUid, activeBuildingFloorRefSet, floorOptions, activeFloorIndex, dataVersion]);
+  }, [mapReady, visible, map, projection, worldId, activeBuildingUid, activeBuildingFloorRefSet, floorOptions, activeFloorIndex, dataVersion, assistPickActive, deletePickActive]);
 
 
   const showFloorUI = mobileFloorVisible;
@@ -1537,6 +1690,8 @@ function createLayerBundle(
   projection: DynmapProjection,
   onLabelClick?: (r: FeatureRecord, plan: LabelClickPlan) => void,
   viewportWorldRectXZ?: WorldRectXZ | null,
+  assistPickActive: boolean = false,
+  deletePickActive: boolean = false,
 ): LayerBundle | null {
 
   const resolvedLabelPlan = (typeof (symbol as any)?.label === 'function') ? (symbol as any).label(r, ctx, store) : (symbol as any)?.label;
@@ -1544,15 +1699,19 @@ function createLayerBundle(
   const rawClick = (symbol as any)?.labelClick;
   const clickPlan: LabelClickPlan | null = rawClick ? (typeof rawClick === 'function' ? rawClick(r, ctx, store) : rawClick) : null;
   const clickEnabled = !!(clickPlan && (clickPlan as any).enabled);
+  const assistPickTarget = !!(assistPickActive && isAssistPickTargetFeature(r));
+  const deletePickTarget = !!(deletePickActive && isDeletePickTargetFeature(r));
+  const pickModeActive = assistPickActive || deletePickActive;
+  const effectiveClickPlan = pickModeActive ? null : clickPlan;
 
   // 【新增】几何点击扩展（最小入侵）：在规则的 labelClick.geom 开启后，点击主几何也触发与 label 点击一致的效果。
   // - 仅在 mode === 'normal' 时生效；labelOnly 下主几何被隐藏且不可交互。
   const geomAllowed = !!(clickEnabled && (clickPlan as any)?.mode === 'normal');
-  const geomPointEnabled = !!(geomAllowed && (clickPlan as any)?.geom?.point);
-  const geomPathEnabled = !!(geomAllowed && (clickPlan as any)?.geom?.path);
+  const geomPointEnabled = !pickModeActive && !!(geomAllowed && (clickPlan as any)?.geom?.point);
+  const geomPathEnabled = !pickModeActive && !!(geomAllowed && (clickPlan as any)?.geom?.path);
 
   const labelStyleKey = ((resolvedLabelPlan as any)?.styleKey ?? (clickPlan as any)?.labelStyleKey ?? 'bubble-dark') as any;
-  const onClick = clickEnabled && onLabelClick ? () => onLabelClick(r, clickPlan as any) : undefined;
+  const onClick = effectiveClickPlan && onLabelClick ? () => onLabelClick(r, effectiveClickPlan as any) : undefined;
 
   // 点
   if (r.type === 'Points' && r.p3) {
@@ -1589,8 +1748,8 @@ function createLayerBundle(
         main = L.marker(latlng, {
           pane: mainPane,
           icon,
-          // 仅在开启 geom.point 时让 marker 可点击；默认保持不可交互，避免影响其他逻辑。
-          interactive: geomPointEnabled,
+          // 仅在开启 geom.point / 删除选择 时让 marker 可点击；默认保持不可交互，避免影响其他逻辑。
+          interactive: deletePickTarget ? true : geomPointEnabled,
           zIndexOffset: (plan as any)?.zIndexOffset ?? 0,
         });
         kind = 'marker';
@@ -1599,6 +1758,7 @@ function createLayerBundle(
       const cm = L.circleMarker(latlng, {
         pane: mainPane,
         radius: plan?.radius ?? 5,
+        interactive: deletePickTarget ? true : undefined,
         ...(plan?.style ?? { color: '#111827', weight: 2, opacity: 0.9, fillOpacity: 0.6, fillColor: '#f97316' }),
       });
       main = cm;
@@ -1606,7 +1766,12 @@ function createLayerBundle(
     }
 
     // 【新增】几何点击：点要素本体点击（marker / circleMarker）
-    if (geomPointEnabled && clickEnabled && onLabelClick) {
+    let hitProxy: L.Layer | undefined;
+    if (deletePickTarget) {
+      bindDeletePick(main, r);
+      hitProxy = createDeletePickPointHitProxy(latlng);
+      bindDeletePick(hitProxy, r);
+    } else if (geomPointEnabled && clickEnabled && onLabelClick) {
       (main as any).off?.('click');
       (main as any).on?.('click', (e: L.LeafletMouseEvent) => {
         (e as any)?.originalEvent?.stopPropagation?.();
@@ -1615,8 +1780,21 @@ function createLayerBundle(
     }
 
     // label
-    const labelLayer = buildLabelLayer(r, resolvedLabelPlan, ctx, store, projection, latlng, labelStyleKey, clickEnabled ? (clickPlan as any) : null, onClick, viewportWorldRectXZ);
-    return { main, label: labelLayer ?? undefined, kind, iconUrl, pane: mainPane };
+    const labelLayer = buildLabelLayer(
+      r,
+      resolvedLabelPlan,
+      ctx,
+      store,
+      projection,
+      latlng,
+      labelStyleKey,
+      effectiveClickPlan && clickEnabled ? (effectiveClickPlan as any) : null,
+      onClick,
+      viewportWorldRectXZ,
+      deletePickTarget,
+      deletePickTarget ? () => dispatchDeletePickFeature(r) : null,
+    );
+    return { main, label: labelLayer ?? undefined, hitProxy, kind, iconUrl, pane: mainPane };
   }
 
 
@@ -1631,19 +1809,41 @@ function createLayerBundle(
 
     const main =
       r.type === 'Polyline'
-        ? L.polyline(latlngs, { ...(style ?? {}), pane: mainPane, interactive: geomPathEnabled ? true : (style as any)?.interactive })
-        : L.polygon(latlngs, { ...(style ?? {}), pane: mainPane, interactive: geomPathEnabled ? true : (style as any)?.interactive });
+        ? L.polyline(latlngs, { ...(style ?? {}), pane: mainPane, interactive: (assistPickTarget || deletePickTarget) ? true : (geomPathEnabled ? true : (style as any)?.interactive) })
+        : L.polygon(latlngs, { ...(style ?? {}), pane: mainPane, interactive: (assistPickTarget || deletePickTarget) ? true : (geomPathEnabled ? true : (style as any)?.interactive) });
 
-    // 【新增】几何点击：线/面要素本体点击
-    if (geomPathEnabled && clickEnabled && onLabelClick) {
-      (main as any).off?.('click');
+    // 【新增】几何点击：线/面要素本体点击 / 辅助线专用拾取
+    (main as any).off?.('click');
+    if (deletePickTarget) {
+      bindDeletePick(main, r);
+    } else if (assistPickTarget) {
+      (main as any).on?.('click', (e: L.LeafletMouseEvent) => {
+        (e as any)?.originalEvent?.stopPropagation?.();
+        (e as any)?.originalEvent?.preventDefault?.();
+        dispatchAssistPickFeature(r);
+      });
+    } else if (geomPathEnabled && clickEnabled && onLabelClick) {
       (main as any).on?.('click', (e: L.LeafletMouseEvent) => {
         (e as any)?.originalEvent?.stopPropagation?.();
         onLabelClick(r, clickPlan as any);
       });
     }
 
-    const labelLayer = buildLabelLayer(r, resolvedLabelPlan, ctx, store, projection, undefined, labelStyleKey, clickEnabled ? (clickPlan as any) : null, onClick, viewportWorldRectXZ);
+    bindAssistPickFeature(main, r);
+    const labelLayer = buildLabelLayer(
+      r,
+      resolvedLabelPlan,
+      ctx,
+      store,
+      projection,
+      undefined,
+      labelStyleKey,
+      effectiveClickPlan && clickEnabled ? (effectiveClickPlan as any) : null,
+      onClick,
+      viewportWorldRectXZ,
+      deletePickTarget,
+      deletePickTarget ? () => dispatchDeletePickFeature(r) : null,
+    );
     return { main, label: labelLayer ?? undefined, kind: 'path', pane: mainPane };
   }
 
@@ -1661,19 +1861,25 @@ function updateLayerBundle(
   root: L.LayerGroup,
   onLabelClick?: (r: FeatureRecord, plan: LabelClickPlan) => void,
   viewportWorldRectXZ?: WorldRectXZ | null,
+  assistPickActive: boolean = false,
+  deletePickActive: boolean = false,
 ) {
   const resolvedLabelPlan = (typeof (symbol as any)?.label === 'function') ? (symbol as any).label(r, ctx, store) : (symbol as any)?.label;
 
   const rawClick = (symbol as any)?.labelClick;
   const clickPlan: LabelClickPlan | null = rawClick ? (typeof rawClick === 'function' ? rawClick(r, ctx, store) : rawClick) : null;
   const clickEnabled = !!(clickPlan && (clickPlan as any).enabled);
+  const assistPickTarget = !!(assistPickActive && isAssistPickTargetFeature(r));
+  const deletePickTarget = !!(deletePickActive && isDeletePickTargetFeature(r));
+  const pickModeActive = assistPickActive || deletePickActive;
+  const effectiveClickPlan = pickModeActive ? null : clickPlan;
 
   const geomAllowed = !!(clickEnabled && (clickPlan as any)?.mode === 'normal');
-  const geomPointEnabled = !!(geomAllowed && (clickPlan as any)?.geom?.point);
-  const geomPathEnabled = !!(geomAllowed && (clickPlan as any)?.geom?.path);
+  const geomPointEnabled = !pickModeActive && !!(geomAllowed && (clickPlan as any)?.geom?.point);
+  const geomPathEnabled = !pickModeActive && !!(geomAllowed && (clickPlan as any)?.geom?.path);
 
   const labelStyleKey = ((resolvedLabelPlan as any)?.styleKey ?? (clickPlan as any)?.labelStyleKey ?? 'bubble-dark') as any;
-  const onClick = clickEnabled && onLabelClick ? () => onLabelClick(r, clickPlan as any) : undefined;
+  const onClick = effectiveClickPlan && onLabelClick ? () => onLabelClick(r, effectiveClickPlan as any) : undefined;
   // 点：若 iconUrl 变化，重建
   if (r.type === 'Points' && r.p3) {
     const latlng = projection.locationToLatLng(r.p3.x, r.p3.y, r.p3.z);
@@ -1690,21 +1896,25 @@ function updateLayerBundle(
       nextIconUrl = undefined;
     }
 
-    // marker 的 interactive 不能可靠地原地切换；若 geom.point 开关变化，直接重建最稳。
-    const nextMarkerInteractive = geomPointEnabled;
+    // marker 的 interactive 不能可靠地原地切换；若 geom.point 开关或删除命中代理变化，直接重建最稳。
+    const nextMarkerInteractive = deletePickTarget ? true : geomPointEnabled;
     const curMarkerInteractive = bundle.kind === 'marker' ? !!((bundle.main as any)?.options?.interactive) : undefined;
+    const curHasHitProxy = !!bundle.hitProxy;
+    const nextHasHitProxy = !!deletePickTarget;
 
-    if (nextKind !== bundle.kind || nextIconUrl !== bundle.iconUrl || (bundle.kind === 'marker' && curMarkerInteractive !== nextMarkerInteractive)) {
+    if (nextKind !== bundle.kind || nextIconUrl !== bundle.iconUrl || (bundle.kind === 'marker' && curMarkerInteractive !== nextMarkerInteractive) || curHasHitProxy !== nextHasHitProxy) {
       // remove old
       if (root.hasLayer(bundle.main)) root.removeLayer(bundle.main);
       if (bundle.label && root.hasLayer(bundle.label)) root.removeLayer(bundle.label);
+      if (bundle.hitProxy && root.hasLayer(bundle.hitProxy)) root.removeLayer(bundle.hitProxy);
 
-      const newBundle = createLayerBundle(r, symbol, ctx, store, projection, onLabelClick, viewportWorldRectXZ);
+      const newBundle = createLayerBundle(r, symbol, ctx, store, projection, onLabelClick, viewportWorldRectXZ, assistPickActive, deletePickActive);
       if (!newBundle) return;
       bundle.main = newBundle.main;
       bundle.label = newBundle.label;
       bundle.kind = newBundle.kind;
       bundle.iconUrl = newBundle.iconUrl;
+      bundle.hitProxy = newBundle.hitProxy;
       return;
     }
 
@@ -1718,10 +1928,17 @@ function updateLayerBundle(
     if (bundle.kind === 'marker' && bundle.main instanceof L.Marker) {
       bundle.main.setLatLng(latlng);
     }
+    if (bundle.hitProxy && bundle.hitProxy instanceof L.CircleMarker) {
+      bundle.hitProxy.setLatLng(latlng);
+    }
 
     // 【新增】几何点击：点要素（更新时重绑）
     (bundle.main as any).off?.('click');
-    if (geomPointEnabled && clickEnabled && onLabelClick) {
+    if (bundle.hitProxy) (bundle.hitProxy as any).off?.('click');
+    if (deletePickTarget) {
+      bindDeletePick(bundle.main, r);
+      if (bundle.hitProxy) bindDeletePick(bundle.hitProxy, r);
+    } else if (geomPointEnabled && clickEnabled && onLabelClick) {
       (bundle.main as any).on?.('click', (e: L.LeafletMouseEvent) => {
         (e as any)?.originalEvent?.stopPropagation?.();
         onLabelClick(r, clickPlan as any);
@@ -1736,8 +1953,38 @@ function updateLayerBundle(
       bundle.label = undefined;
       bundle.labelKey = undefined;
     }
-    const labelLayer = buildLabelLayer(r, resolvedLabelPlan, ctx, store, projection, latlng, labelStyleKey, clickEnabled ? (clickPlan as any) : null, onClick, viewportWorldRectXZ);
+    const labelLayer = buildLabelLayer(
+      r,
+      resolvedLabelPlan,
+      ctx,
+      store,
+      projection,
+      latlng,
+      labelStyleKey,
+      effectiveClickPlan && clickEnabled ? (effectiveClickPlan as any) : null,
+      onClick,
+      viewportWorldRectXZ,
+      deletePickTarget,
+      deletePickTarget ? () => dispatchDeletePickFeature(r) : null,
+    );
     if (labelLayer) bundle.label = labelLayer;
+    return;
+  }
+
+  const nextPathInteractive = (assistPickTarget || deletePickTarget) ? true : geomPathEnabled;
+  const curPathInteractive = !!((bundle.main as any)?.options?.interactive);
+  if (curPathInteractive !== nextPathInteractive) {
+    if (root.hasLayer(bundle.main)) root.removeLayer(bundle.main);
+    if (bundle.hitProxy && root.hasLayer(bundle.hitProxy)) root.removeLayer(bundle.hitProxy);
+    if (bundle.label && root.hasLayer(bundle.label)) root.removeLayer(bundle.label);
+
+    const newBundle = createLayerBundle(r, symbol, ctx, store, projection, onLabelClick, viewportWorldRectXZ, assistPickActive, deletePickActive);
+    if (!newBundle) return;
+    bundle.main = newBundle.main;
+    bundle.label = newBundle.label;
+    bundle.kind = newBundle.kind;
+    bundle.iconUrl = newBundle.iconUrl;
+    bundle.hitProxy = newBundle.hitProxy;
     return;
   }
 
@@ -1749,7 +1996,16 @@ function updateLayerBundle(
 
   // 【新增】几何点击：线/面（更新时重绑）
   (bundle.main as any).off?.('click');
-  if (geomPathEnabled && clickEnabled && onLabelClick) {
+  bindAssistPickFeature(bundle.main, r);
+  if (deletePickTarget) {
+    bindDeletePick(bundle.main, r);
+  } else if (assistPickTarget) {
+    (bundle.main as any).on?.('click', (e: L.LeafletMouseEvent) => {
+      (e as any)?.originalEvent?.stopPropagation?.();
+      (e as any)?.originalEvent?.preventDefault?.();
+      dispatchAssistPickFeature(r);
+    });
+  } else if (geomPathEnabled && clickEnabled && onLabelClick) {
     (bundle.main as any).on?.('click', (e: L.LeafletMouseEvent) => {
       (e as any)?.originalEvent?.stopPropagation?.();
       onLabelClick(r, clickPlan as any);
@@ -1764,7 +2020,20 @@ function updateLayerBundle(
       bundle.label = undefined;
       bundle.labelKey = undefined;
     }
-    const labelLayer = buildLabelLayer(r, resolvedLabelPlan, ctx, store, projection, undefined, labelStyleKey, clickEnabled ? (clickPlan as any) : null, onClick, viewportWorldRectXZ);
+    const labelLayer = buildLabelLayer(
+      r,
+      resolvedLabelPlan,
+      ctx,
+      store,
+      projection,
+      undefined,
+      labelStyleKey,
+      effectiveClickPlan && clickEnabled ? (effectiveClickPlan as any) : null,
+      onClick,
+      viewportWorldRectXZ,
+      deletePickTarget,
+      deletePickTarget ? () => dispatchDeletePickFeature(r) : null,
+    );
     if (labelLayer) bundle.label = labelLayer;
   }
 }
@@ -1944,6 +2213,8 @@ function buildLabelLayer(
   clickPlan?: LabelClickPlan | null,
   onClick?: (() => void) | null,
   viewportWorldRectXZ?: WorldRectXZ | null,
+  deletePickActive: boolean = false,
+  onDeletePickClick?: (() => void) | null,
 ): L.Layer | null {
   if (!labelPlan || !labelPlan.enabled) return null;
 
@@ -1966,6 +2237,17 @@ function buildLabelLayer(
     const ll = pointLatLng ?? (r.p3 ? projection.locationToLatLng(r.p3.x, r.p3.y, r.p3.z) : null);
     if (!ll) return null;
     const effPlacement = placement === 'center' ? (((clickPlan as any)?.mode === 'labelOnly') ? 'center' : 'near') : placement;
+    if (deletePickActive && onDeletePickClick) {
+      return makeClickableLabelMarker({
+        latlng: ll,
+        text,
+        placement: effPlacement,
+        withDot,
+        offsetY: labelPlan.offsetY,
+        styleKey: ((styleKey ?? 'bubble-dark') as any),
+        onClick: onDeletePickClick,
+      });
+    }
     if (clickPlan && (clickPlan as any).enabled && onClick) {
       return makeClickableLabelMarker({
         latlng: ll,
@@ -1988,6 +2270,9 @@ function buildLabelLayer(
     const vis = computeVisibleAnchorXZForPolyline((r.coords3 as any), viewportWorldRectXZ);
     if (vis) {
       const ll = projection.locationToLatLng(vis.x, Y_FOR_DISPLAY, vis.z);
+      if (deletePickActive && onDeletePickClick) {
+        return makeClickableLabelMarker({ latlng: ll, text, placement: 'center', withDot, styleKey: ((styleKey ?? 'bubble-dark') as any), onClick: onDeletePickClick });
+      }
       if (clickPlan && (clickPlan as any).enabled && onClick) {
         return makeClickableLabelMarker({ latlng: ll, text, placement: 'center', withDot, styleKey: ((styleKey ?? (clickPlan as any).labelStyleKey ?? 'bubble-dark') as any), onClick });
       }
@@ -2004,10 +2289,13 @@ function buildLabelLayer(
     if (total <= 1e-9) {
       const mid = r.coords3[Math.floor(r.coords3.length / 2)];
       const ll = projection.locationToLatLng(mid.x, Y_FOR_DISPLAY, mid.z);
+      if (deletePickActive && onDeletePickClick) {
+        return makeClickableLabelMarker({ latlng: ll, text, placement: 'center', withDot, styleKey: ((styleKey ?? 'bubble-dark') as any), onClick: onDeletePickClick });
+      }
       if (clickPlan && (clickPlan as any).enabled && onClick) {
-          return makeClickableLabelMarker({ latlng: ll, text, placement: 'center', withDot, styleKey: ((styleKey ?? (clickPlan as any).labelStyleKey ?? 'bubble-dark') as any), onClick });
-        }
-        return makeLabelMarker(ll, text, 'center', withDot, undefined, styleKey);
+        return makeClickableLabelMarker({ latlng: ll, text, placement: 'center', withDot, styleKey: ((styleKey ?? (clickPlan as any).labelStyleKey ?? 'bubble-dark') as any), onClick });
+      }
+      return makeLabelMarker(ll, text, 'center', withDot, undefined, styleKey);
     }
     const half = total / 2;
     let acc = 0;
@@ -2020,6 +2308,9 @@ function buildLabelLayer(
         const x = a.x + (b.x - a.x) * t;
         const z = a.z + (b.z - a.z) * t;
         const ll = projection.locationToLatLng(x, Y_FOR_DISPLAY, z);
+        if (deletePickActive && onDeletePickClick) {
+          return makeClickableLabelMarker({ latlng: ll, text, placement: 'center', withDot, styleKey: ((styleKey ?? 'bubble-dark') as any), onClick: onDeletePickClick });
+        }
         if (clickPlan && (clickPlan as any).enabled && onClick) {
           return makeClickableLabelMarker({ latlng: ll, text, placement: 'center', withDot, styleKey: ((styleKey ?? (clickPlan as any).labelStyleKey ?? 'bubble-dark') as any), onClick });
         }
@@ -2029,6 +2320,9 @@ function buildLabelLayer(
     }
     const last = r.coords3[r.coords3.length - 1];
     const ll = projection.locationToLatLng(last.x, Y_FOR_DISPLAY, last.z);
+    if (deletePickActive && onDeletePickClick) {
+      return makeClickableLabelMarker({ latlng: ll, text, placement: 'center', withDot, styleKey: ((styleKey ?? 'bubble-dark') as any), onClick: onDeletePickClick });
+    }
     if (clickPlan && (clickPlan as any).enabled && onClick) {
       return makeClickableLabelMarker({ latlng: ll, text, placement: 'center', withDot, styleKey: ((styleKey ?? (clickPlan as any).labelStyleKey ?? 'bubble-dark') as any), onClick });
     }
@@ -2044,6 +2338,9 @@ function buildLabelLayer(
     z: (Math.min(...polyXZ.map(p => p.z)) + Math.max(...polyXZ.map(p => p.z))) / 2,
   };
   const ll = projection.locationToLatLng(c.x, Y_FOR_DISPLAY, c.z);
+  if (deletePickActive && onDeletePickClick) {
+    return makeClickableLabelMarker({ latlng: ll, text, placement, withDot, styleKey: ((styleKey ?? 'bubble-dark') as any), onClick: onDeletePickClick });
+  }
   if (clickPlan && (clickPlan as any).enabled && onClick) {
     return makeClickableLabelMarker({ latlng: ll, text, placement, withDot, styleKey: ((styleKey ?? (clickPlan as any).labelStyleKey ?? 'bubble-dark') as any), onClick });
   }

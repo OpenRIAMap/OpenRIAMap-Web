@@ -16,7 +16,8 @@
  */
 
 import type { Coordinate } from '@/types';
-import { RULE_DATA_SOURCES, type WorldRuleDataSource } from '@/components/Rules/data/ruleDataSources';
+import { normalizeRuleSourceWorldId, type WorldRuleDataSource } from '@/components/Rules/data/ruleDataSources';
+import { loadEffectiveRuleItemsForWorld } from '@/components/Rules/data/effectiveRuleItems';
 import type { RouteHighlightData, RouteStyledSegment, RouteStationMarker } from '@/components/Map/RouteHighlightLayer';
 import { detectHubByProximity, getHubReturnPoint } from './teleportHubReturnPoints';
 
@@ -197,79 +198,46 @@ class MinHeap<T> {
 
 const TPP_CACHE: Record<string, { points: TeleportPoint[]; loadedAt: number; key: string }> = {};
 
-async function fetchJsonArray(url: string, fetcher?: (url: string) => Promise<any[]>) {
-  if (fetcher) return fetcher(url);
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`fetch failed: ${res.status} ${url}`);
-  const data = await res.json();
-  if (!Array.isArray(data)) return [];
-  return data;
-}
+
 
 async function loadTeleportPoints(worldId: string, opt: {
   dataSourceOverride?: Partial<WorldRuleDataSource>;
   filesOverride?: string[];
   fetcher?: (url: string) => Promise<any[]>;
-}): Promise<TeleportPoint[]> {
-  const base = RULE_DATA_SOURCES[worldId];
-  if (!base) return [];
+}): Promise<{ points: TeleportPoint[]; signature: string }> {
+  const wid = normalizeRuleSourceWorldId(worldId);
+  const effective = await loadEffectiveRuleItemsForWorld(wid, { fetcher: opt.fetcher });
 
-  const ds: WorldRuleDataSource = {
-    baseUrl: opt.dataSourceOverride?.baseUrl ?? base.baseUrl,
-    files: opt.filesOverride ?? opt.dataSourceOverride?.files ?? base.files,
-  };
+  const cacheKey = `${wid}::${effective.signature}`;
+  const cached = TPP_CACHE[wid];
+  if (cached && cached.key === cacheKey) return { points: cached.points, signature: effective.signature };
 
-  const cacheKey = `${ds.baseUrl}::${(ds.files ?? []).join('|')}`;
-  const cached = TPP_CACHE[worldId];
-  if (cached && cached.key === cacheKey) return cached.points;
-
-  const files = ds.files ?? [];
-  if (!files.length) {
-    TPP_CACHE[worldId] = { points: [], loadedAt: Date.now(), key: cacheKey };
-    return [];
-  }
-
-  // 先收集所有 WRP（用于 TGTWarp 解析），再解析 TPP
+  const allItems = effective.items;
   const wrpMap = new Map<string, { coord: Coordinate; elevation?: number }>();
   const tppRaw: any[] = [];
 
-  for (const f of files) {
-    const url = `${ds.baseUrl}/${f}`;
-    let arr: any[] = [];
-    try {
-      arr = await fetchJsonArray(url, opt.fetcher);
-    } catch {
-      // 规则层允许部分文件不存在（比如你在 sources 列表里预填了未来文件）
+  for (const item of allItems) {
+    if (!item || typeof item !== 'object') continue;
+    const cls = String((item as any).Class ?? (item as any).class ?? '').trim();
+
+    if (cls === 'WRP') {
+      const i2d = String((item as any).WRPointI2D ?? (item as any).wrPointI2D ?? '').trim();
+      const c = (item as any).coordinate;
+      if (!i2d || !c) continue;
+      if (!isFiniteNum(c.x) || !isFiniteNum(c.z)) continue;
+      const cy = Number((c as any).y);
+      const elev = (item as any).elevation;
+      const y = Number.isFinite(cy) ? cy : (isFiniteNum(elev) ? Number(elev) : DEFAULT_Y);
+      wrpMap.set(i2d, { coord: normCoord({ x: c.x, z: c.z, y }), elevation: y });
       continue;
     }
 
-    for (const item of arr) {
-      if (!item || typeof item !== 'object') continue;
-      const cls = String((item as any).Class ?? (item as any).class ?? '').trim();
-
-      if (cls === 'WRP') {
-        const i2d = String((item as any).WRPointI2D ?? (item as any).wrPointI2D ?? '').trim();
-        const c = (item as any).coordinate;
-        if (!i2d || !c) continue;
-        if (!isFiniteNum(c.x) || !isFiniteNum(c.z)) continue;
-
-        // 新规范：优先读取 coordinate.y；否则回退 elevation；再不行用 DEFAULT_Y
-        const cy = Number((c as any).y);
-        const elev = (item as any).elevation;
-        const y = Number.isFinite(cy) ? cy : (isFiniteNum(elev) ? Number(elev) : DEFAULT_Y);
-        // Coordinate 类型要求 y 为 number；当未提供时用 DEFAULT_Y
-        wrpMap.set(i2d, { coord: normCoord({ x: c.x, z: c.z, y }), elevation: y });
-        continue;
-      }
-
-      if (cls === 'TPP') {
-        tppRaw.push(item);
-      }
+    if (cls === 'TPP') {
+      tppRaw.push(item);
     }
   }
 
   const out: TeleportPoint[] = [];
-
   for (const item of tppRaw) {
     const id = String((item as any).ID ?? '').trim();
     const name = String((item as any).Name ?? id).trim();
@@ -278,41 +246,33 @@ async function loadTeleportPoints(worldId: string, opt: {
     const c = (item as any).coordinate;
     if (!c || !isFiniteNum(c.x) || !isFiniteNum(c.z)) continue;
 
-    // 目标解析优先级：
-    // 1) TGTWarp -> WRP.WRPointI2D
-    // 2) TGTcoordinate (+ TGTelevation)
     const warp = String((item as any).TGTWarp ?? (item as any).tgtWarp ?? '').trim();
     let tgt: Coordinate | null = null;
 
     if (warp && wrpMap.has(warp)) {
       tgt = wrpMap.get(warp)!.coord;
     } else {
-      const t = (item as any).TGTcoordinate ?? (item as any).tgtCoordinate ?? (item as any).targetCoordinate;
-      if (t && isFiniteNum(t.x) && isFiniteNum(t.z)) {
-        const cy = Number((t as any).y);
-        const te = (item as any).TGTelevation;
-        const ty = Number.isFinite(cy) ? cy : (isFiniteNum(te) ? Number(te) : DEFAULT_Y);
-        tgt = normCoord({ x: t.x, z: t.z, y: ty });
+      const tc = (item as any).TGTcoordinate;
+      if (tc && isFiniteNum(tc.x) && isFiniteNum(tc.z)) {
+        const tcy = Number((tc as any).y);
+        const telev = (item as any).TGTelevation;
+        const ty = Number.isFinite(tcy) ? tcy : (isFiniteNum(telev) ? Number(telev) : DEFAULT_Y);
+        tgt = normCoord({ x: tc.x, z: tc.z, y: ty });
       }
     }
 
-    if (!tgt) continue;
+    if (!id || !tgt) continue;
 
-    const cy = Number((c as any).y);
-    const srcElev = (item as any).elevation;
-    const srcY = Number.isFinite(cy) ? cy : (isFiniteNum(srcElev) ? Number(srcElev) : DEFAULT_Y);
+    const srcy = Number((c as any).y);
+    const selev = (item as any).elevation;
+    const sy = Number.isFinite(srcy) ? srcy : (isFiniteNum(selev) ? Number(selev) : DEFAULT_Y);
+    const src = normCoord({ x: c.x, z: c.z, y: sy });
 
-    out.push({
-      id,
-      name,
-      hub,
-      src: normCoord({ x: c.x, z: c.z, y: srcY }),
-      tgt,
-    });
+    out.push({ id, name, hub, src, tgt });
   }
 
-  TPP_CACHE[worldId] = { points: out, loadedAt: Date.now(), key: cacheKey };
-  return out;
+  TPP_CACHE[wid] = { points: out, loadedAt: Date.now(), key: cacheKey };
+  return { points: out, signature: effective.signature };
 }
 
 // ------------------------------
@@ -382,22 +342,18 @@ export async function computeTeleportNewPlanFromCoords(opt: NavigationTeleportCo
   const rawStart = normCoord(opt.startCoord);
   const endCoord = normCoord(opt.endCoord);
 
-  // 计算 dataSource key（用于内部图缓存）
-  const base = RULE_DATA_SOURCES[worldId];
-  const dsBaseUrl = opt.dataSourceOverride?.baseUrl ?? base?.baseUrl ?? '';
-  const dsFiles = (opt.filesOverride ?? opt.dataSourceOverride?.files ?? base?.files ?? []) as string[];
-  const dsKey = `${dsBaseUrl}::${(dsFiles ?? []).join('|')}`;
-
-  const tps = await loadTeleportPoints(worldId, {
+  const teleportLoad = await loadTeleportPoints(worldId, {
     dataSourceOverride: opt.dataSourceOverride,
     filesOverride: opt.filesOverride,
     fetcher: opt.fetcher,
   });
+  const tps = teleportLoad.points;
+  const dsKey = `teleport::${worldId}::sig=${teleportLoad.signature}`;
 
   if (!tps.length) {
     return {
       ok: false,
-      reason: '未加载到任何 TPP 传送点（请确认 RULE_DATA_SOURCES 中已包含对应 json 文件）',
+      reason: '未加载到任何 TPP 传送点（请确认当前世界数据集或兼容 public 数据可用）',
       worldId,
       totalTimeSeconds: 0,
       totalDistance: 0,
@@ -740,4 +696,74 @@ export async function computeTeleportNewPlanFromCoords(opt: NavigationTeleportCo
     segments: finalSegs,
     routeHighlight,
   };
+}
+
+
+export async function rebuildTeleportNewCacheForWorld(
+  worldId: string,
+  opt?: { fetcher?: (url: string) => Promise<any[]>; knn?: number },
+): Promise<void> {
+  const wid = normalizeRuleSourceWorldId(worldId);
+  delete TPP_CACHE[wid];
+  for (const key of Object.keys(TELEPORT_GRAPH_CACHE)) {
+    if (key === wid) delete TELEPORT_GRAPH_CACHE[key];
+  }
+  const loaded = await loadTeleportPoints(wid, { fetcher: opt?.fetcher });
+  const graphKey = `teleport::${wid}::sig=${loaded.signature}::knn=${Number.isFinite(opt?.knn as any) ? Number(opt!.knn) : 24}`;
+  let g = TELEPORT_GRAPH_CACHE[wid];
+  if (!g || g.key !== graphKey) {
+    const nodeIndex = new Map<string, number>();
+    const internalNodes: Coordinate[] = [];
+    const nodeAdd = (c: Coordinate) => {
+      const cc = normCoord(c);
+      const k = coordKey(cc);
+      const hit = nodeIndex.get(k);
+      if (hit !== undefined) return hit;
+      const id = internalNodes.length;
+      internalNodes.push(cc);
+      nodeIndex.set(k, id);
+      return id;
+    };
+
+    const teleportEdges: Array<{ sId: number; tId: number; tpId: string; tpName: string }> = [];
+    const hubSrcByHub = new Map<string, number[]>();
+
+    for (const tp of loaded.points) {
+      const sId = nodeAdd(tp.src);
+      const tId = nodeAdd(tp.tgt);
+      teleportEdges.push({ sId, tId, tpId: tp.id, tpName: tp.name });
+      if (tp.hub) {
+        const arr = hubSrcByHub.get(tp.hub) ?? [];
+        arr.push(sId);
+        hubSrcByHub.set(tp.hub, arr);
+      }
+    }
+
+    const knn = Number.isFinite(opt?.knn as any) ? Number(opt!.knn) : 24;
+    const internalCount = internalNodes.length;
+    const neighborIdx: number[][] = Array.from({ length: internalCount }, () => []);
+    for (let i = 0; i < internalCount; i++) {
+      const a = internalNodes[i];
+      const best: Array<{ d2: number; i: number }> = [];
+      for (let j = 0; j < internalCount; j++) {
+        if (i === j) continue;
+        const b = internalNodes[j];
+        const dx = a.x - b.x;
+        const dz = a.z - b.z;
+        const d2 = dx * dx + dz * dz;
+        insertBest(best, { d2, i: j }, knn);
+      }
+      neighborIdx[i] = best.map((x) => x.i);
+    }
+
+    TELEPORT_GRAPH_CACHE[wid] = {
+      key: graphKey,
+      internalNodes,
+      nodeIndex,
+      teleportEdges,
+      hubSrcByHub,
+      neighborIdx,
+      builtAt: Date.now(),
+    };
+  }
 }

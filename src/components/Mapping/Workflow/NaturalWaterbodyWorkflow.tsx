@@ -220,8 +220,7 @@ export default function NaturalWaterbodyWorkflow(props: WorkflowComponentProps) 
     }
 
     if (step !== 'draw') {
-      bridgeRef.current.setDrawMode('none');
-      bridgeRef.current.clearTempPoints();
+      bridgeRef.current.suspendDrawMode();
       setSaveError('');
       return;
     }

@@ -29,7 +29,28 @@ import { Pencil, Upload, Trash2, X } from 'lucide-react';
 import ToolIconButton from '@/components/Toolbar/ToolIconButton';
 
 import { buildZipStore } from '@/lib/zipStore';
-import { pickIdFieldValue } from '@/components/Rules/rendering/renderRules';
+import { stringifyFeatureJson, stringifyFeatureJsonArray } from '@/components/Common/featureJsonSerializer';
+import {
+  countActiveRelayPictures,
+  createEmptyRelayPackageDraft,
+  relayDraftShowsMeta,
+  relayDraftStatusLabel,
+  type RelayPackageDraft,
+  type RelayPackageDraftStatus,
+} from '@/components/Mapping/core/relayPackageDraft';
+import { buildRelayPackageZip } from '@/components/Mapping/core/relayPackageSerializer';
+import { parseRelayPackageZip } from '@/components/Mapping/core/relayPackageParser';
+import type { MinimalFeatureEditPackage } from '@/components/Mapping/core/minimalFeatureEditPackage';
+import RelayPackageExportPanel from '@/components/Mapping/panels/RelayPackageExportPanel';
+import DeleteFeatureSelectionPanel, { type DeletePanelItem } from '@/components/Mapping/panels/DeleteFeatureSelectionPanel';
+import DeleteFeaturePickPanel from '@/components/Mapping/panels/DeleteFeaturePickPanel';
+import FeaturePictureBindingPanel from '@/components/Mapping/panels/FeaturePictureBindingPanel';
+import { pickIdFieldValue, type FeatureRecord } from '@/components/Rules/rendering/renderRules';
+import { rebuildRoadGraphCacheForWorld } from '@/components/Navigation/Navigation_Road';
+import { rebuildRailNewIndexCacheForWorld } from '@/components/Navigation/railNewIndex';
+import { rebuildRailNewNavigationCacheForWorld } from '@/components/Navigation/Navigation_RailNewIntegrated';
+import { rebuildTeleportNewCacheForWorld } from '@/components/Navigation/Navigation_TeleportNewIntegrated';
+import { bumpTempRuleDeleteIdsRevision, bumpTempRuleOverrideIdsRevision, bumpTempRuleSourcesRevision } from '@/components/Rules/data/effectiveRuleItems';
 
 import ControlPointsT, { type ControlPointsTHandle } from '@/components/Mapping/tools/ControlPointsT';
 
@@ -108,12 +129,28 @@ type MeasuringModuleProps = {
   // 新增：外部强制关闭信号（MapContainer 递增）
   closeSignal?: number;
 
+  /**
+   * 外部请求打开入口下拉（用于分包首次加载后自动继续原操作）
+   */
+  openSignal?: number;
+
   // 新增：当本模块打开时通知 MapContainer 关闭别的面板
   onBecameActive?: () => void;
 
   // 可选：将启动按钮插入到外部工具栏
   launcherSlot?: (launcher: React.ReactNode) => React.ReactNode;
 };
+
+
+function sanitizeFilenamePart(value: string): string {
+  const normalized = String(value ?? '')
+    .trim()
+    .replace(/[\/:*?"<>|]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return normalized || 'unknown';
+}
 
 export type MeasuringModuleHandle = {
   /**
@@ -124,7 +161,7 @@ export type MeasuringModuleHandle = {
 };
 
 const MeasuringModule = forwardRef<MeasuringModuleHandle, MeasuringModuleProps>((props, ref) => {
-  const { mapReady, leafletMapRef, projectionRef, currentWorldId, closeSignal, onBecameActive, launcherSlot } = props;
+  const { mapReady, leafletMapRef, projectionRef, currentWorldId, closeSignal, openSignal, onBecameActive, launcherSlot } = props;
 
 
 // ---------- 测绘 & 图层管理状态 ------------
@@ -154,7 +191,10 @@ const [tempPoints, setTempPoints] = useState<Array<{ x: number; z: number; y?: n
 
 // 对外广播测绘激活态（用于禁用导航“图上选点”等交互）
 useEffect(() => {
-  window.dispatchEvent(new CustomEvent('ria:measuringActiveChanged', { detail: { active: measuringActive, source: 'MeasuringModule' } }));
+  if (typeof window !== 'undefined') {
+    (window as any).__riaMeasuringActive = measuringActive;
+    window.dispatchEvent(new CustomEvent('ria:measuringActiveChanged', { detail: { active: measuringActive, source: 'MeasuringModule' } }));
+  }
 }, [measuringActive]);
 
 
@@ -322,6 +362,19 @@ const [importText, setImportText] = useState('');
 const importFileInputRef = useRef<HTMLInputElement | null>(null);
 const [importFileBusy, setImportFileBusy] = useState(false);
 
+// RelayPackage 草稿状态（导入/导出、删除标记、图片绑定均在此维护）
+const [relayPackageDraft, setRelayPackageDraft] = useState<RelayPackageDraft>(() => createEmptyRelayPackageDraft());
+const [relayPackageExportOpen, setRelayPackageExportOpen] = useState(false);
+const [deletePanelOpen, setDeletePanelOpen] = useState(false);
+const [deleteMapPickEnabled, setDeleteMapPickEnabled] = useState(false);
+const [deletePickPanelOpen, setDeletePickPanelOpen] = useState(false);
+const [deletePickCandidate, setDeletePickCandidate] = useState<DeletePanelItem | null>(null);
+const [deletePickedCandidate, setDeletePickedCandidate] = useState<DeletePanelItem | null>(null);
+const deletePickModeOwnedRef = useRef(false);
+const [picturePanelOpen, setPicturePanelOpen] = useState(false);
+const [picturePanelLayerId, setPicturePanelLayerId] = useState<number | null>(null);
+const [expandedLayerToolbars, setExpandedLayerToolbars] = useState<Record<number, boolean>>({});
+
 
 const randomColor = () => {
   const r = Math.floor(Math.random()*255);
@@ -406,6 +459,7 @@ const [jsonExportSubType, setJsonExportSubType] = useState<string>('__ALL__');
 const TEMP_RULE_SOURCES_KEY = 'ria_temp_rule_sources_v1';
 // 临时挂载：覆盖固定数据源中“同 ID 要素”的屏蔽列表（worldId -> string[]）
 const TEMP_RULE_OVERRIDE_IDS_KEY = 'ria_temp_rule_override_ids_v1';
+const TEMP_RULE_DELETE_IDS_KEY = 'ria_temp_rule_delete_ids_v1';
 
 type TempRuleSource = {
   uid: string;
@@ -536,6 +590,13 @@ useEffect(() => {
 
 // 下拉菜单开关（仅再次点击“测绘”主按钮才收回）
 const [measureDropdownOpen, setMeasureDropdownOpen] = useState(false);
+const lastOpenSignalRef = useRef(0);
+useEffect(() => {
+  const next = openSignal ?? 0;
+  if (next === lastOpenSignalRef.current) return;
+  lastOpenSignalRef.current = next;
+  setMeasureDropdownOpen(true);
+}, [openSignal]);
 
 const toggleMeasureDropdown = () => {
   setMeasureDropdownOpen((v) => !v);
@@ -560,13 +621,14 @@ const confirmExitAndClear = (actionLabel: string) => {
           return !uid.startsWith(prefix);
         });
         (obj as any)[currentWorldId] = next;
-        localStorage.setItem(TEMP_RULE_SOURCES_KEY, JSON.stringify(obj));
-        window.dispatchEvent(new CustomEvent('ria-temp-rule-sources-changed', { detail: { worldId: currentWorldId } }));
+        writeTempRuleSources(obj as any);
       }
     }
   } catch {
     // ignore
   }
+  clearTempRuleOverrideIdsForWorld();
+  clearTempRuleDeleteIdsForWorld();
   setTempMountAllActive(false);
 
   // 退出测绘：强制关闭并清空“曲线输入”临时容器（避免残留与抑制状态遗留）
@@ -774,6 +836,53 @@ useEffect(() => {
 
 
 // ========= 地图点击监听（绘制模式） =========
+
+// ========= 删除要素选择模式（Rules 专用命中链路） =========
+const buildDeleteCandidateFromRuleFeature = (feature: FeatureRecord | null | undefined) => {
+  const fi = feature?.featureInfo as any;
+  const cls = String(fi?.Class ?? '').trim();
+  const { idValue } = pickIdFieldValue(fi, cls);
+  const id = String(idValue ?? '').trim();
+  if (!id) return null;
+  const name = String(fi?.Name ?? fi?.Label ?? '').trim() || id;
+  return { ID: id, Name: name, className: cls };
+};
+
+useEffect(() => {
+  const active = Boolean(deletePanelOpen && deletePickPanelOpen && deleteMapPickEnabled);
+  if (typeof window === 'undefined') return;
+  if (deletePickModeOwnedRef.current === active) return;
+  deletePickModeOwnedRef.current = active;
+  window.dispatchEvent(new CustomEvent('ria:delete-pick-mode', { detail: { active } }));
+}, [deletePanelOpen, deletePickPanelOpen, deleteMapPickEnabled]);
+
+useEffect(() => {
+  return () => {
+    if (typeof window === 'undefined') return;
+    if (!deletePickModeOwnedRef.current) return;
+    deletePickModeOwnedRef.current = false;
+    window.dispatchEvent(new CustomEvent('ria:delete-pick-mode', { detail: { active: false } }));
+  };
+}, []);
+
+useEffect(() => {
+  if (typeof window === 'undefined') return;
+  const active = Boolean(deletePanelOpen && deletePickPanelOpen && deleteMapPickEnabled);
+  if (!active) return;
+
+  const handler = (ev: Event) => {
+    const feature = (ev as CustomEvent<any>)?.detail?.feature as FeatureRecord | undefined;
+    const picked = buildDeleteCandidateFromRuleFeature(feature);
+    if (!picked) return;
+    const currentDeleteIds = new Set(relayPackageDraft.deleteMarks.map((x) => x.ID));
+    if (currentDeleteIds.has(picked.ID)) return;
+    setDeletePickCandidate({ ...picked });
+  };
+
+  window.addEventListener('ria:delete-pick-feature', handler as EventListener);
+  return () => window.removeEventListener('ria:delete-pick-feature', handler as EventListener);
+}, [deletePanelOpen, deletePickPanelOpen, deleteMapPickEnabled, relayPackageDraft.deleteMarks]);
+
 useEffect(() => {
   const map = leafletMapRef.current;
   if (!map) return;
@@ -1390,7 +1499,7 @@ const getLayersJSONOutputBySubType = (target: FeatureKey | '__ALL__') => {
     })
     .filter(Boolean);
 
-  return JSON.stringify(items, null, 2);
+  return stringifyFeatureJsonArray(items);
 };
 
 const getAvailableSubTypes = (): FeatureKey[] => {
@@ -1490,7 +1599,7 @@ const getLayersJSONOutputByWorkflowCatalogKey = (key: WorkflowCatalogExportKey):
     .map((l) => l?.jsonInfo?.featureInfo)
     .filter(Boolean);
 
-  return JSON.stringify(items, null, 2);
+  return stringifyFeatureJsonArray(items);
 };
 
 
@@ -1687,12 +1796,93 @@ const readTempRuleOverrideIds = (): Record<string, string[]> => {
   }
 };
 
+
+const readTempRuleDeleteIds = (): Record<string, string[]> => {
+  try {
+    const raw = localStorage.getItem(TEMP_RULE_DELETE_IDS_KEY);
+    if (!raw) return {};
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== 'object') return {};
+    return obj as any;
+  } catch {
+    return {};
+  }
+};
+
+const writeTempRuleDeleteIds = (all: Record<string, string[]>) => {
+  try {
+    localStorage.setItem(TEMP_RULE_DELETE_IDS_KEY, JSON.stringify(all));
+    bumpTempRuleDeleteIdsRevision();
+    window.dispatchEvent(
+      new CustomEvent('ria-temp-rule-deletes-changed', { detail: { worldId: currentWorldId } }),
+    );
+    requestTempMountNavigationRebuild(currentWorldId);
+  } catch {
+    // ignore
+  }
+};
+
+const clearTempRuleDeleteIdsForWorld = () => {
+  const all = readTempRuleDeleteIds();
+  if (all && typeof all === 'object' && (all as any)[currentWorldId]) {
+    const next = { ...all } as any;
+    delete next[currentWorldId];
+    writeTempRuleDeleteIds(next);
+  } else {
+    window.dispatchEvent(
+      new CustomEvent('ria-temp-rule-deletes-changed', { detail: { worldId: currentWorldId } }),
+    );
+  }
+};
+
+const syncTempRuleDeleteIdsForCurrentWorld = () => {
+  const all = readTempRuleDeleteIds();
+  const ids = relayPackageDraft.deleteMarks.map((x) => String(x.ID ?? '').trim()).filter(Boolean);
+  if (ids.length > 0) writeTempRuleDeleteIds({ ...all, [currentWorldId]: Array.from(new Set(ids)) });
+  else if ((all as any)[currentWorldId]) {
+    const next = { ...all } as any;
+    delete next[currentWorldId];
+    writeTempRuleDeleteIds(next);
+  } else {
+    window.dispatchEvent(new CustomEvent('ria-temp-rule-deletes-changed', { detail: { worldId: currentWorldId } }));
+  }
+};
+
+const requestTempMountNavigationRebuild = (worldId: string) => {
+  const wid = String(worldId ?? '').trim();
+  if (!wid) return;
+  Promise.resolve().then(async () => {
+    try {
+      await rebuildRoadGraphCacheForWorld(wid);
+    } catch {
+      // ignore
+    }
+    try {
+      await rebuildRailNewIndexCacheForWorld(wid);
+    } catch {
+      // ignore
+    }
+    try {
+      await rebuildRailNewNavigationCacheForWorld(wid);
+    } catch {
+      // ignore
+    }
+    try {
+      await rebuildTeleportNewCacheForWorld(wid);
+    } catch {
+      // ignore
+    }
+  });
+};
+
 const writeTempRuleOverrideIds = (all: Record<string, string[]>) => {
   try {
     localStorage.setItem(TEMP_RULE_OVERRIDE_IDS_KEY, JSON.stringify(all));
+    bumpTempRuleOverrideIdsRevision();
     window.dispatchEvent(
       new CustomEvent('ria-temp-rule-overrides-changed', { detail: { worldId: currentWorldId } }),
     );
+    requestTempMountNavigationRebuild(currentWorldId);
   } catch {
     // ignore
   }
@@ -1715,7 +1905,9 @@ const clearTempRuleOverrideIdsForWorld = () => {
 const writeTempRuleSources = (all: Record<string, TempRuleSource[]>) => {
   try {
     localStorage.setItem(TEMP_RULE_SOURCES_KEY, JSON.stringify(all));
+    bumpTempRuleSourcesRevision();
     window.dispatchEvent(new CustomEvent('ria-temp-rule-sources-changed', { detail: { worldId: currentWorldId } }));
+    requestTempMountNavigationRebuild(currentWorldId);
   } catch {
     // ignore
   }
@@ -1806,6 +1998,11 @@ useEffect(() => {
   window.addEventListener('ria-temp-rule-sources-changed', handler as any);
   return () => window.removeEventListener('ria-temp-rule-sources-changed', handler as any);
 }, [currentWorldId]);
+
+useEffect(() => {
+  if (!tempMountAllActive) return;
+  syncTempRuleDeleteIdsForCurrentWorld();
+}, [tempMountAllActive, relayPackageDraft.deleteMarks, currentWorldId]);
 
 // ======== 图层管理：顶部横向滚动条（始终可见）与内容区横向滚动同步 ========
 const layerMgrTopXRef = useRef<HTMLDivElement | null>(null);
@@ -2209,6 +2406,230 @@ const runBatchImportFromText = (rawText: string, sourceLabel: string) => {
   });
 };
 
+
+const resolveMergedRelayDraftStatus = (
+  base: RelayPackageDraft,
+  incoming: RelayPackageDraft,
+): RelayPackageDraftStatus => {
+  const incomingStatus = incoming.meta.draftStatus;
+  const baseStatus = base.meta.draftStatus;
+  if (incomingStatus === 'imported_package') return 'imported_package';
+  if (baseStatus === 'imported_package') return 'imported_package';
+  if (baseStatus === 'exported_draft' || incomingStatus === 'exported_draft') return 'exported_draft';
+  return 'new_draft';
+};
+
+const buildRelayPackageVersionStamp = (): string => {
+  const now = new Date();
+  const y = String(now.getFullYear());
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const ss = String(now.getSeconds()).padStart(2, '0');
+  return `draft-${y}${m}${d}-${hh}${mm}${ss}`;
+};
+
+const mergeRelayPackageDrafts = (base: RelayPackageDraft, incoming: RelayPackageDraft): RelayPackageDraft => {
+  const nextDeleteMarks = new Map<string, any>();
+  for (const item of base.deleteMarks) nextDeleteMarks.set(item.ID, item);
+  for (const item of incoming.deleteMarks) nextDeleteMarks.set(item.ID, item);
+
+  const nextPicturesById = { ...base.picturesById };
+  for (const [id, pictures] of Object.entries(incoming.picturesById ?? {})) {
+    nextPicturesById[id] = pictures;
+  }
+
+  const nextStatus = resolveMergedRelayDraftStatus(base, incoming);
+  const incomingVersion = incoming.meta.packageVersion;
+  const baseVersion = base.meta.packageVersion;
+
+  return {
+    meta: {
+      ...base.meta,
+      operator: base.meta.operator || incoming.meta.operator,
+      note: base.meta.note || incoming.meta.note,
+      draftStatus: nextStatus,
+      updatedAt: new Date().toISOString(),
+      packageVersion: incomingVersion ?? baseVersion,
+      schemaVersion: incoming.meta.schemaVersion || base.meta.schemaVersion,
+    },
+    deleteMarks: Array.from(nextDeleteMarks.values()),
+    picturesById: nextPicturesById,
+  };
+};
+
+const applyParsedRelayPackage = (parsed: { draft: RelayPackageDraft; jsonItems: any[] }) => {
+  const incomingIdSet = new Set<string>();
+  for (const item of parsed.jsonItems) {
+    if (!item || typeof item !== 'object') continue;
+    const cls = String((item as any)?.Class ?? '').trim();
+    const { idValue } = pickIdFieldValue(item as any, cls);
+    const id = String(idValue ?? '').trim();
+    if (id) incomingIdSet.add(id);
+  }
+
+  if (incomingIdSet.size > 0) {
+    setLayers((prev) => {
+      const removed = prev.filter((l) => {
+        const fi = l.jsonInfo?.featureInfo as any;
+        const cls = String(fi?.Class ?? l.jsonInfo?.subType ?? '').trim();
+        const { idValue } = pickIdFieldValue(fi, cls);
+        const id = String(idValue ?? '').trim();
+        return id && incomingIdSet.has(id);
+      });
+      for (const layer of removed) {
+        fixedRootRef.current?.removeLayer(layer.leafletGroup);
+      }
+      const next = prev.filter((l) => {
+        const fi = l.jsonInfo?.featureInfo as any;
+        const cls = String(fi?.Class ?? l.jsonInfo?.subType ?? '').trim();
+        const { idValue } = pickIdFieldValue(fi, cls);
+        const id = String(idValue ?? '').trim();
+        return !(id && incomingIdSet.has(id));
+      });
+      syncFixedRoot(next, editingLayerId);
+      return next;
+    });
+  }
+
+  setRelayPackageDraft((prev) => mergeRelayPackageDrafts(prev, parsed.draft));
+  if (Array.isArray(parsed.jsonItems) && parsed.jsonItems.length > 0) {
+    runBatchImportFromText(JSON.stringify(parsed.jsonItems, null, 2), '标准包导入');
+  }
+};
+
+
+const applyMinimalFeatureEditPackage = (pkg: MinimalFeatureEditPackage) => {
+  const item = (pkg?.feature ?? {}) as any;
+  if (!item || typeof item !== 'object') return;
+
+  const cls = String(item.Class ?? '').trim();
+  const { idValue } = pickIdFieldValue(item, cls);
+  const id = String(idValue ?? '').trim();
+  if (!id) return;
+
+  const incomingDraft: RelayPackageDraft = {
+    ...createEmptyRelayPackageDraft(),
+    picturesById: {
+      [id]: (pkg.pictures ?? []).map((pic, idx) => ({
+        uid: `${id}:${pic.filename ?? idx + 1}:${Date.now()}`,
+        originalName: pic.filename || `${id}_${idx + 1}.png`,
+        relativePath: pic.relativePath,
+        previewUrl: pic.url,
+        deleted: false,
+        order: idx + 1,
+        source: pic.source,
+      })),
+    },
+    meta: {
+      ...createEmptyRelayPackageDraft().meta,
+      draftStatus: 'new_draft',
+      updatedAt: new Date().toISOString(),
+      packageVersion: undefined,
+    },
+  };
+
+  applyParsedRelayPackage({ draft: incomingDraft, jsonItems: [item] });
+};
+
+useEffect(() => {
+  const handler = (ev: Event) => {
+    const detail = (ev as CustomEvent<MinimalFeatureEditPackage>).detail;
+    if (!detail) return;
+    applyMinimalFeatureEditPackage(detail);
+    if (!measuringActive) {
+      setMeasuringActive(true);
+    }
+  };
+  window.addEventListener('ria:importFeatureEditPackage', handler as EventListener);
+  return () => window.removeEventListener('ria:importFeatureEditPackage', handler as EventListener);
+}, [measuringActive, currentWorldId, layers, relayPackageDraft]);
+
+const layerDeleteCandidateFromLayer = (layer: LayerType) => {
+  const fi = layer.jsonInfo?.featureInfo as any;
+  const cls = String(fi?.Class ?? layer.jsonInfo?.subType ?? '').trim();
+  const { idValue } = pickIdFieldValue(fi, cls);
+  const id = String(idValue ?? '').trim();
+  if (!id) return null;
+  return {
+    ID: id,
+    Name: String(fi?.Name ?? fi?.Label ?? '').trim() || getLayerDisplayTitle(layer),
+    className: cls,
+  };
+};
+
+const buildDeleteCandidatesFromLayers = (): DeletePanelItem[] => layers.reduce<DeletePanelItem[]>((acc, l) => {
+  if (l.id === editingLayerId || !l.jsonInfo?.featureInfo) return acc;
+  const candidate = layerDeleteCandidateFromLayer(l);
+  if (candidate) acc.push(candidate);
+  return acc;
+}, []);
+
+const getLayerPictureBindingContext = (layerId: number | null) => {
+  const layer = layers.find((l) => l.id === layerId);
+  if (!layer || !layer.jsonInfo?.featureInfo) return null;
+  const fi = layer.jsonInfo.featureInfo as any;
+  const cls = String(fi?.Class ?? layer.jsonInfo.subType ?? '').trim();
+  const { idValue } = pickIdFieldValue(fi, cls);
+  const id = String(idValue ?? '').trim();
+  if (!id) return null;
+  const name = String(fi?.Name ?? fi?.Label ?? getLayerDisplayTitle(layer)).trim() || id;
+  return {
+    id,
+    title: `${name} 图片绑定`,
+    pictures: relayPackageDraft.picturesById[id] ?? [],
+  };
+};
+
+const applyPictureBindingForLayer = (layerId: number | null, pictures: any[]) => {
+  const ctx = getLayerPictureBindingContext(layerId);
+  if (!ctx) return;
+  setRelayPackageDraft((prev) => ({
+    ...prev,
+    picturesById: { ...prev.picturesById, [ctx.id]: pictures },
+    meta: { ...prev.meta, updatedAt: new Date().toISOString() },
+  }));
+  setPicturePanelOpen(false);
+};
+
+const handleExportRelayPackage = async (operator: string, note: string): Promise<{ blob: Blob; filename: string }> => {
+  const visibleList = layers.filter((l) => l.id !== editingLayerId);
+  const packageVersion = buildRelayPackageVersionStamp();
+  const nextMeta = {
+    ...relayPackageDraft.meta,
+    operator,
+    note,
+    draftStatus: 'exported_draft' as RelayPackageDraftStatus,
+    packageVersion,
+    updatedAt: new Date().toISOString(),
+  };
+  let blob: Blob;
+  try {
+    blob = await buildRelayPackageZip({
+      layers: visibleList as any,
+      currentWorldId,
+      draft: {
+        ...relayPackageDraft,
+        meta: nextMeta,
+      },
+      operator,
+      note,
+    });
+  } catch (error) {
+    throw new Error(`标准包生成失败：${String((error as Error)?.message ?? error ?? '未知错误')}`);
+  }
+  const now = new Date();
+  const y = String(now.getFullYear());
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const filename = `RelayPackage_${sanitizeFilenamePart(operator)}_${sanitizeFilenamePart(currentWorldId)}_${y}${m}${d}${hh}${mm}.zip`;
+  setRelayPackageDraft((prev) => ({ ...prev, meta: { ...prev.meta, ...nextMeta } }));
+  return { blob, filename };
+};
+
 const handleImport = () => {
   runBatchImportFromText(importText, '文本导入');
   setImportText('');
@@ -2236,6 +2657,18 @@ const handleImportFileSelected = async (e: ChangeEvent<HTMLInputElement>) => {
     if (!lower.endsWith('.zip')) {
       alert(`仅支持上传 .zip 或 .json 文件：${name}`);
       return;
+    }
+
+    // 先尝试按 RelayPackage 解析；若失败再回退旧 ZIP 批量 JSON 导入。
+    try {
+      const parsed = await parseRelayPackageZip(file);
+      if (Array.isArray(parsed.jsonItems) && parsed.jsonItems.length > 0) {
+        applyParsedRelayPackage(parsed);
+        setImportPanelOpen(false);
+        return;
+      }
+    } catch {
+      // ignore，继续走旧 ZIP JSON 导入流程
     }
 
     // ZIP：动态加载 jszip（可选依赖）
@@ -2899,6 +3332,28 @@ const workflowRegistry: WorkflowRegistry = {
   flr_unit: FloorUnitWorkflow,
 };
 
+
+const WORKFLOW_SELECT_OPTIONS: Array<{ key: WorkflowKey; label: string; hidden?: boolean }> = [
+  { key: 'railway', label: '铁路' },
+  { key: 'station', label: '车站和站台' },
+  { key: 'rod_road', label: '道路' },
+  { key: 'tpp_point', label: '传送点' },
+  { key: 'wrp_point', label: 'Warp点' },
+  { key: 'trp_point', label: '交易点' },
+  { key: 'ngf_land', label: '自然要素-陆地' },
+  { key: 'ngf_lis', label: '自然要素-陆面要素' },
+  { key: 'ngf_wtb', label: '自然要素-水域' },
+  { key: 'ngf_wtr', label: '自然要素-河道' },
+  { key: 'ngf_bod', label: '自然要素-地理边界' },
+  { key: 'adm_dbz_set', label: '聚落范围-确定范围' },
+  { key: 'adm_plz_plan', label: '聚落范围-规划范围' },
+  { key: 'adm_line_settlement', label: '聚落边界线要素' },
+  { key: 'adm_point_special', label: '特殊人文点要素' },
+  { key: 'bud_building', label: '建筑' },
+  { key: 'flr_unit', label: '楼内单元' },
+];
+
+
 const stopWorkflowToSelector = () => {
   // 回到“工作流初始选择页面”（不退出测绘）
   setWorkflowRunning(false);
@@ -3088,6 +3543,14 @@ const workflowBridge: WorkflowBridge = {
     resetSpecialDrafts();
   },
 
+  suspendDrawMode: () => {
+    setEditingLayerId(null);
+    setDrawing(false);
+    setDrawMode('none');
+    drawModeRef.current = 'none';
+    resetSpecialDrafts();
+  },
+
   setDrawColor: (hex: string) => setDrawColor(hex),
 
   getTempPoints: () => tempPoints,
@@ -3241,6 +3704,7 @@ const workflowBridge: WorkflowBridge = {
     // 写入覆盖屏蔽列表：固定数据源中同 ID 的要素在挂载期间不可读
     const all = readTempRuleOverrideIds();
     writeTempRuleOverrideIds({ ...all, [currentWorldId]: tempMountPendingOverrideIds });
+    syncTempRuleDeleteIdsForCurrentWorld();
 
     // 通过确认：批量挂载所有图层（仅用于测试显示/去重/关联）
     mountAllLayersToTempSources(tempMountPendingLayers);
@@ -3260,6 +3724,7 @@ const workflowBridge: WorkflowBridge = {
       removeAllTempMountedLayersForWorld(ids);
       // 退出挂载：清除“覆盖屏蔽列表”，恢复固定数据源可读
       clearTempRuleOverrideIdsForWorld();
+      clearTempRuleDeleteIdsForWorld();
       setTempMountAllActive(false);
       // 恢复 fixedRoot 显示（避免退出挂载后仍然空白）
       syncFixedRoot(layers, editingLayerId);
@@ -3284,6 +3749,7 @@ const workflowBridge: WorkflowBridge = {
     try {
       // 新挂载：先清理上一次残留的覆盖屏蔽列表
       clearTempRuleOverrideIdsForWorld();
+      clearTempRuleDeleteIdsForWorld();
 
       setTempMountIdCheckText('正在读取全局数据库要素索引...');
       const res = await checkTempMountIdConflictsDetailed({ worldId: currentWorldId, candidates });
@@ -3316,6 +3782,7 @@ const workflowBridge: WorkflowBridge = {
     }
 
     // 通过检查：批量挂载所有图层（仅用于测试显示/去重/关联）
+    syncTempRuleDeleteIdsForCurrentWorld();
     mountAllLayersToTempSources(layerList);
     setTempMountAllActive(true);
     // 挂载模式下仅观看：隐藏测绘图层显示，避免与规则渲染叠加
@@ -3431,7 +3898,66 @@ const workflowBridge: WorkflowBridge = {
               >
                 {tempMountAllActive ? '取消临时挂载' : '临时挂载'}
               </AppButton>
+
+              <AppButton
+                type="button"
+                className={`px-2 py-1 text-sm rounded border ${busy || visibleList.length === 0 ? 'bg-gray-200 text-gray-400 cursor-not-allowed border-gray-200' : 'bg-white text-gray-800 hover:bg-gray-50 border-gray-300'}`}
+                title={busy ? '当前有要素正在编辑/绘制，请先保存' : visibleList.length === 0 ? '暂无图层' : '导出当前图层管理区为标准包'}
+                disabled={busy || visibleList.length === 0}
+                onClick={() => { if (!busy && visibleList.length > 0) setRelayPackageExportOpen(true); }}
+              >
+                导出标准包
+              </AppButton>
+
+              <AppButton
+                type="button"
+                className="px-2 py-1 text-sm rounded border bg-white text-gray-800 hover:bg-gray-50 border-gray-300"
+                title="查看待删除标记"
+                onClick={() => { setDeletePickedCandidate(null); setDeleteMapPickEnabled(false); setDeletePanelOpen(true); }}
+              >
+                删除要素
+              </AppButton>
             </div>
+
+            <div className="px-4 py-2 border-b text-xs text-gray-600 space-y-1">
+              <div><span className="font-bold">标准包状态：</span>{relayDraftStatusLabel(relayPackageDraft.meta.draftStatus)}</div>
+              {relayDraftShowsMeta(relayPackageDraft.meta.draftStatus) ? (
+                <div><span className="font-bold">Operator：</span>{relayPackageDraft.meta.operator || '-'}</div>
+              ) : null}
+              {relayDraftShowsMeta(relayPackageDraft.meta.draftStatus) ? (
+                <div><span className="font-bold">Note：</span>{relayPackageDraft.meta.note || '-'}</div>
+              ) : null}
+              <div><span className="font-bold">待删除：</span>{relayPackageDraft.deleteMarks.length}　<span className="font-bold">已绑定图片：</span>{countActiveRelayPictures(relayPackageDraft)}</div>
+              <div>
+                {relayDraftShowsMeta(relayPackageDraft.meta.draftStatus) ? (
+                  <><span className="font-bold">包版本：</span>{relayPackageDraft.meta.packageVersion ?? '-'}　</>
+                ) : null}
+                <span className="font-bold">更新时间：</span>{relayPackageDraft.meta.updatedAt || '-'}
+              </div>
+            </div>
+
+            {relayPackageDraft.deleteMarks.length > 0 && (
+              <div className="px-4 py-2 border-b text-xs text-gray-700 bg-rose-50/60 space-y-1">
+                <div className="font-bold text-rose-800">待删除标记</div>
+                <div className="flex flex-wrap gap-1">
+                  {relayPackageDraft.deleteMarks.map((it) => (
+                    <button
+                      key={it.ID}
+                      type="button"
+                      className="px-2 py-0.5 rounded border border-rose-200 bg-white text-rose-700 hover:bg-rose-50"
+                      title={it.ID}
+                      onClick={() => setRelayPackageDraft((prev) => ({
+                        ...prev,
+                        deleteMarks: prev.deleteMarks.filter((x) => x.ID !== it.ID),
+                        meta: { ...prev.meta, updatedAt: new Date().toISOString() },
+                      }))}
+                    >
+                      {it.Name || it.ID}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* 顶部横向滚动条：始终可见 */}
             <div className="px-3 pt-2">
@@ -3477,59 +4003,57 @@ const workflowBridge: WorkflowBridge = {
                   }
 
                   // 普通模式：保留原图层管理能力（不再提供单图层“临时挂载”按钮）
+                  const toolbarExpanded = Boolean(expandedLayerToolbars[l.id]);
                   return (
                     <div key={l.id} className="flex items-center gap-1 mb-1 whitespace-nowrap min-w-[640px]">
                       <AppButton
-                        className={`px-2 py-1 text-sm ${l.visible ? 'bg-green-300' : 'bg-gray-300'}`}
-                        onClick={() => toggleLayerVisible(l.id)}
+                        className="px-2 py-1 text-sm border bg-white"
+                        onClick={() => setExpandedLayerToolbars((prev) => ({ ...prev, [l.id]: !prev[l.id] }))}
                         type="button"
+                        title={toolbarExpanded ? '收起工具栏' : '展开工具栏'}
                       >
-                        {l.visible ? '隐藏' : '显示'}
-                      </AppButton>
-
-                      <AppButton className="px-2 py-1 text-sm bg-blue-200" onClick={() => moveLayerUp(l.id)} type="button">
-                        ↑
-                      </AppButton>
-
-                      <AppButton className="px-2 py-1 text-sm bg-blue-200" onClick={() => moveLayerDown(l.id)} type="button">
-                        ↓
+                        {toolbarExpanded ? '<' : '>'}
                       </AppButton>
 
                       <AppButton
-                        className={`px-2 py-1 text-sm ${
-                          (busy || quickMeasuringActive) ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-yellow-300 hover:bg-yellow-400'
-                        }`}
-                        disabled={busy || quickMeasuringActive}
-                        onClick={() => {
-                          if (busy || quickMeasuringActive) return;
-                          editLayer(l.id);
-                        }}
+                        className="px-2 py-1 text-sm border bg-white"
+                        onClick={() => { setPicturePanelLayerId(l.id); setPicturePanelOpen(true); }}
                         type="button"
-                        title={
-                          busy
-                            ? '当前有要素正在编辑/绘制，请先保存'
-                            : quickMeasuringActive
-                              ? '快捷测绘模式启用时禁止编辑图层（避免图层被转移导致卡死）'
-                              : '编辑'
-                        }
+                        title="要素绑定图片"
                       >
-                        编辑
+                        图
                       </AppButton>
 
-                      <AppButton className="px-2 py-1 text-sm bg-red-400 text-white" onClick={() => deleteLayer(l.id)} type="button">
-                        删除
-                      </AppButton>
+                      {toolbarExpanded ? (
+                        <>
+                          <AppButton
+                            className={`px-2 py-1 text-sm ${l.visible ? 'bg-green-300' : 'bg-gray-300'}`}
+                            onClick={() => toggleLayerVisible(l.id)}
+                            type="button"
+                          >
+                            {l.visible ? '隐藏' : '显示'}
+                          </AppButton>
 
-                      <AppButton
-                        className="px-3 py-1 text-sm bg-purple-400 text-white"
-                        onClick={() => {
-                          setJsonPanelText(getLayerJSONOutput(l));
-                          setJsonPanelOpen(true);
-                        }}
-                        type="button"
-                      >
-                        JSON
-                      </AppButton>
+                          <AppButton className="px-2 py-1 text-sm bg-blue-200" onClick={() => moveLayerUp(l.id)} type="button">↑</AppButton>
+                          <AppButton className="px-2 py-1 text-sm bg-blue-200" onClick={() => moveLayerDown(l.id)} type="button">↓</AppButton>
+
+                          <AppButton
+                            className={`px-2 py-1 text-sm ${(busy || quickMeasuringActive) ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-yellow-300 hover:bg-yellow-400'}`}
+                            disabled={busy || quickMeasuringActive}
+                            onClick={() => { if (busy || quickMeasuringActive) return; editLayer(l.id); }}
+                            type="button"
+                            title={busy ? '当前有要素正在编辑/绘制，请先保存' : quickMeasuringActive ? '快捷测绘模式启用时禁止编辑图层（避免图层被转移导致卡死）' : '编辑'}
+                          >编辑</AppButton>
+
+                          <AppButton className="px-2 py-1 text-sm bg-red-400 text-white" onClick={() => deleteLayer(l.id)} type="button">删除</AppButton>
+
+                          <AppButton
+                            className="px-3 py-1 text-sm bg-purple-400 text-white"
+                            onClick={() => { setJsonPanelText(getLayerJSONOutput(l)); setJsonPanelOpen(true); }}
+                            type="button"
+                          >JSON</AppButton>
+                        </>
+                      ) : null}
 
                       <div className="flex-1 text-sm truncate">
                         {getLayerDisplayTitle(l)}
@@ -3634,23 +4158,11 @@ const rightDockNode = (
       disabled={workflowRunning}
       onChange={(e) => setWorkflowKey(e.target.value as WorkflowKey)}
     >
-      <option value="railway">铁路</option>
-      <option value="station">车站和站台</option>
-      <option value="rod_road">道路</option>
-      <option value="tpp_point">传送点</option>
-      <option value="wrp_point">Warp点</option>
-      <option value="trp_point">交易点</option>
-      <option value="ngf_land">自然要素-陆地</option>
-      <option value="ngf_lis">自然要素-陆面要素</option>
-      <option value="ngf_wtb">自然要素-水域</option>
-      <option value="ngf_wtr">自然要素-河道</option>
-      <option value="ngf_bod">自然要素-地理边界</option>
-      <option value="adm_dbz_set">聚落范围-确定范围</option>
-      <option value="adm_plz_plan">聚落范围-规划范围</option>
-      <option value="adm_line_settlement">聚落边界线要素</option>
-      <option value="adm_point_special">特殊人文点要素</option>
-      <option value="bud_building">建筑</option>
-      <option value="flr_unit">楼内单元</option>
+      {WORKFLOW_SELECT_OPTIONS.filter((item) => !item.hidden).map((item) => (
+        <option key={item.key} value={item.key}>
+          {item.label}
+        </option>
+      ))}
     </select>
 
     <AppButton
@@ -4614,7 +5126,7 @@ placeholder={'批量 JSON：支持数组或 {items:[...]} / {features:[...]}。�
                   const base = safeName(id || `item_${String(idx + 1).padStart(3, '0')}`);
                   return {
                     name: `${base}.json`,
-                    text: JSON.stringify(obj, null, 2),
+                    text: stringifyFeatureJson(obj),
                   };
                 });
 
@@ -4820,6 +5332,55 @@ placeholder={'批量 JSON：支持数组或 {items:[...]} / {features:[...]}。�
     </AppCard>
   </div>
 )}
+
+
+      <RelayPackageExportPanel
+        open={relayPackageExportOpen}
+        draft={relayPackageDraft}
+        featureCount={layers.filter((l) => l.id !== editingLayerId && l.jsonInfo?.featureInfo).length}
+        onClose={() => setRelayPackageExportOpen(false)}
+        onExport={handleExportRelayPackage}
+      />
+
+      <DeleteFeatureSelectionPanel
+        open={deletePanelOpen}
+        items={relayPackageDraft.deleteMarks}
+        candidates={buildDeleteCandidatesFromLayers()}
+        currentWorldId={currentWorldId}
+        onClose={() => { setDeletePanelOpen(false); setDeleteMapPickEnabled(false); setDeletePickPanelOpen(false); setDeletePickCandidate(null); setDeletePickedCandidate(null); }}
+        mapPickEnabled={deleteMapPickEnabled && deletePickPanelOpen}
+        pickedItem={deletePickedCandidate}
+        onOpenPickPanel={() => { setDeletePickPanelOpen(true); setDeleteMapPickEnabled(true); setDeletePickCandidate(null); }}
+        onConfirm={(items) => {
+          setRelayPackageDraft((prev) => ({ ...prev, deleteMarks: items.map((x) => ({ ID: x.ID, Name: x.Name || '' })), meta: { ...prev.meta, updatedAt: new Date().toISOString() } }));
+          setDeletePanelOpen(false);
+          setDeleteMapPickEnabled(false);
+          setDeletePickPanelOpen(false);
+          setDeletePickCandidate(null);
+          setDeletePickedCandidate(null);
+        }}
+      />
+
+      <DeleteFeaturePickPanel
+        open={deletePickPanelOpen}
+        active={deleteMapPickEnabled}
+        candidate={deletePickCandidate}
+        onCancel={() => { setDeletePickPanelOpen(false); setDeleteMapPickEnabled(false); setDeletePickCandidate(null); }}
+        onConfirm={(item) => {
+          setDeletePickedCandidate(item);
+          setDeletePickPanelOpen(false);
+          setDeleteMapPickEnabled(false);
+          setDeletePickCandidate(null);
+        }}
+      />
+
+      <FeaturePictureBindingPanel
+        open={picturePanelOpen}
+        title={getLayerPictureBindingContext(picturePanelLayerId)?.title ?? '图片绑定'}
+        pictures={getLayerPictureBindingContext(picturePanelLayerId)?.pictures ?? []}
+        onClose={() => setPicturePanelOpen(false)}
+        onConfirm={(pictures) => applyPictureBindingForLayer(picturePanelLayerId, pictures)}
+      />
 
 
   </>

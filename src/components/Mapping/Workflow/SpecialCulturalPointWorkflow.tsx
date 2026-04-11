@@ -267,8 +267,7 @@ export default function SpecialCulturalPointWorkflow(props: WorkflowComponentPro
     }
 
     if (step !== 'draw') {
-      bridgeRef.current.setDrawMode('none');
-      bridgeRef.current.clearTempPoints();
+      bridgeRef.current.suspendDrawMode();
       setSaveError('');
       return;
     }

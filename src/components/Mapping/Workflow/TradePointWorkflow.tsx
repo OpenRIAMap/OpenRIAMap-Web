@@ -4,7 +4,6 @@ import type { WorkflowComponentProps, WorldPoint } from './WorkflowHost';
 import AppButton from '@/components/ui/AppButton';
 import { EXT_VALUE_TYPE_TEXT, listCatalogClassOptions, type FeatureKey } from '@/components/Common/featureFormats';
 import WorkflowFeatureSearchSelect, { type SearchSelectConfig } from './WorkflowFeatureSearchSelect';
-import { TRP_ITEM_IMG_MAP } from '@/components/Rules/cardrules/tradeImageRegistry';
 
 /**
  * TradePointWorkflow（工作流：交易点）
@@ -221,11 +220,7 @@ function LabeledTextarea(props: LabeledTextareaProps) {
 }
 
 type ImgOption = { key: string; value: string; label: string };
-const IMG_OPTIONS: ImgOption[] = Object.entries(TRP_ITEM_IMG_MAP ?? {}).map(([k, v]) => ({
-  key: String(k),
-  value: String(v),
-  label: `${String(k)}(${String(v)})`,
-}));
+const IMG_OPTIONS: ImgOption[] = [];
 
 function matchImg(o: ImgOption, q: string) {
   const s = q.toLowerCase();
@@ -235,9 +230,7 @@ function matchImg(o: ImgOption, q: string) {
 function isDirectImgPath(v: string): boolean {
   const s = String(v ?? '').trim();
   if (!s) return false;
-  if (s.startsWith('/')) return true; // local public path
-  if (s.startsWith('//')) return true;
-  return /^(https?:\/\/|ftp:\/\/|file:\/\/)/i.test(s);
+  return /^https?:\/\//i.test(s);
 }
 
 function ensureTradeItem(): TradeItem {
@@ -740,11 +733,11 @@ export default function TradePointWorkflow(props: WorkflowComponentProps) {
 
                     {/* Img coarse select */}
                     <div className="space-y-1">
-                      <div className="text-xs opacity-80">图像（可选，存储 Img=地址；可粗检索）</div>
+                      <div className="text-xs opacity-80">图像（可选，仅支持 http/https 外部链接；其他输入将回退默认图标）</div>
                       <input
                         className="w-full border p-1 rounded text-sm"
                         value={String(it.ImgText ?? '')}
-                        placeholder="输入关键词检索：可匹配标签或地址"
+                        placeholder="输入外部图片链接（http/https）"
                         onChange={(e) => {
                           const v = e.target.value;
                           setTradeGroups((p) => {
@@ -906,11 +899,11 @@ export default function TradePointWorkflow(props: WorkflowComponentProps) {
 
                     {/* Img coarse select */}
                     <div className="space-y-1">
-                      <div className="text-xs opacity-80">图像（可选，存储 Img=地址；可粗检索）</div>
+                      <div className="text-xs opacity-80">图像（可选，仅支持 http/https 外部链接；其他输入将回退默认图标）</div>
                       <input
                         className="w-full border p-1 rounded text-sm"
                         value={String(it.ImgText ?? '')}
-                        placeholder="输入关键词检索：可匹配标签或地址"
+                        placeholder="输入外部图片链接（http/https）"
                         onChange={(e) => {
                           const v = e.target.value;
                           setTradeGroups((p) => {

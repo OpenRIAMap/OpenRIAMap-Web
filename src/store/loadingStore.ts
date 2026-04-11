@@ -12,6 +12,13 @@ export interface LoadingStage {
   message?: string;
 }
 
+type LoadingStartOptions = {
+  flowId?: string | null;
+  ruleWorldId?: string | null;
+};
+
+type LoadingStageDefinition = Pick<LoadingStage, 'name' | 'label'>;
+
 interface LoadingState {
   // 是否正在加载
   isLoading: boolean;
@@ -19,34 +26,44 @@ interface LoadingState {
   stages: LoadingStage[];
   // 是否首次加载完成
   initialized: boolean;
+  // 当前加载流程标识（用于区分 Rules 世界加载与其它加载）
+  activeFlowId: string | null;
+  // 当前正在等待首帧渲染的 worldId（仅 Rules 世界加载使用）
+  activeRuleWorldId: string | null;
 
   // Actions
-  startLoading: (stages: Array<{ name: string; label: string }>) => void;
+  startLoading: (stages: LoadingStageDefinition[], options?: LoadingStartOptions) => void;
   updateStage: (name: string, status: LoadingStage['status'], message?: string) => void;
   finishLoading: () => void;
   resetLoading: () => void;
+  hasStage: (name: string) => boolean;
+  isRuleWorldFlow: (worldId: string) => boolean;
 }
 
-export const useLoadingStore = create<LoadingState>((set) => ({
+export const useLoadingStore = create<LoadingState>()((set, get): LoadingState => ({
   isLoading: false,
   stages: [],
   initialized: false,
+  activeFlowId: null,
+  activeRuleWorldId: null,
 
-  startLoading: (stages) => {
+  startLoading: (stages, options) => {
     set({
       isLoading: true,
-      stages: stages.map((s) => ({
-        name: s.name,
-        label: s.label,
+      stages: stages.map((stage): LoadingStage => ({
+        name: stage.name,
+        label: stage.label,
         status: 'pending',
       })),
+      activeFlowId: options?.flowId ?? null,
+      activeRuleWorldId: options?.ruleWorldId ?? null,
     });
   },
 
   updateStage: (name, status, message) => {
     set((state) => ({
-      stages: state.stages.map((s) =>
-        s.name === name ? { ...s, status, message } : s
+      stages: state.stages.map((stage) =>
+        stage.name === name ? { ...stage, status, message } : stage
       ),
     }));
   },
@@ -55,6 +72,8 @@ export const useLoadingStore = create<LoadingState>((set) => ({
     set({
       isLoading: false,
       initialized: true,
+      activeFlowId: null,
+      activeRuleWorldId: null,
     });
   },
 
@@ -62,6 +81,17 @@ export const useLoadingStore = create<LoadingState>((set) => ({
     set({
       isLoading: false,
       stages: [],
+      activeFlowId: null,
+      activeRuleWorldId: null,
     });
+  },
+
+  hasStage: (name) => {
+    return get().stages.some((stage) => stage.name === name);
+  },
+
+  isRuleWorldFlow: (worldId) => {
+    const state = get();
+    return state.isLoading && state.activeRuleWorldId === String(worldId ?? '').trim();
   },
 }));

@@ -305,7 +305,7 @@
     "CreateBy": "HyperBird_"
   },
   {
-    "ID": "ZRH7PLF*1*D",
+    "ID": "ZRH7PLF_1_D",
     "Name": "海华北站-2站台",
     "Situation": true,
     "Connect": true,
@@ -332,7 +332,7 @@
     "CreateBy": "HyperBird_"
   },
   {
-    "ID": "ZRH7PLF*1*U",
+    "ID": "ZRH7PLF_1_U",
     "Name": "海华北站-1站台",
     "Situation": true,
     "Connect": true,
@@ -368,10 +368,10 @@
     },
     "platforms": [
       {
-        "ID": "ZRH7PLF*1*D"
+        "ID": "ZRH7PLF_1_D"
       },
       {
-        "ID": "ZRH7PLF*1*U"
+        "ID": "ZRH7PLF_1_U"
       }
     ],
     "Type": "Points",
@@ -445,7 +445,7 @@
     "CreateBy": "HyperBird_"
   },
   {
-    "ID": "ZRH7PLF*2*D",
+    "ID": "ZRH7PLF_2_D",
     "Name": "会展中心-2站台",
     "Situation": true,
     "Connect": true,
@@ -472,7 +472,7 @@
     "CreateBy": "HyperBird_"
   },
   {
-    "ID": "ZRH7PLF*2*U",
+    "ID": "ZRH7PLF_2_U",
     "Name": "会展中心-2站台",
     "Situation": true,
     "Connect": true,
@@ -507,10 +507,10 @@
     },
     "platforms": [
       {
-        "ID": "ZRH7PLF*2*D"
+        "ID": "ZRH7PLF_2_D"
       },
       {
-        "ID": "ZRH7PLF*2*U"
+        "ID": "ZRH7PLF_2_U"
       }
     ],
     "Type": "Points",

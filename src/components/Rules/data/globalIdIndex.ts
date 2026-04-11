@@ -1,4 +1,4 @@
-import { RULE_DATA_SOURCES } from '@/components/Rules/data/ruleDataSources';
+import { loadRuleItemsForWorld } from '@/components/Rules/data/ruleDataSources';
 import { pickIdFieldValue } from '@/components/Rules/rendering/renderRules';
 
 export type GlobalDbIdHit = {
@@ -46,71 +46,22 @@ function pickAnyName(obj: any): string {
   return '';
 }
 
-function extractObjectsFromJson(json: any): any[] {
-  if (!json) return [];
-  if (Array.isArray(json)) return json.filter((x) => x && typeof x === 'object');
-  if (typeof json !== 'object') return [];
-
-  // common keys
-  const direct = (json as any).items ?? (json as any).features;
-  if (Array.isArray(direct)) return direct.filter((x: any) => x && typeof x === 'object');
-
-  // fallback: collect array values from root object
-  const out: any[] = [];
-  for (const v of Object.values(json as any)) {
-    if (Array.isArray(v)) {
-      for (const it of v) {
-        if (it && typeof it === 'object') out.push(it);
-      }
-    }
-  }
-  return out;
-}
-
-async function fetchJson(url: string): Promise<any | null> {
-  try {
-    const res = await fetch(url, { cache: 'no-store' });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
 
 async function buildGlobalDbIdIndex(worldId: string): Promise<Map<string, GlobalDbIdHit>> {
   const now = Date.now();
   const c = cache[worldId];
   if (c && now - c.builtAt < CACHE_TTL_MS) return c.index;
 
-  const ds = (RULE_DATA_SOURCES as any)[worldId] as { baseUrl: string; files: string[] } | undefined;
   const index = new Map<string, GlobalDbIdHit>();
-  if (!ds || !Array.isArray(ds.files) || ds.files.length === 0) {
-    cache[worldId] = { builtAt: now, index };
-    return index;
+  const items = await loadRuleItemsForWorld(worldId);
+  for (const obj of items) {
+    if (!obj || typeof obj !== 'object') continue;
+    const cls = String((obj as any).Class ?? (obj as any).subType ?? (obj as any).Type ?? '');
+    const { idValue } = pickIdFieldValue(obj, cls);
+    const id = String(idValue ?? '').trim();
+    if (!id || index.has(id)) continue;
+    index.set(id, { file: '[world-dataset]', id, name: pickAnyName(obj) });
   }
-
-  // 串行加载：避免一次性并发请求过多
-  for (const file of ds.files) {
-    const url = `${ds.baseUrl}/${file}`;
-    const json = await fetchJson(url);
-    if (!json) continue;
-
-    const items = extractObjectsFromJson(json);
-    for (const obj of items) {
-      const cls = String((obj as any).Class ?? (obj as any).subType ?? (obj as any).Type ?? '');
-      const { idValue } = pickIdFieldValue(obj, cls);
-      const id = String(idValue ?? '').trim();
-      if (!id) continue;
-      if (index.has(id)) continue;
-
-      index.set(id, {
-        file,
-        id,
-        name: pickAnyName(obj),
-      });
-    }
-  }
-
   cache[worldId] = { builtAt: now, index };
   return index;
 }

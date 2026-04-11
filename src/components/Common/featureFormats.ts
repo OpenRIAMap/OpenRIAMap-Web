@@ -1,3 +1,5 @@
+import { stringifyFeatureJsonArray } from './featureJsonSerializer';
+
 // ============================
 // Workflow Feature Catalog（工作流地物注册表）
 //
@@ -629,7 +631,7 @@ const CLASS_CODE_BY_FEATURE: Partial<Record<FeatureKey, string>> = {
 };
 
 // World：按 MapContainer 的 currentWorld id 映射到新规范的整数
-const WORLD_CODE_BY_WORLD_ID: Record<string, number> = {
+export const WORLD_CODE_BY_WORLD_ID: Record<string, number> = {
   zth: 0,
   naraku: 1,
   houtu: 2,
@@ -651,6 +653,19 @@ const resolveWorldCode = (worldId?: string, fallback?: any) => {
   return WORLD_CODE_BY_WORLD_ID.zth;
 };
 
+const pruneUndefinedDeep = (input: any): any => {
+  if (Array.isArray(input)) {
+    return input.map((item) => pruneUndefinedDeep(item));
+  }
+  if (!input || typeof input !== 'object') return input;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (value === undefined) continue;
+    out[key] = pruneUndefinedDeep(value);
+  }
+  return out;
+};
+
 const withSystemFields = (def: FormatDef, base: any, args: {
   op: BuildOp;
   mode: DrawMode;
@@ -669,32 +684,32 @@ const withSystemFields = (def: FormatDef, base: any, args: {
 
   // import：尽量保留原有系统字段，不强行写入 Create/Modifity
   if (args.op === 'import') {
-    return {
+    return pruneUndefinedDeep({
       ...base,
       Type: prev?.Type ?? Type,
       Class: prev?.Class ?? Class,
       World: prev?.World ?? World,
-      CreateTime: prev?.CreateTime,
-      CreateBy: prev?.CreateBy,
-      ModifityTime: prev?.ModifityTime,
-      ModifityBy: prev?.ModifityBy,
-    };
+      ...(prev?.CreateTime ? { CreateTime: prev.CreateTime } : {}),
+      ...(prev?.CreateBy ? { CreateBy: prev.CreateBy } : {}),
+      ...(prev?.ModifityTime ? { ModifityTime: prev.ModifityTime } : {}),
+      ...(prev?.ModifityBy ? { ModifityBy: prev.ModifityBy } : {}),
+    });
   }
 
   // create：写入 Create*，不写入 Modifity*
   if (args.op === 'create') {
-    return {
+    return pruneUndefinedDeep({
       ...base,
       Type,
       Class,
       World,
       CreateTime: formatYYYYMMDD(now),
       ...(editor ? { CreateBy: editor } : {}),
-    };
+    });
   }
 
   // edit：保留 Create*，写入 Modifity*
-  return {
+  return pruneUndefinedDeep({
     ...base,
     Type: prev?.Type ?? Type,
     Class: prev?.Class ?? Class,
@@ -703,7 +718,7 @@ const withSystemFields = (def: FormatDef, base: any, args: {
     ...(prev?.CreateBy ? { CreateBy: prev.CreateBy } : (editor ? { CreateBy: editor } : {})),
     ModifityTime: formatYYYYMMDD(now),
     ...(editor ? { ModifityBy: editor } : (prev?.ModifityBy ? { ModifityBy: prev.ModifityBy } : {})),
-  };
+  });
 };
 
 // ---------- 通用工具 ----------
@@ -2530,11 +2545,11 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
     { key: 'elevation', label: '高度(y)', type: 'number', optional: true },
     { key: 'height', label: '高度(height)', type: 'number', optional: true },
   ],
-  groups: [],
-  buildFeatureInfo: ({ op, mode, coords, values, worldId, editorId, prevFeatureInfo, now }) => {
+  groups: ensureOptionalTagExtGroups([]),
+  buildFeatureInfo: ({ op, mode, coords, values, groups, worldId, editorId, prevFeatureInfo, now }) => {
     const base = pickByFields(values, FORMAT_REGISTRY['建筑'].fields);
     const Conpoints = coords.map(p => [p.x, (Number.isFinite(p.y as any) ? (p.y as number) : -63), p.z] as [number, number, number]);
-    const out = { ...base, Conpoints };
+    const out = injectOptionalTagsExtensions({ ...base, Conpoints }, groups);
     return withSystemFields(FORMAT_REGISTRY['建筑'], out, { op, mode, worldId, editorId, prevFeatureInfo, now });
   },
   hydrate: (featureInfo) => ({
@@ -2548,7 +2563,7 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       elevation: featureInfo?.elevation ?? '',
       height: featureInfo?.height ?? '',
     },
-    groups: {},
+    groups: hydrateOptionalTagExtGroups(featureInfo),
   }),
   coordsFromFeatureInfo: (featureInfo) => {
     const pts = featureInfo?.Conpoints;
@@ -2564,12 +2579,12 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
   },
   validateImportItem: (item) => {
     if (!item || typeof item !== 'object') return '不是对象';
-        if (!String((item as any).ID ?? '').trim()) return '缺少 ID';
-      if (!String((item as any).Name ?? '').trim()) return '缺少 Name';
+    if (!String((item as any).ID ?? '').trim()) return '缺少 ID';
+    if (!String((item as any).Name ?? '').trim()) return '缺少 Name';
     if (!String((item as any).Kind ?? '').trim()) return '缺少 Kind';
     if (!String((item as any).SKind ?? '').trim()) return '缺少 SKind';
     if (!Array.isArray((item as any).Conpoints) || (item as any).Conpoints.length < 3) return 'Conpoints 必须是数组且至少 3 点';
-    return;
+    return validateOptionalTagExtSoft(item);
   },
 },
 
@@ -2591,11 +2606,11 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
     { key: 'elevation', label: '高度(y)', type: 'number', optional: true },
     { key: 'height', label: '高度(height)', type: 'number', optional: true },
   ],
-  groups: [],
-  buildFeatureInfo: ({ op, mode, coords, values, worldId, editorId, prevFeatureInfo, now }) => {
+  groups: ensureOptionalTagExtGroups([]),
+  buildFeatureInfo: ({ op, mode, coords, values, groups, worldId, editorId, prevFeatureInfo, now }) => {
     const base = pickByFields(values, FORMAT_REGISTRY['建筑楼层'].fields);
     const Flrpoints = coords.map(p => [p.x, (Number.isFinite(p.y as any) ? (p.y as number) : -63), p.z] as [number, number, number]);
-    const out = { ...base, Flrpoints };
+    const out = injectOptionalTagsExtensions({ ...base, Flrpoints }, groups);
     return withSystemFields(FORMAT_REGISTRY['建筑楼层'], out, { op, mode, worldId, editorId, prevFeatureInfo, now });
   },
   hydrate: (featureInfo) => ({
@@ -2611,7 +2626,7 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
       elevation: featureInfo?.elevation ?? '',
       height: featureInfo?.height ?? '',
     },
-    groups: {},
+    groups: hydrateOptionalTagExtGroups(featureInfo),
   }),
   coordsFromFeatureInfo: (featureInfo) => {
     const pts = featureInfo?.Flrpoints;
@@ -2627,13 +2642,13 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
   },
   validateImportItem: (item) => {
     if (!item || typeof item !== 'object') return '不是对象';
-        if (!String((item as any).ID ?? '').trim()) return '缺少 ID';
-      if (!String((item as any).Name ?? '').trim()) return '缺少 Name';
+    if (!String((item as any).ID ?? '').trim()) return '缺少 ID';
+    if (!String((item as any).Name ?? '').trim()) return '缺少 Name';
     if (!String((item as any).NofFloor ?? '').trim()) return '缺少 NofFloor';
     if (!String((item as any).Kind ?? '').trim()) return '缺少 Kind';
     if (!String((item as any).SKind ?? '').trim()) return '缺少 SKind';
-        if (!Array.isArray((item as any).Flrpoints) || (item as any).Flrpoints.length < 3) return 'Flrpoints 必须是数组且至少 3 点';
-    return;
+    if (!Array.isArray((item as any).Flrpoints) || (item as any).Flrpoints.length < 3) return 'Flrpoints 必须是数组且至少 3 点';
+    return validateOptionalTagExtSoft(item);
   },
 },
 };
@@ -2695,70 +2710,11 @@ export const getSubTypeOptions = (mode: DrawMode): FeatureKey[] => {
 // 导出时坐标统一四舍五入到指定精度步进（不影响内存中编辑精度，仅影响输出）
 // NOTE: 0.1 是当前默认；如果未来需要更精细或更粗糙，请修改此常量。
 //       该精度用于“手动/导入/输出”链路，地图交互链路仍保留 0.5 网格化。
-const EXPORT_COORD_STEP = 0.1; // <-- 精度步进修改入口
-
-
-const fixNegZero = (n: number) => (Object.is(n, -0) ? 0 : n);
-
-const stepToDecimals = (step: number): number => {
-  if (!Number.isFinite(step) || step <= 0) return 0;
-  const s = String(step);
-  if (s.includes('e-')) {
-    const exp = Number(s.split('e-')[1]);
-    return Number.isFinite(exp) ? exp : 0;
-  }
-  const dot = s.indexOf('.');
-  if (dot < 0) return 0;
-  return Math.min(10, s.length - dot - 1);
-};
-
-
-const roundToStep = (n: number, step: number = EXPORT_COORD_STEP) => {
-  if (!Number.isFinite(n)) return n;
-  if (!Number.isFinite(step) || step <= 0) return n;
-
-  // Use toFixed to eliminate tails like -622.8000000000001
-  const q = (n + Number.EPSILON) / step;
-  const rq = Math.round(q);
-  const v = rq * step;
-  const dec = stepToDecimals(step);
-  return fixNegZero(Number(v.toFixed(dec)));
-};
-
-const roundXZDeep = (v: any): any => {
-  if (Array.isArray(v)) {
-    // 常见 [x,y,z]
-    if (v.length === 3 && v.every((n) => typeof n === 'number')) {
-      return [roundToStep(v[0]), v[1], roundToStep(v[2])];
-    }
-    return v.map(roundXZDeep);
-  }
-
-  if (v && typeof v === 'object') {
-    // 常见 {x,z}
-    if (typeof v.x === 'number' && typeof v.z === 'number') {
-      const out: any = { ...v };
-      out.x = roundToStep(v.x);
-      out.z = roundToStep(v.z);
-      return out;
-    }
-
-    const out: any = {};
-    for (const [k, val] of Object.entries(v)) {
-      out[k] = roundXZDeep(val);
-    }
-    return out;
-  }
-
-  return v;
-};
-
-
 // 导出单图层 JSON（统一出口）
 export const layerToJsonText = (layer: { jsonInfo?: { featureInfo: any } }): string => {
   const fi = layer.jsonInfo?.featureInfo;
   if (!fi) return '';
-  return JSON.stringify([roundXZDeep(fi)], null, 2);
+  return stringifyFeatureJsonArray([fi]);
 };
 
 // 点线面文本坐标解析（用于导入）

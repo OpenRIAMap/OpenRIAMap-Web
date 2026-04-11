@@ -24,6 +24,7 @@ type Step = 'creator' | 'info' | 'draw';
 type InfoForm = {
   typeKey: string; // `${kind}|${skind}`
   name: string;
+  catAbbr: string; // 仅用于组装 ID 的所属分类代号（不落盘）
   abbr: string;
   nomenclator: string;
   wiki?: string;
@@ -193,6 +194,7 @@ export default function BuildingWorkflow(props: WorkflowComponentProps) {
   const [info, setInfo] = useState<InfoForm>({
     typeKey: '',
     name: '',
+    catAbbr: '',
     abbr: '',
     nomenclator: '',
     wiki: '',
@@ -247,8 +249,7 @@ export default function BuildingWorkflow(props: WorkflowComponentProps) {
     }
 
     if (step !== 'draw') {
-      bridgeRef.current.setDrawMode('none');
-      bridgeRef.current.clearTempPoints();
+      bridgeRef.current.suspendDrawMode();
       setSaveError('');
       return;
     }
@@ -290,7 +291,8 @@ export default function BuildingWorkflow(props: WorkflowComponentProps) {
       const pts = bridgeRef.current.getTempPoints?.() ?? [];
       const coords = (Array.isArray(pts) ? pts : []) as any;
 
-      const buildingId = `${worldPrefix}${classCode}${selected.kind}${selected.skind}_${abbrNormalized}`;
+      const cat = normalizeAbbr(info.catAbbr ?? '');
+      const buildingId = `${worldPrefix}${classCode}${cat ? `_${cat}` : ''}_${abbrNormalized}`;
 
       // extensions：先写入 link.wiki，再拼接用户自定义条目
       const extList: ExtensionItem[] = [];
@@ -336,8 +338,8 @@ export default function BuildingWorkflow(props: WorkflowComponentProps) {
         coords,
         editorId: creatorId.trim(),
         values: {
-          BuildingID: buildingId,
-          BuildingName: String(info.name ?? '').trim(),
+          ID: buildingId,
+          Name: String(info.name ?? '').trim(),
           Kind: selected.kind,
           SKind: selected.skind,
         },
@@ -414,6 +416,7 @@ export default function BuildingWorkflow(props: WorkflowComponentProps) {
           </label>
 
           <LabeledInput label="名称" value={info.name} placeholder="例如：主岛码头" onChange={(v) => setInfo((p) => ({ ...p, name: v }))} />
+          <LabeledInput label="所属分类代号（仅用于ID组装，可选）" value={info.catAbbr} placeholder="例如：HH" onChange={(v) => setInfo((p) => ({ ...p, catAbbr: v }))} />
           <LabeledInput label="字符简称（用于ID后缀）" value={info.abbr} placeholder="例如：ZDMT" onChange={(v) => setInfo((p) => ({ ...p, abbr: v }))} />
           <LabeledInput label="命名者（tags.nomenclator，可选）" value={info.nomenclator} placeholder="例如：Codusk" onChange={(v) => setInfo((p) => ({ ...p, nomenclator: v }))} />
 
@@ -559,7 +562,7 @@ export default function BuildingWorkflow(props: WorkflowComponentProps) {
       </div>
 
       <div className="mt-3 text-xs text-gray-600">
-        将写入：BuildingID = {worldPrefix}BUD{selected?.kind ?? '...'}{selected?.skind ?? '...'}_{abbrNormalized}
+        将写入：ID = {worldPrefix}BUD{info.catAbbr ? `_${normalizeAbbr(info.catAbbr)}` : ''}_{abbrNormalized}
       </div>
     </div>
   );

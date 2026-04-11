@@ -1,3 +1,4 @@
+import React from 'react';
 import { useMemo, useRef, type WheelEvent } from 'react';
 
 import type { FeatureRecord } from '@/components/Rules/rendering/renderRules';
@@ -32,10 +33,8 @@ function nonEmpty(v: any): boolean {
 function resolveImgSrc(raw: any): string {
   const s = String(raw ?? '').trim();
   if (!s) return '/logo.png';
-  // local path: "/xxx"
-  if (s.startsWith('/')) return s;
-  // external: keep as-is (browser will request absolute URL)
-  return s;
+  if (/^https?:\/\//i.test(s)) return s;
+  return '/logo.png';
 }
 
 function buildTrpTypeLabel(fi: any): string {
@@ -267,7 +266,7 @@ export default function TRPTradeSection({ feature, onTryTriggerLabelClickById }:
                     );
 
                     return (
-                      <>
+                      <React.Fragment key={`${t.key}-${idx}`}>
                         {Array.from({ length: lines }).map((_, li) => {
                           const o = offers[li] ?? null;
                           const r = receives[li] ?? null;
@@ -303,7 +302,7 @@ export default function TRPTradeSection({ feature, onTryTriggerLabelClickById }:
                             <td colSpan={4} className="h-2" />
                           </tr>
                         )}
-                      </>
+                      </React.Fragment>
                     );
                   })
                 ) : (

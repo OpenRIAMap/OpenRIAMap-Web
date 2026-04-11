@@ -32,8 +32,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_TS",
-    "staBuildingName": "桐山站",
+    "ID": "ZRTSTB_TS",
+    "Name": "桐山站",
     "Conpoints": [
       [
         799.5,
@@ -101,8 +101,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_BF",
-    "staBuildingName": "白风站",
+    "ID": "ZRTSTB_BF",
+    "Name": "白风站",
     "Conpoints": [
       [
         1140.5,
@@ -170,8 +170,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_SC",
-    "staBuildingName": "沙船站",
+    "ID": "ZRTSTB_SC",
+    "Name": "沙船站",
     "Conpoints": [
       [
         1140.5,
@@ -239,8 +239,8 @@
     "CreateBy": "639"
   },
   {
-    "staBuildingID": "ZRTSTB_XY2",
-    "staBuildingName": "狭原站",
+    "ID": "ZRTSTB_XY2",
+    "Name": "狭原站",
     "Conpoints": [
       [
         1431.5,

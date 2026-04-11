@@ -240,8 +240,7 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
     }
 
     if (step !== 'draw') {
-      bridgeRef.current.setDrawMode('none');
-      bridgeRef.current.clearTempPoints();
+      bridgeRef.current.suspendDrawMode();
       setSaveError('');
       return;
     }

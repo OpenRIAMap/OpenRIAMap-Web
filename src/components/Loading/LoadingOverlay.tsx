@@ -5,9 +5,14 @@
 
 import { Check, X, Loader2 } from 'lucide-react';
 import { useLoadingStore } from '@/store/loadingStore';
+import type { LoadingStage } from '@/store/loadingStore';
 
 export function LoadingOverlay() {
-  const { isLoading, stages, initialized } = useLoadingStore();
+  const { isLoading, stages, initialized } = useLoadingStore((state) => ({
+    isLoading: state.isLoading,
+    stages: state.stages,
+    initialized: state.initialized,
+  }));
 
   // 首次加载未完成 或 正在加载时显示
   if (!isLoading && initialized) {
@@ -16,7 +21,7 @@ export function LoadingOverlay() {
 
   // 计算进度
   const completedCount = stages.filter(
-    (s) => s.status === 'success' || s.status === 'error'
+    (stage: LoadingStage) => stage.status === 'success' || stage.status === 'error'
   ).length;
   const progress = stages.length > 0 ? (completedCount / stages.length) * 100 : 0;
 
@@ -39,7 +44,7 @@ export function LoadingOverlay() {
 
         {/* 加载阶段列表 */}
         <div className="space-y-2">
-          {stages.map((stage) => (
+          {stages.map((stage: LoadingStage) => (
             <div
               key={stage.name}
               className="flex items-center gap-2 text-sm"

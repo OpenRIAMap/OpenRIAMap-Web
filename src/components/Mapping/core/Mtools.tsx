@@ -30,6 +30,11 @@ type MeasurementToolsModuleProps = {
    * 可选：将启动按钮插入到外部工具栏
    */
   launcherSlot?: (launcher: React.ReactNode) => React.ReactNode;
+
+  /**
+   * 外部请求打开（用于分包首次加载后自动继续原操作）
+   */
+  openSignal?: number;
 };
 
 type MainTab = 'measure' | 'shape' | 'analysis';
@@ -78,7 +83,7 @@ function rotateXZ(x: number, z: number, rad: number) {
 }
 
 export default function MeasurementToolsModule(props: MeasurementToolsModuleProps) {
-  const { mapReady, leafletMapRef, projectionRef, closeSignal, onBecameActive, launcherSlot } = props;
+  const { mapReady, leafletMapRef, projectionRef, closeSignal, onBecameActive, launcherSlot, openSignal } = props;
 
   // 主按钮开关
   const [active, setActive] = useState(false);
@@ -87,6 +92,18 @@ export default function MeasurementToolsModule(props: MeasurementToolsModuleProp
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('ria:measuringActiveChanged', { detail: { active, source: 'MeasurementToolsModule' } }));
   }, [active]);
+
+  const lastOpenSignalRef = useRef(0);
+  useEffect(() => {
+    const next = openSignal ?? 0;
+    if (next === lastOpenSignalRef.current) return;
+    lastOpenSignalRef.current = next;
+    if (active) return;
+    onBecameActive?.();
+    clearAllLayers();
+    setMainTab('measure');
+    setActive(true);
+  }, [openSignal, active, onBecameActive]);
 
   // 三大主类按钮
   const [mainTab, setMainTab] = useState<MainTab>('measure');
@@ -1039,7 +1056,17 @@ export default function MeasurementToolsModule(props: MeasurementToolsModuleProp
         >
           <AppCard className="w-[360px] max-h-[calc(75vh)] overflow-hidden flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0">
-              <h3 className="font-bold text-gray-800">测量图层管理</h3>
+              <h3 className="font-bold text-gray-800" data-draggable-title>测量图层管理</h3>
+              <AppButton
+                onClick={handleClosePanels}
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
+                aria-label="关闭"
+                title="关闭"
+                type="button"
+                data-draggable-close
+              >
+                <X className="w-4 h-4" />
+              </AppButton>
             </div>
             <div className="p-3 overflow-auto">
               {layers.length === 0 && <div className="text-xs text-gray-500">暂无图层</div>}

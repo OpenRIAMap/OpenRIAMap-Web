@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState, useCallback } from 'react';
 import MobileBottomSheet from '@/components/Mobile/MobileBottomSheet';
 import MobileQuickDock from '@/components/Mobile/MobileQuickDock';
 import MobileFeatureJsonPanel from '@/components/Mobile/MobileFeatureJsonPanel';
@@ -9,8 +9,6 @@ import { createDynmapCRS, ZTH_FLAT_CONFIG, DynmapProjection } from '@/lib/Dynmap
 import { DynmapTileLayer, createDynmapTileLayer } from '@/lib/DynmapTileLayer';
 import { createSketchTileLayer } from '@/lib/SketchTileLayer';
 import { createWatercolorTileLayer } from '@/lib/SketchTileLayer';
-import { RailwayLayer } from '@/components/Legacy/map/RailwayLayer';
-import { LandmarkLayer } from '@/components/Legacy/map/LandmarkLayer';
 import { PlayerLayer } from './PlayerLayer';
 import { RouteHighlightLayer, type RouteHighlightData } from './RouteHighlightLayer';
 import { LineHighlightLayer } from './LineHighlightLayer';
@@ -19,23 +17,21 @@ import { SearchBar, type SearchResult } from '../Search/SearchBar';
 import { getMatchingRuleButtonIds } from '../Rules/ButtonRule/buttonRuleFilter';
 import { NavigationPanel } from '../Navigation/NavigationPanel';
 import { AttributeQueryPanel } from '../AttributeQuery/AttributeQueryPanel';
-import { LineDetailCard } from '@/components/Legacy/detail/LineDetailCard';
-import { PointDetailCard } from '@/components/Legacy/detail/PointDetailCard';
 import { PlayerDetailCard } from '../PlayerDetail/PlayerDetailCard';
 import { Toolbar, LayerControl, AboutCard } from '../Toolbar/Toolbar';
-import { LinesPage } from '@/components/Legacy/lines/LinesPage';
 import { PlayersList } from '../Players/PlayersList';
 import { LoadingOverlay } from '../Loading/LoadingOverlay';
 import { DraggablePanel } from '../DraggablePanel/DraggablePanel';
 import { SettingsPanel } from '../Settings/SettingsPanel';
 import { useLoadingStore } from '@/store/loadingStore';
 import { useDataStore } from '@/store/dataStore';
-import { fetchPlayers } from '@/lib/playerApi';
+import { useRuleDataStore } from '@/store/ruleDataStore';
+import { fetchPlayersDetailed } from '@/lib/playerApi';
 import { loadMapSettings, saveMapSettings, MapStyle } from '@/lib/cookies';
 import type { ParsedStation, ParsedLine, Coordinate, Player } from '@/types';
 import type { ParsedLandmark } from '@/components/Legacy/data/landmarkParser';
-import MeasuringModule, { type MeasuringModuleHandle } from '@/components/Mapping/core/MeasuringModule';
-import MeasurementToolsModule from '@/components/Mapping/core/Mtools';
+import type { MeasuringModuleHandle } from '@/components/Mapping/core/MeasuringModule';
+import { useFeatureModuleStore } from '@/store/featureModuleStore';
 
 import RuleDrivenLayer from '@/components/Rules/core/RuleDrivenLayer';
 import { resolveFeatureCardComponent } from '@/components/Rules/cardrules/featureCardRegistry';
@@ -46,7 +42,8 @@ import { useRuleButtonState } from '@/components/Rules/ButtonRule/ruleButtonStat
 import { formatGridNumber, snapWorldPointByMode } from '@/components/Mapping/tools/GridSnapModeSwitch';
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
-import { Globe2, PanelsTopLeft, Layers3, SlidersHorizontal, Plus, Minus } from 'lucide-react';
+import ToolIconButton from '@/components/Toolbar/ToolIconButton';
+import { Globe2, PanelsTopLeft, Layers3, SlidersHorizontal, Plus, Minus, Pencil, Ruler } from 'lucide-react';
 
 // ===== 导航“图上选取”：MapContainer 统一派发地图点击事件 =====
 type MapClickWorldPointEventDetail = {
@@ -59,6 +56,14 @@ type MobilePanelKey = null | 'navigation' | 'attributeQuery' | 'players' | 'abou
 type MobileQuickPanelKey = null | 'worlds' | 'toolbar' | 'ruleButtons' | 'modeTools';
 
 // 世界配置
+const LazyMeasuringModule = lazy(() => import('@/components/Mapping/core/MeasuringModule'));
+const LazyMeasurementToolsModule = lazy(() => import('@/components/Mapping/core/Mtools'));
+const LazyRailwayLayer = lazy(() => import('@/components/Legacy/map/RailwayLayer').then((mod) => ({ default: mod.RailwayLayer })));
+const LazyLandmarkLayer = lazy(() => import('@/components/Legacy/map/LandmarkLayer').then((mod) => ({ default: mod.LandmarkLayer })));
+const LazyLineDetailCard = lazy(() => import('@/components/Legacy/detail/LineDetailCard').then((mod) => ({ default: mod.LineDetailCard })));
+const LazyPointDetailCard = lazy(() => import('@/components/Legacy/detail/PointDetailCard').then((mod) => ({ default: mod.PointDetailCard })));
+const LazyLinesPage = lazy(() => import('@/components/Legacy/lines/LinesPage').then((mod) => ({ default: mod.LinesPage })));
+
 const WORLDS = [
   { id: 'zth', name: '零洲', center: { x: -643, y: 35, z: -1562 } },
   { id: 'eden', name: '伊甸', center: { x: 0, y: 64, z: 0 } },
@@ -78,8 +83,8 @@ function MapContainer() {
   // 从 cookie 读取初始设置
   const savedSettings = loadMapSettings();
   const [currentWorld, setCurrentWorld] = useState(savedSettings?.currentWorld ?? 'zth');
-  const [showRailway, setShowRailway] = useState(savedSettings?.showRailway ?? true);
-  const [showLandmark, setShowLandmark] = useState(savedSettings?.showLandmark ?? true);
+  const [showRailway, setShowRailway] = useState(savedSettings?.showRailway ?? false);
+  const [showLandmark, setShowLandmark] = useState(savedSettings?.showLandmark ?? false);
   const [showPlayers, setShowPlayers] = useState(savedSettings?.showPlayers ?? true);
   const [dimBackground, setDimBackground] = useState(savedSettings?.dimBackground ?? false);
   const [mapStyle, setMapStyle] = useState<MapStyle>(savedSettings?.mapStyle ?? 'default');
@@ -107,6 +112,18 @@ function MapContainer() {
   const [mobileFloorCollapsed, setMobileFloorCollapsed] = useState(false);
   const [mobileQuickDockHeight, setMobileQuickDockHeight] = useState(0);
   const suppressRuleFeatureCardOpenRef = useRef(false);
+  const ensureRuleWorldLoaded = useRuleDataStore((s) => s.ensureWorldLoaded);
+  const measuringModuleState = useFeatureModuleStore((s) => s.modules.measuring);
+  const legacyModuleState = useFeatureModuleStore((s) => s.modules.legacy);
+  const featureDialogState = useFeatureModuleStore((s) => s.dialog);
+  const requestFeatureModuleActivation = useFeatureModuleStore((s) => s.requestModuleActivation);
+  const measuringModuleLoaded = measuringModuleState.status === 'loaded';
+  const legacyModuleLoaded = legacyModuleState.status === 'loaded';
+  const [pendingMeasureModuleOpen, setPendingMeasureModuleOpen] = useState<null | 'measuring' | 'mtools'>(null);
+  const [pendingLegacyAction, setPendingLegacyAction] = useState<null | 'railway-on' | 'landmark-on' | 'lines-page'>(null);
+  const [measuringOpenSignal, setMeasuringOpenSignal] = useState(0);
+  const [measurementToolsOpenSignal, setMeasurementToolsOpenSignal] = useState(0);
+
   const [stations, setStations] = useState<ParsedStation[]>([]);
   const [lines, setLines] = useState<ParsedLine[]>([]);
   const [landmarks, setLandmarks] = useState<ParsedLandmark[]>([]);
@@ -128,8 +145,15 @@ function MapContainer() {
     landmark?: ParsedLandmark;
   } | null>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
+  const legacyRailSearchEnabled = legacyModuleLoaded && showRailway;
+  const legacyLandmarkSearchEnabled = legacyModuleLoaded && showLandmark;
+  const searchStations = legacyRailSearchEnabled ? stations : [];
+  const searchLines = legacyRailSearchEnabled ? lines : [];
+  const searchLandmarks = legacyLandmarkSearchEnabled ? landmarks : [];
   const [measuringCloseSignal, setMeasuringCloseSignal] = useState(0);
   const [measureToolsCloseSignal, setMeasureToolsCloseSignal] = useState(0);
+  const [measuringModuleActive, setMeasuringModuleActive] = useState(false);
+  const [measurementToolsActive, setMeasurementToolsActive] = useState(false);
 
   // 测绘激活态：用于禁止导航图选点（由 MeasuringModule / MeasurementToolsModule 派发）
 // 说明：临时挂载启用时，MeasuringModule 可能被迫处于 active，但此时仍允许导航图选点（只要 MeasurementToolsModule 未启用）
@@ -162,44 +186,98 @@ useEffect(() => {
     const source = String(ce?.detail?.source ?? '');
     if (source === 'MeasurementToolsModule') {
       measurementToolsActiveRef.current = active;
+      setMeasurementToolsActive(active);
       return;
     }
     if (source === 'MeasuringModule') {
       measuringModuleActiveRef.current = active;
+      setMeasuringModuleActive(active);
       return;
     }
     // 兜底：未知来源则视作 MeasuringModule
     measuringModuleActiveRef.current = active;
+    setMeasuringModuleActive(active);
   };
   window.addEventListener('ria:measuringActiveChanged', handler as any);
   return () => window.removeEventListener('ria:measuringActiveChanged', handler as any);
 }, []);
 
+  useEffect(() => {
+    if (!pendingMeasureModuleOpen || !measuringModuleLoaded) return;
+    if (pendingMeasureModuleOpen === 'measuring') setMeasuringOpenSignal((v) => v + 1);
+    else setMeasurementToolsOpenSignal((v) => v + 1);
+    setPendingMeasureModuleOpen(null);
+  }, [pendingMeasureModuleOpen, measuringModuleLoaded]);
+
+  useEffect(() => {
+    if (!pendingMeasureModuleOpen) return;
+    if (featureDialogState.isOpen) return;
+    if (measuringModuleLoaded) return;
+    if (measuringModuleState.status === 'loading') return;
+    setPendingMeasureModuleOpen(null);
+  }, [pendingMeasureModuleOpen, featureDialogState.isOpen, measuringModuleLoaded, measuringModuleState.status]);
+
+  useEffect(() => {
+    if (!pendingLegacyAction || !legacyModuleLoaded) return;
+    if (pendingLegacyAction === 'railway-on') setShowRailway(true);
+    else if (pendingLegacyAction === 'landmark-on') setShowLandmark(true);
+    else if (pendingLegacyAction === 'lines-page') setShowLinesPage(true);
+    setPendingLegacyAction(null);
+  }, [pendingLegacyAction, legacyModuleLoaded]);
+
+  useEffect(() => {
+    if (!pendingLegacyAction) return;
+    if (featureDialogState.isOpen) return;
+    if (legacyModuleLoaded) return;
+    if (legacyModuleState.status === 'loading') return;
+    setPendingLegacyAction(null);
+  }, [pendingLegacyAction, featureDialogState.isOpen, legacyModuleLoaded, legacyModuleState.status]);
+
+  const requestLegacyFeature = useCallback((action: 'railway-on' | 'landmark-on' | 'lines-page') => {
+    if (legacyModuleLoaded) {
+      if (action === 'railway-on') setShowRailway(true);
+      else if (action === 'landmark-on') setShowLandmark(true);
+      else if (action === 'lines-page') setShowLinesPage(true);
+      return;
+    }
+    setPendingLegacyAction(action);
+    requestFeatureModuleActivation('legacy');
+  }, [legacyModuleLoaded, requestFeatureModuleActivation]);
+
+  const handleToggleLegacyRailway = useCallback(() => {
+    if (showRailway) {
+      setShowRailway(false);
+      return;
+    }
+    requestLegacyFeature('railway-on');
+  }, [showRailway, requestLegacyFeature]);
+
+  const handleToggleLegacyLandmark = useCallback(() => {
+    if (showLandmark) {
+      setShowLandmark(false);
+      return;
+    }
+    requestLegacyFeature('landmark-on');
+  }, [showLandmark, requestLegacyFeature]);
+
+  const handleOpenLegacyLinesPage = useCallback(() => {
+    requestLegacyFeature('lines-page');
+  }, [requestLegacyFeature]);
+
+  const requestMeasuringModuleEntry = useCallback((target: 'measuring' | 'mtools') => {
+    if (measuringModuleLoaded) {
+      if (target === 'measuring') setMeasuringOpenSignal((v) => v + 1);
+      else setMeasurementToolsOpenSignal((v) => v + 1);
+      return;
+    }
+    setPendingMeasureModuleOpen(target);
+    requestFeatureModuleActivation('measuring');
+  }, [measuringModuleLoaded, requestFeatureModuleActivation]);
+
 
   // 规则图层“分组开关”（按 world 维度持久化）
   const { activeButtonIds: activeRuleButtonIds, toggle: toggleRuleButton } = useRuleButtonState(currentWorld);
 
-  // 面板 z-index 管理（用于置顶）
-const [panelZIndexes, setPanelZIndexes] = useState<Record<string, number>>({
-  info: 1000,
-  navigation: 1001,
-  navigation2: 1001,
-  attributeQuery: 1001,
-  help: 1000,
-  ruler: 1001,
-  mapStyle: 1001,
-  dynmap: 1001,
-  ruleLayers: 1001,
-  music: 1001,
-  about: 1001,
-  settings: 1001,
-  players: 1001,
-  lineDetail: 1001,
-  pointDetail: 1001,
-  playerDetail: 1001,
-});
-
-  const zIndexCounterRef = useRef(1001);
   const ruleResolveFeatureByIdRef = useRef<any>(undefined);
   const ruleTriggerLabelClickRef = useRef<any>(undefined);
 
@@ -299,15 +377,6 @@ const [panelZIndexes, setPanelZIndexes] = useState<Record<string, number>>({
 
   const handleMobileFloorSelect = useCallback((index: number) => {
     window.dispatchEvent(new CustomEvent('ria:mobileFloorSelect', { detail: { index } }));
-  }, []);
-
-  // 置顶面板
-  const bringToFront = useCallback((panelId: string) => {
-    zIndexCounterRef.current += 1;
-    setPanelZIndexes(prev => ({
-      ...prev,
-      [panelId]: zIndexCounterRef.current,
-    }));
   }, []);
 
   // 关闭"铁路图层"时，同时隐藏线路高亮与详情卡片，避免看起来"图层控制不生效"
@@ -420,13 +489,24 @@ if (mapStyle === 'sketch') {
     }
 
     // 加载玩家数据（实时数据，不缓存）
-    fetchPlayers(currentWorld).then(setPlayers);
+    fetchPlayersDetailed(currentWorld).then((result) => {
+      setPlayers(result.players);
+      if (result.error) console.warn('[MapContainer] 玩家信息读取失败：', result.error);
+    });
 
     // 清除之前的路径
     setRouteHighlight(null);
     setHighlightedLine(null);
 
   }, [currentWorld, dataLoaded, getWorldData]);
+
+  // Rule 数据：按当前 world 单独加载，使用版本校验缓存。
+  useEffect(() => {
+    if (!dataLoaded) return;
+    void ensureRuleWorldLoaded(currentWorld).catch((err) => {
+      console.warn('[MapContainer] ensureRuleWorldLoaded failed:', err);
+    });
+  }, [currentWorld, dataLoaded, ensureRuleWorldLoaded]);
 
   // 搜索结果选中处理
   // 说明：过去仅用 uid 去重会在“先选 STB/其它要素，再选规则要素”时产生偶发短路。
@@ -900,36 +980,40 @@ map.on('mousemove', handleMouseMove);
   const renderMobileSheetContent = () => {
     if (highlightedLine) {
       return (
-        <LineDetailCard
-          line={highlightedLine}
-          onClose={() => setHighlightedLine(null)}
-          onStationClick={(_name, coord) => {
-            const map = leafletMapRef.current;
-            const proj = projectionRef.current;
-            if (!map || !proj) return;
-            const latLng = proj.locationToLatLng(coord.x, coord.y || 64, coord.z);
-            map.setView(latLng, 5);
-          }}
-        />
+        <Suspense fallback={null}>
+          <LazyLineDetailCard
+            line={highlightedLine}
+            onClose={() => setHighlightedLine(null)}
+            onStationClick={(_name: string, coord: Coordinate) => {
+              const map = leafletMapRef.current;
+              const proj = projectionRef.current;
+              if (!map || !proj) return;
+              const latLng = proj.locationToLatLng(coord.x, coord.y || 64, coord.z);
+              map.setView(latLng, 5);
+            }}
+          />
+        </Suspense>
       );
     }
 
     if (selectedPoint) {
       const { nearbyStations, nearbyLandmarks } = getNearbyPoints(selectedPoint.coord);
       return (
-        <PointDetailCard
-          selectedPoint={selectedPoint}
-          nearbyStations={nearbyStations}
-          nearbyLandmarks={nearbyLandmarks}
-          lines={lines}
-          onClose={() => setSelectedPoint(null)}
-          onStationClick={handleStationClick}
-          onLandmarkClick={handleLandmarkClick}
-          onLineClick={(line) => {
-            setSelectedPoint(null);
-            handleLineSelect(line);
-          }}
-        />
+        <Suspense fallback={null}>
+          <LazyPointDetailCard
+            selectedPoint={selectedPoint}
+            nearbyStations={nearbyStations}
+            nearbyLandmarks={nearbyLandmarks}
+            lines={lines}
+            onClose={() => setSelectedPoint(null)}
+            onStationClick={handleStationClick}
+            onLandmarkClick={handleLandmarkClick}
+            onLineClick={(line: ParsedLine) => {
+              setSelectedPoint(null);
+              handleLineSelect(line);
+            }}
+          />
+        </Suspense>
       );
     }
 
@@ -1059,26 +1143,30 @@ map.on('mousemove', handleMouseMove);
 
 
       {/* 铁路图层 - 有路径规划结果时隐藏 */}
-      {mapReady && leafletMapRef.current && projectionRef.current && (
-        <RailwayLayer
-          map={leafletMapRef.current}
-          projection={projectionRef.current}
-          worldId={currentWorld}
-          visible={showRailway && !showRouteOverlay}
-          mapStyle={mapStyle}
-          onStationClick={handleStationClick}
-        />
+      {legacyModuleLoaded && mapReady && leafletMapRef.current && projectionRef.current && (
+        <Suspense fallback={null}>
+          <LazyRailwayLayer
+            map={leafletMapRef.current}
+            projection={projectionRef.current}
+            worldId={currentWorld}
+            visible={showRailway && !showRouteOverlay}
+            mapStyle={mapStyle}
+            onStationClick={handleStationClick}
+          />
+        </Suspense>
       )}
 
       {/* 地标图层 - 有路径规划结果时隐藏 */}
-      {mapReady && leafletMapRef.current && projectionRef.current && (
-        <LandmarkLayer
-          map={leafletMapRef.current}
-          projection={projectionRef.current}
-          worldId={currentWorld}
-          visible={showLandmark && !showRouteOverlay}
-          onLandmarkClick={handleLandmarkClick}
-        />
+      {legacyModuleLoaded && mapReady && leafletMapRef.current && projectionRef.current && (
+        <Suspense fallback={null}>
+          <LazyLandmarkLayer
+            map={leafletMapRef.current}
+            projection={projectionRef.current}
+            worldId={currentWorld}
+            visible={showLandmark && !showRouteOverlay}
+            onLandmarkClick={handleLandmarkClick}
+          />
+        </Suspense>
       )}
 
       {/* 玩家图层 */}
@@ -1106,21 +1194,21 @@ map.on('mousemove', handleMouseMove);
 
         <SearchBar
           variant="desktop"
-          stations={stations}
-          landmarks={landmarks}
-          lines={lines}
+          stations={searchStations}
+          landmarks={searchLandmarks}
+          lines={searchLines}
           worldId={currentWorld}
           onSelect={handleSearchSelect}
           onLineSelect={handleLineSelect}
         />
 
         <Toolbar
-          onNavigationClick={() => { setShowNavigation(true); bringToFront('navigation'); }}
-          onAttributeQueryClick={() => { setShowAttributeQuery(true); bringToFront('attributeQuery'); }}
-          onLinesClick={() => setShowLinesPage(true)}
-          onPlayersClick={() => { setShowPlayersPage(true); bringToFront('players'); }}
-          onHelpClick={() => { setShowAbout(true); bringToFront('about'); }}
-          onSettingsClick={() => { setShowSettings(true); bringToFront('settings'); }}
+          onNavigationClick={() => { setShowNavigation(true); }}
+          onAttributeQueryClick={() => { setShowAttributeQuery(true); }}
+          onLinesClick={handleOpenLegacyLinesPage}
+          onPlayersClick={() => { setShowPlayersPage(true); }}
+          onHelpClick={() => { setShowAbout(true); }}
+          onSettingsClick={() => { setShowSettings(true); }}
         />
 
         {hasRoute && (
@@ -1140,9 +1228,9 @@ map.on('mousemove', handleMouseMove);
         <SearchBar
           variant="mobile"
           mobile
-          stations={stations}
-          landmarks={landmarks}
-          lines={lines}
+          stations={searchStations}
+          landmarks={searchLandmarks}
+          lines={searchLines}
           worldId={currentWorld}
           onSelect={handleSearchSelect}
           onLineSelect={handleLineSelect}
@@ -1185,7 +1273,7 @@ map.on('mousemove', handleMouseMove);
                   onAttributeQueryClick={() => openMobilePanel('attributeQuery')}
                   onLinesClick={() => {
                     setMobileQuickPanel(null);
-                    setShowLinesPage(true);
+                    handleOpenLegacyLinesPage();
                   }}
                   onPlayersClick={() => openMobilePanel('players')}
                   onHelpClick={() => openMobilePanel('about')}
@@ -1212,8 +1300,8 @@ map.on('mousemove', handleMouseMove);
                 showPlayers={showPlayers}
                 dimBackground={dimBackground}
                 mapStyle={mapStyle}
-                onToggleRailway={setShowRailway}
-                onToggleLandmark={setShowLandmark}
+                onToggleRailway={handleToggleLegacyRailway}
+                onToggleLandmark={handleToggleLegacyLandmark}
                 onTogglePlayers={setShowPlayers}
                 onToggleDimBackground={setDimBackground}
                 onToggleMapStyle={setMapStyle}
@@ -1266,8 +1354,6 @@ map.on('mousemove', handleMouseMove);
         <DraggablePanel
           id="about"
           defaultPosition={{ x: 16, y: 180 }}
-          zIndex={panelZIndexes.about}
-          onFocus={() => bringToFront('about')}
         >
           <AboutCard onClose={() => setShowAbout(false)} />
         </DraggablePanel>
@@ -1280,8 +1366,6 @@ map.on('mousemove', handleMouseMove);
         <DraggablePanel
           id="settings"
           defaultPosition={{ x: 16, y: 180 }}
-          zIndex={panelZIndexes.settings}
-          onFocus={() => bringToFront('settings')}
         >
           <SettingsPanel onClose={() => setShowSettings(false)} />
         </DraggablePanel>
@@ -1294,8 +1378,6 @@ map.on('mousemove', handleMouseMove);
         <DraggablePanel
           id="navigation"
           defaultPosition={{ x: 16, y: 180 }}
-          zIndex={panelZIndexes.navigation}
-          onFocus={() => bringToFront('navigation')}
         >
           <NavigationPanel
             stations={stations}
@@ -1323,8 +1405,6 @@ map.on('mousemove', handleMouseMove);
         <DraggablePanel
           id="attributeQuery"
           defaultPosition={{ x: 16, y: 180 }}
-          zIndex={panelZIndexes.attributeQuery}
-          onFocus={() => bringToFront('attributeQuery')}
         >
           <AttributeQueryPanel
             worldId={currentWorld}
@@ -1343,8 +1423,6 @@ map.on('mousemove', handleMouseMove);
         <DraggablePanel
           id="players"
           defaultPosition={{ x: 16, y: 180 }}
-          zIndex={panelZIndexes.players}
-          onFocus={() => bringToFront('players')}
         >
           <PlayersList
             worldId={currentWorld}
@@ -1354,7 +1432,6 @@ map.on('mousemove', handleMouseMove);
             }}
             onNavigateToPlayer={() => {
               setShowNavigation(true);
-              bringToFront('navigation');
             }}
           />
         </DraggablePanel>
@@ -1362,18 +1439,17 @@ map.on('mousemove', handleMouseMove);
       )}
 
       {/* 线路详情卡片 */}
-      {highlightedLine && (
+      {legacyModuleLoaded && highlightedLine && (
         <div className="hidden sm:block">
         <DraggablePanel
           id="lineDetail"
           defaultPosition={{ x: 340, y: 16 }}
-          zIndex={panelZIndexes.lineDetail}
-          onFocus={() => bringToFront('lineDetail')}
         >
-          <LineDetailCard
+          <Suspense fallback={null}>
+          <LazyLineDetailCard
             line={highlightedLine}
             onClose={() => setHighlightedLine(null)}
-            onStationClick={(_name, coord) => {
+            onStationClick={(_name: string, coord: Coordinate) => {
               const map = leafletMapRef.current;
               const proj = projectionRef.current;
               if (!map || !proj) return;
@@ -1381,22 +1457,22 @@ map.on('mousemove', handleMouseMove);
               map.setView(latLng, 5);
             }}
           />
+          </Suspense>
         </DraggablePanel>
         </div>
       )}
 
       {/* 点位详情卡片 */}
-      {selectedPoint && (() => {
+      {legacyModuleLoaded && selectedPoint && (() => {
         const { nearbyStations, nearbyLandmarks } = getNearbyPoints(selectedPoint.coord);
         return (
           <div className="hidden sm:block">
           <DraggablePanel
             id="pointDetail"
             defaultPosition={{ x: 340, y: 16 }}
-            zIndex={panelZIndexes.pointDetail}
-            onFocus={() => bringToFront('pointDetail')}
-          >
-            <PointDetailCard
+              >
+            <Suspense fallback={null}>
+            <LazyPointDetailCard
               selectedPoint={selectedPoint}
               nearbyStations={nearbyStations}
               nearbyLandmarks={nearbyLandmarks}
@@ -1409,6 +1485,7 @@ map.on('mousemove', handleMouseMove);
                 handleLineSelect(line);
               }}
             />
+            </Suspense>
           </DraggablePanel>
           </div>
         );
@@ -1423,9 +1500,7 @@ map.on('mousemove', handleMouseMove);
           <DraggablePanel
             id="playerDetail"
             defaultPosition={{ x: 340, y: 16 }}
-            zIndex={panelZIndexes.playerDetail}
-            onFocus={() => bringToFront('playerDetail')}
-          >
+              >
             <PlayerDetailCard
               player={selectedPlayer}
               nearbyStations={nearbyStations}
@@ -1453,30 +1528,58 @@ map.on('mousemove', handleMouseMove);
             showPlayers={showPlayers}
             dimBackground={dimBackground}
             mapStyle={mapStyle}
-            onToggleRailway={setShowRailway}
-            onToggleLandmark={setShowLandmark}
+            onToggleRailway={handleToggleLegacyRailway}
+            onToggleLandmark={handleToggleLegacyLandmark}
             onTogglePlayers={setShowPlayers}
             onToggleDimBackground={setDimBackground}
             onToggleMapStyle={setMapStyle}
           >
-          <MeasurementToolsModule
-            mapReady={mapReady}
-            leafletMapRef={leafletMapRef}
-            projectionRef={projectionRef}
-            closeSignal={measureToolsCloseSignal}
-            onBecameActive={() => setMeasuringCloseSignal(v => v + 1)}
-            launcherSlot={(launcher) => <div className="hidden sm:block">{launcher}</div>}
-          />
-          <MeasuringModule
-            ref={measuringModuleRef}
-            mapReady={mapReady}
-            leafletMapRef={leafletMapRef}
-            projectionRef={projectionRef}
-            currentWorldId={currentWorld}
-            closeSignal={measuringCloseSignal}
-            onBecameActive={() => setMeasureToolsCloseSignal(v => v + 1)}
-            launcherSlot={(launcher) => <div className="hidden sm:block">{launcher}</div>}
-          />
+          {measuringModuleLoaded ? (
+            <Suspense fallback={null}>
+              <LazyMeasurementToolsModule
+                mapReady={mapReady}
+                leafletMapRef={leafletMapRef}
+                projectionRef={projectionRef}
+                closeSignal={measureToolsCloseSignal}
+                openSignal={measurementToolsOpenSignal}
+                onBecameActive={() => setMeasuringCloseSignal(v => v + 1)}
+                launcherSlot={(launcher) => <div className="hidden sm:block">{launcher}</div>}
+              />
+              <LazyMeasuringModule
+                ref={measuringModuleRef}
+                mapReady={mapReady}
+                leafletMapRef={leafletMapRef}
+                projectionRef={projectionRef}
+                currentWorldId={currentWorld}
+                closeSignal={measuringCloseSignal}
+                openSignal={measuringOpenSignal}
+                onBecameActive={() => setMeasureToolsCloseSignal(v => v + 1)}
+                launcherSlot={(launcher) => <div className="hidden sm:block">{launcher}</div>}
+              />
+            </Suspense>
+          ) : (
+            <>
+              <div className="hidden sm:block">
+                <ToolIconButton
+                  label="测量工具"
+                  icon={<Ruler className="w-5 h-5" />}
+                  active={measurementToolsActive}
+                  tone="blue"
+                  onClick={() => requestMeasuringModuleEntry('mtools')}
+                />
+              </div>
+              <div className="hidden sm:block">
+                <ToolIconButton
+                  label="测绘"
+                  icon={<Pencil className="w-5 h-5" />}
+                  active={measuringModuleActive}
+                  tone="blue"
+                  onClick={() => requestMeasuringModuleEntry('measuring')}
+                  className="h-11 w-11"
+                />
+              </div>
+            </>
+          )}
           </LayerControl>
         </div>
       </div>
@@ -1520,14 +1623,16 @@ map.on('mousemove', handleMouseMove);
       )}
 
       {/* 线路列表页面 */}
-      {showLinesPage && (
-        <LinesPage
-          onBack={() => setShowLinesPage(false)}
-          onLineSelect={(line) => {
-            setShowLinesPage(false);
-            handleLineSelect(line);
-          }}
-        />
+      {legacyModuleLoaded && showLinesPage && (
+        <Suspense fallback={null}>
+          <LazyLinesPage
+            onBack={() => setShowLinesPage(false)}
+            onLineSelect={(line) => {
+              setShowLinesPage(false);
+              handleLineSelect(line);
+            }}
+          />
+        </Suspense>
       )}
 
       {/* 加载进度提示 */}
