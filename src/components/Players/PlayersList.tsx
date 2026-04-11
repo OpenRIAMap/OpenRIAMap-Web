@@ -54,7 +54,7 @@ export function PlayersList({
   }, [loadPlayers]);
 
   return (
-    <AppCard className="w-full sm:w-72 max-h-[50vh] flex flex-col">
+    <AppCard className="w-full sm:w-72 max-h-[50vh] flex flex-col" data-draggable-proxy-close="true">
       <button
         type="button"
         onClick={onClose}

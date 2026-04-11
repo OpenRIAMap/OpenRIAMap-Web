@@ -122,6 +122,7 @@ export function DraggablePanel({
   const [isMinimized, setIsMinimized] = useState(false);
   const [panelTitle, setPanelTitle] = useState(id);
   const [hasCloseButton, setHasCloseButton] = useState(false);
+  const [preferProxyClose, setPreferProxyClose] = useState(false);
   const [stackOrder, setStackOrder] = useState(() => (stackGroup ? ensureGroupOrder(stackGroup) : ensurePanelOrder(id)));
   const [portalRoot, setPortalRoot] = useState<HTMLDivElement | null>(null);
   const dragStartRef = useRef({ x: 0, y: 0 });
@@ -142,6 +143,7 @@ export function DraggablePanel({
     const root = contentRef.current;
     setPanelTitle(extractTitleText(root, id));
     setHasCloseButton(!!findCloseButton(root));
+    setPreferProxyClose(!!root?.querySelector('[data-draggable-proxy-close]'));
   }, [id]);
 
   useEffect(() => {
@@ -370,14 +372,14 @@ export function DraggablePanel({
               title="最小化面板"
               style={{
                 top: 10,
-                right: hasCloseButton ? WINDOW_SIDE_PADDING + WINDOW_BUTTON_SIZE + WINDOW_BUTTON_GAP : WINDOW_SIDE_PADDING,
+                right: WINDOW_SIDE_PADDING + WINDOW_BUTTON_SIZE + WINDOW_BUTTON_GAP,
                 width: WINDOW_BUTTON_SIZE,
                 height: WINDOW_BUTTON_SIZE,
               }}
             >
               <Minus className="h-4 w-4" />
             </button>
-            {hasCloseButton ? (
+            {preferProxyClose && hasCloseButton ? (
               <button
                 type="button"
                 onClick={handleRequestClose}
