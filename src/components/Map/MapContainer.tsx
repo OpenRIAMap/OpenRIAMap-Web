@@ -72,6 +72,8 @@ const WORLDS = [
   { id: 'laputa', name: '拉普塔', center: { x: 272, y: 64, z: 104 } }
 ];
 
+const PLAYER_FEATURE_ENABLED = false;
+
 function MapContainer() {
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletMapRef = useRef<L.Map | null>(null);
@@ -85,7 +87,9 @@ function MapContainer() {
   const [currentWorld, setCurrentWorld] = useState(savedSettings?.currentWorld ?? 'zth');
   const [showRailway, setShowRailway] = useState(savedSettings?.showRailway ?? false);
   const [showLandmark, setShowLandmark] = useState(savedSettings?.showLandmark ?? false);
-  const [showPlayers, setShowPlayers] = useState(savedSettings?.showPlayers ?? true);
+  const [showPlayers, setShowPlayers] = useState(
+    PLAYER_FEATURE_ENABLED && (savedSettings?.showPlayers ?? true)
+  );
   const [dimBackground, setDimBackground] = useState(savedSettings?.dimBackground ?? false);
   const [mapStyle, setMapStyle] = useState<MapStyle>(savedSettings?.mapStyle ?? 'default');
   const [showNavigation, setShowNavigation] = useState(false);
@@ -177,6 +181,16 @@ const isTempRuleMountEnabled = useCallback(() => {
   } catch {
     return false;
   }
+}, []);
+
+useEffect(() => {
+  if (PLAYER_FEATURE_ENABLED) return;
+
+  setPlayers([]);
+  setSelectedPlayer(null);
+  setShowPlayers(false);
+  setShowPlayersPage(false);
+  setMobileActivePanel((prev) => (prev === 'players' ? null : prev));
 }, []);
 
 useEffect(() => {
@@ -488,11 +502,16 @@ if (mapStyle === 'sketch') {
       setLandmarks(worldData.landmarks);
     }
 
-    // 加载玩家数据（实时数据，不缓存）
-    fetchPlayersDetailed(currentWorld).then((result) => {
-      setPlayers(result.players);
-      if (result.error) console.warn('[MapContainer] 玩家信息读取失败：', result.error);
-    });
+// 玩家功能临时关闭：切世界时不再请求玩家接口
+if (PLAYER_FEATURE_ENABLED) {
+  fetchPlayersDetailed(currentWorld).then((result) => {
+    setPlayers(result.players);
+    if (result.error) console.warn('[MapContainer] 玩家信息读取失败：', result.error);
+  });
+} else {
+  setPlayers([]);
+  setSelectedPlayer(null);
+}
 
     // 清除之前的路径
     setRouteHighlight(null);
@@ -1077,7 +1096,7 @@ map.on('mousemove', handleMouseMove);
             stations={stations}
             lines={lines}
             landmarks={landmarks}
-            players={players}
+            players={PLAYER_FEATURE_ENABLED ? players : []}
             worldId={currentWorld}
             onRouteFound={handleRouteFound}
             onClose={closeMobileSheet}
@@ -1100,22 +1119,23 @@ map.on('mousemove', handleMouseMove);
             onClose={closeMobileSheet}
           />
         );
-      case 'players':
-        return (
-          <PlayersList
-            worldId={currentWorld}
-            onClose={closeMobileSheet}
-            onPlayerSelect={(player) => {
-              closeMobileSheet();
-              handlePlayerClick(player);
-            }}
-            onNavigateToPlayer={() => {
-              setMobileActivePanel('navigation');
-              setMobileSheetHidden(false);
-              setMobileSheetCollapsed(false);
-            }}
-          />
-        );
+case 'players':
+  if (!PLAYER_FEATURE_ENABLED) return null;
+  return (
+    <PlayersList
+      worldId={currentWorld}
+      onClose={closeMobileSheet}
+      onPlayerSelect={(player) => {
+        closeMobileSheet();
+        handlePlayerClick(player);
+      }}
+      onNavigateToPlayer={() => {
+        setMobileActivePanel('navigation');
+        setMobileSheetHidden(false);
+        setMobileSheetCollapsed(false);
+      }}
+    />
+  );
       default:
         return null;
     }
@@ -1169,16 +1189,16 @@ map.on('mousemove', handleMouseMove);
         </Suspense>
       )}
 
-      {/* 玩家图层 */}
-      {mapReady && leafletMapRef.current && projectionRef.current && (
-        <PlayerLayer
-          map={leafletMapRef.current}
-          projection={projectionRef.current}
-          worldId={currentWorld}
-          visible={showPlayers}
-          onPlayerClick={handlePlayerClick}
-        />
-      )}
+{/* 玩家图层（临时关闭） */}
+{PLAYER_FEATURE_ENABLED && mapReady && leafletMapRef.current && projectionRef.current && (
+  <PlayerLayer
+    map={leafletMapRef.current}
+    projection={projectionRef.current}
+    worldId={currentWorld}
+    visible={showPlayers}
+    onPlayerClick={handlePlayerClick}
+  />
+)}
 
       {/* 顶部区域：桌面端恢复原始布局；移动端仅保留搜索框与关于快捷按钮 */}
       <div className="hidden sm:flex absolute top-4 left-4 right-auto z-[1000] flex-col gap-2 sm:max-w-[300px]">
@@ -1383,7 +1403,7 @@ map.on('mousemove', handleMouseMove);
             stations={stations}
             lines={lines}
             landmarks={landmarks}
-            players={players}
+            players={PLAYER_FEATURE_ENABLED ? players : []}
             worldId={currentWorld}
             onRouteFound={handleRouteFound}
             onClose={() => setShowNavigation(false)}
@@ -1418,7 +1438,7 @@ map.on('mousemove', handleMouseMove);
       )}
 
       {/* 玩家列表面板 */}
-      {showPlayersPage && (
+      {PLAYER_FEATURE_ENABLED && showPlayersPage && (
         <div className="hidden sm:block">
         <DraggablePanel
           id="players"

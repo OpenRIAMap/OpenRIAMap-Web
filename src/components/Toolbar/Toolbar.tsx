@@ -10,6 +10,9 @@ import ToolIconButton from '@/components/Toolbar/ToolIconButton';
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
 
+// TEMP: 临时隐藏玩家相关入口
+const PLAYER_FEATURE_ENABLED = false;
+
 interface ToolbarProps {
   onNavigationClick: () => void;
   onAttributeQueryClick: () => void;
@@ -71,16 +74,18 @@ function ToolbarButtons({
         </span>
       </AppButton>
 
-      <AppButton
-        onClick={onPlayersClick}
-        className={`${buttonClass} hover:bg-cyan-50 hover:text-cyan-600`}
-        title="在线玩家"
-      >
-        <Users className="w-5 h-5" />
-        <span className={`absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none ${mobile ? 'hidden' : ''}`}>
-          在线玩家
-        </span>
-      </AppButton>
+{PLAYER_FEATURE_ENABLED && (
+  <AppButton
+    onClick={onPlayersClick}
+    className={`${buttonClass} hover:bg-cyan-50 hover:text-cyan-600`}
+    title="在线玩家"
+  >
+    <Users className="w-5 h-5" />
+    <span className={`absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none ${mobile ? 'hidden' : ''}`}>
+      在线玩家
+    </span>
+  </AppButton>
+)}
 
       <AppButton
         onClick={onHelpClick}
@@ -303,13 +308,15 @@ function LayerControlButtons({
           tone="green"
           onClick={() => onToggleLandmark(!showLandmark)}
         />
-        <ToolIconButton
-          label="玩家"
-          icon={<User className="w-5 h-5" />}
-          active={showPlayers}
-          tone="cyan"
-          onClick={() => onTogglePlayers(!showPlayers)}
-        />
+{PLAYER_FEATURE_ENABLED && (
+  <ToolIconButton
+    label="玩家"
+    icon={<User className="w-5 h-5" />}
+    active={showPlayers}
+    tone="cyan"
+    onClick={() => onTogglePlayers(!showPlayers)}
+  />
+)}
       </div>
 
       <div className="h-px bg-gray-200" />
