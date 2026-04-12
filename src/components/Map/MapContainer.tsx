@@ -73,6 +73,7 @@ const WORLDS = [
 ];
 
 const PLAYER_FEATURE_ENABLED = false;
+const LINES_FEATURE_ENABLED = false;
 
 function MapContainer() {
   const mapRef = useRef<HTMLDivElement>(null);
@@ -194,6 +195,13 @@ useEffect(() => {
 }, []);
 
 useEffect(() => {
+  if (LINES_FEATURE_ENABLED) return;
+
+  setShowLinesPage(false);
+  setPendingLegacyAction((prev) => (prev === 'lines-page' ? null : prev));
+}, []);
+
+useEffect(() => {
   const handler = (ev: Event) => {
     const ce = ev as CustomEvent<{ active?: boolean; source?: string }>;
     const active = Boolean(ce?.detail?.active);
@@ -235,7 +243,9 @@ useEffect(() => {
     if (!pendingLegacyAction || !legacyModuleLoaded) return;
     if (pendingLegacyAction === 'railway-on') setShowRailway(true);
     else if (pendingLegacyAction === 'landmark-on') setShowLandmark(true);
-    else if (pendingLegacyAction === 'lines-page') setShowLinesPage(true);
+    else if (pendingLegacyAction === 'lines-page') {
+      if (LINES_FEATURE_ENABLED) setShowLinesPage(true);
+    }
     setPendingLegacyAction(null);
   }, [pendingLegacyAction, legacyModuleLoaded]);
 
@@ -248,10 +258,11 @@ useEffect(() => {
   }, [pendingLegacyAction, featureDialogState.isOpen, legacyModuleLoaded, legacyModuleState.status]);
 
   const requestLegacyFeature = useCallback((action: 'railway-on' | 'landmark-on' | 'lines-page') => {
+    if (action === 'lines-page' && !LINES_FEATURE_ENABLED) return;
     if (legacyModuleLoaded) {
       if (action === 'railway-on') setShowRailway(true);
       else if (action === 'landmark-on') setShowLandmark(true);
-      else if (action === 'lines-page') setShowLinesPage(true);
+      else if (action === 'lines-page' && LINES_FEATURE_ENABLED) setShowLinesPage(true);
       return;
     }
     setPendingLegacyAction(action);
@@ -275,6 +286,7 @@ useEffect(() => {
   }, [showLandmark, requestLegacyFeature]);
 
   const handleOpenLegacyLinesPage = useCallback(() => {
+    if (!LINES_FEATURE_ENABLED) return;
     requestLegacyFeature('lines-page');
   }, [requestLegacyFeature]);
 
@@ -1649,7 +1661,7 @@ case 'players':
       )}
 
       {/* 线路列表页面 */}
-      {legacyModuleLoaded && showLinesPage && (
+      {LINES_FEATURE_ENABLED && legacyModuleLoaded && showLinesPage && (
         <Suspense fallback={null}>
           <LazyLinesPage
             onBack={() => setShowLinesPage(false)}

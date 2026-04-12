@@ -15,6 +15,7 @@ interface DraggablePanelProps {
   children: React.ReactNode;
   stackGroup?: string;
   stackGroupOrder?: number;
+  constrainExpandedToViewport?: boolean;
 }
 
 const HEADER_HEIGHT = 48;
@@ -115,6 +116,7 @@ export function DraggablePanel({
   children,
   stackGroup,
   stackGroupOrder = 0,
+  constrainExpandedToViewport = false,
 }: DraggablePanelProps) {
   const [position, setPosition] = useState(defaultPosition);
   const [isDragging, setIsDragging] = useState(false);
@@ -215,13 +217,15 @@ export function DraggablePanel({
     const minX = -(panelWidth - MIN_VISIBLE_EXPANDED_WIDTH);
     const maxX = window.innerWidth - MIN_VISIBLE_EXPANDED_WIDTH;
     const minY = 0;
-    const maxY = window.innerHeight - HEADER_HEIGHT;
+    const maxY = constrainExpandedToViewport
+      ? Math.max(0, window.innerHeight - panelHeight)
+      : window.innerHeight - HEADER_HEIGHT;
 
     return {
       x: Math.max(minX, Math.min(x, maxX)),
       y: Math.max(minY, Math.min(y, maxY)),
     };
-  }, []);
+  }, [constrainExpandedToViewport]);
 
   // 开始拖拽
   const handleMouseDown = useCallback((e: React.MouseEvent) => {

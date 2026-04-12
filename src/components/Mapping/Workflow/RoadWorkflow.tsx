@@ -988,8 +988,7 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
         showPrev
         prevDisabled={saving}
         onPrev={() => {
-          bridgeRef.current.setDrawMode('none');
-          bridgeRef.current.clearTempPoints();
+          bridgeRef.current.suspendDrawMode();
           setStep('info');
         }}
       />

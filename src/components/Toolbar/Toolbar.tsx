@@ -12,6 +12,7 @@ import AppCard from '@/components/ui/AppCard';
 
 // TEMP: 临时隐藏玩家相关入口
 const PLAYER_FEATURE_ENABLED = false;
+const LINES_FEATURE_ENABLED = false;
 
 interface ToolbarProps {
   onNavigationClick: () => void;
@@ -63,6 +64,7 @@ function ToolbarButtons({
         </span>
       </AppButton>
 
+{LINES_FEATURE_ENABLED && (
       <AppButton
         onClick={onLinesClick}
         className={`${buttonClass} hover:bg-gray-100 hover:text-gray-800`}
@@ -73,6 +75,7 @@ function ToolbarButtons({
           线路列表
         </span>
       </AppButton>
+)}
 
 {PLAYER_FEATURE_ENABLED && (
   <AppButton

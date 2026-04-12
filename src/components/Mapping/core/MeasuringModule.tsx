@@ -3791,7 +3791,7 @@ const workflowBridge: WorkflowBridge = {
   };
 
   const layerPanelCard = (
-    <AppCard className="w-96 max-h-[70vh] overflow-hidden border">
+    <AppCard className="w-96 h-[70vh] max-h-[70vh] overflow-hidden border flex flex-col">
       {/* 标题栏（拖拽区域：前 48px） */}
       <div className="flex items-center justify-between px-4 py-3 border-b">
         <h3 className="font-bold text-gray-800">图层</h3>
@@ -3813,6 +3813,14 @@ const workflowBridge: WorkflowBridge = {
         const quickMeasuringActive = measuringVariant === 'workflow';
         const visibleList = layers.filter((l) => l.id !== editingLayerId);
         const hasDefaultLayer = visibleList.some((l) => (l?.jsonInfo?.subType ?? '默认') === '默认');
+        const hasRelayExportContent = visibleList.length > 0 || relayPackageDraft.deleteMarks.length > 0;
+        const relayExportTitle = busy
+          ? '当前有要素正在编辑/绘制，请先保存'
+          : !hasRelayExportContent
+            ? '暂无可导出内容'
+            : visibleList.length === 0
+              ? '导出仅含删除标记的标准包'
+              : '导出当前图层管理区为标准包';
 
         return (
           <>
@@ -3902,10 +3910,10 @@ const workflowBridge: WorkflowBridge = {
 
               <AppButton
                 type="button"
-                className={`px-2 py-1 text-sm rounded border ${busy || visibleList.length === 0 ? 'bg-gray-200 text-gray-400 cursor-not-allowed border-gray-200' : 'bg-white text-gray-800 hover:bg-gray-50 border-gray-300'}`}
-                title={busy ? '当前有要素正在编辑/绘制，请先保存' : visibleList.length === 0 ? '暂无图层' : '导出当前图层管理区为标准包'}
-                disabled={busy || visibleList.length === 0}
-                onClick={() => { if (!busy && visibleList.length > 0) setRelayPackageExportOpen(true); }}
+                className={`px-2 py-1 text-sm rounded border ${busy || !hasRelayExportContent ? 'bg-gray-200 text-gray-400 cursor-not-allowed border-gray-200' : 'bg-white text-gray-800 hover:bg-gray-50 border-gray-300'}`}
+                title={relayExportTitle}
+                disabled={busy || !hasRelayExportContent}
+                onClick={() => { if (!busy && hasRelayExportContent) setRelayPackageExportOpen(true); }}
               >
                 导出标准包
               </AppButton>
@@ -3972,8 +3980,9 @@ const workflowBridge: WorkflowBridge = {
             </div>
 
             {/* 列表：纵向滚动 + 横向滚动（与顶部同步） */}
-            <div ref={layerMgrBodyRef} className="px-3 pb-3 max-h-[50vh] overflow-y-auto overflow-x-auto">
-              <div className="min-w-max">
+            <div className="flex-1 min-h-0 overflow-hidden px-3 pb-3">
+              <div ref={layerMgrBodyRef} className="h-full min-h-0 overflow-y-auto overflow-x-auto">
+                <div className="min-w-max">
                 {visibleList.map((l) => {
                   const entry = getTempMountedEntryByLayer(l.id);
                   const enabled = entry ? Boolean(entry.enabled) : false;
@@ -4064,6 +4073,7 @@ const workflowBridge: WorkflowBridge = {
                     </div>
                   );
                 })}
+                </div>
               </div>
             </div>
           </>
@@ -4088,7 +4098,12 @@ const launcherNode = launcherSlot ? (
 // 2) 桌面端图层管理：仅在 measuringActive 时出现（与测绘主面板一致：可拖拽，关闭=退出测绘并清理）
 const layerManagerDesktopNode = measuringActive ? (
   <div className="hidden sm:block">
-    <DraggablePanel id="measuring-layers" defaultPosition={{ x: 960, y: 360 }} zIndex={1790}>
+    <DraggablePanel
+      id="measuring-layers"
+      defaultPosition={{ x: 960, y: 120 }}
+      zIndex={1790}
+      constrainExpandedToViewport
+    >
       {layerPanelCard}
     </DraggablePanel>
   </div>
