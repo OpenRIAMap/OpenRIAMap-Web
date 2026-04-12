@@ -534,10 +534,7 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
           <AppButton
             type="button"
             className="px-3 py-1.5 rounded text-sm border border-gray-300 bg-white text-gray-900 hover:bg-gray-100"
-            onClick={() => {
-              bridgeRef.current.clearTempPoints();
-              setStep('info');
-            }}
+            onClick={() => setStep('info')}
           >
             返回
           </AppButton>

@@ -183,6 +183,7 @@ export default function WarpPointWorkflow(props: WorkflowComponentProps) {
   // draw state
   const draftPoint: WorldPoint[] = step === 'src' ? (bridge.getTempPoints?.() ?? []) : [];
   const [srcPoint, setSrcPoint] = useState<WorldPoint | null>(null);
+  const [srcDraftPoint, setSrcDraftPoint] = useState<WorldPoint | null>(null);
   void onExit;
   void srcPoint;
 
@@ -268,19 +269,19 @@ export default function WarpPointWorkflow(props: WorkflowComponentProps) {
   useEffect(() => {
     if (nonEmpty(creatorId)) bridgeRef.current.setEditorId(creatorId.trim());
     if (step === 'creator' || step === 'info') {
-      bridgeRef.current.setDrawMode('none');
-      bridgeRef.current.clearTempPoints();
+      bridgeRef.current.suspendDrawMode();
       setSaveError('');
       return;
     }
 
     if (step === 'src') {
       bridgeRef.current.setDrawMode('point');
-      bridgeRef.current.clearTempPoints();
+      const seed = srcDraftPoint ?? srcPoint;
+      bridgeRef.current.setTempPoints(seed ? firstPointOnly([seed]) : []);
       setSaveError('');
       return;
     }
-  }, [step, creatorId]);
+  }, [step, creatorId, srcDraftPoint, srcPoint]);
 
   // enforce single point
   useEffect(() => {
@@ -472,8 +473,10 @@ export default function WarpPointWorkflow(props: WorkflowComponentProps) {
         prevDisabled={false}
         nextDisabled={!canCommit}
         onPrev={() => {
+          const p = firstPointOnly(bridgeRef.current.getTempPoints?.() ?? [])[0] ?? null;
+          setSrcDraftPoint(p);
+          setSrcPoint(p);
           setStep('info');
-          bridgeRef.current.clearTempPoints();
         }}
         onNext={commit}
       />

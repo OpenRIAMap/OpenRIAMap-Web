@@ -459,12 +459,14 @@ if (mapStyle === 'sketch') {
   }, [currentWorld, showRailway, showLandmark, showPlayers, dimBackground, mapStyle]);
 
   // 加载状态管理
-  const { startLoading, updateStage, finishLoading } = useLoadingStore();
+  const { startLoading, updateStage, finishLoadingByFlow } = useLoadingStore();
   const { loadAllData, getWorldData, isLoaded: dataLoaded } = useDataStore();
 
   // 首次加载：预加载所有世界数据
   useEffect(() => {
     if (dataLoaded) return;
+
+    const legacyInitFlowId = `legacy-init:${Date.now()}`;
 
     startLoading([
       { name: 'bureaus', label: '铁路局配置' },
@@ -480,16 +482,20 @@ if (mapStyle === 'sketch') {
       { name: 'eden-landmark', label: '伊甸地标数据' },
       { name: 'laputa-railway', label: '拉普塔铁路数据' },
       { name: 'laputa-landmark', label: '拉普塔地标数据' },
-    ]);
+    ], { flowId: legacyInitFlowId });
 
     loadAllData((stage, status) => {
+      const latest = useLoadingStore.getState();
+      if (!latest.isLoading || latest.activeFlowId !== legacyInitFlowId || latest.activeRuleWorldId) return;
       updateStage(stage, status);
     }).then(() => {
       setTimeout(() => {
-        finishLoading();
+        const latest = useLoadingStore.getState();
+        if (!latest.isLoading || latest.activeFlowId !== legacyInitFlowId || latest.activeRuleWorldId) return;
+        finishLoadingByFlow(legacyInitFlowId);
       }, 500);
     });
-  }, [dataLoaded, loadAllData, startLoading, updateStage, finishLoading]);
+  }, [dataLoaded, loadAllData, startLoading, updateStage, finishLoadingByFlow]);
 
   // 切换世界时从缓存加载数据
   useEffect(() => {

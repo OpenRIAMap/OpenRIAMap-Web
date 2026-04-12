@@ -383,6 +383,21 @@ export default function TradePointWorkflow(props: WorkflowComponentProps) {
   const canCommit = useMemo(() => canGoNextFromTrade && hasDraftPoint && !saving, [canGoNextFromTrade, hasDraftPoint, saving]);
 
   useEffect(() => {
+    if (nonEmpty(creatorId)) {
+      bridgeRef.current.setEditorId?.(creatorId.trim());
+    }
+
+    if (step !== 'point') {
+      bridgeRef.current.suspendDrawMode?.();
+      setSaveError('');
+      return;
+    }
+
+    bridgeRef.current.setDrawMode('point');
+    setSaveError('');
+  }, [step, creatorId]);
+
+  useEffect(() => {
     if (step !== 'point') return;
     if (!Array.isArray(draftPoint)) return;
     if (draftPoint.length <= 1) return;
@@ -622,11 +637,7 @@ export default function TradePointWorkflow(props: WorkflowComponentProps) {
           prevDisabled={false}
           nextDisabled={!canGoNextFromTrade}
           onPrev={() => setStep('info')}
-          onNext={() => {
-            bridgeRef.current.clearTempPoints();
-            bridgeRef.current.setDrawMode('point');
-            setStep('point');
-          }}
+          onNext={() => setStep('point')}
         />
 
         <div className="space-y-3">
@@ -1022,10 +1033,7 @@ export default function TradePointWorkflow(props: WorkflowComponentProps) {
         showNext
         prevDisabled={false}
         nextDisabled={!canCommit}
-        onPrev={() => {
-          bridgeRef.current.clearTempPoints();
-          setStep('trade');
-        }}
+        onPrev={() => setStep('trade')}
         onNext={commit}
       />
 

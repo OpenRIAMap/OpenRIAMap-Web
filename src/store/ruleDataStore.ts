@@ -34,8 +34,9 @@ export const useRuleDataStore = create<RuleDataState>((set, get) => ({
     const pending = get().pending[worldId];
     if (pending) return pending;
 
-    const { startLoading, updateStage, finishLoading } = useLoadingStore.getState();
-    startLoading(WORLD_LOADING_STAGES, { flowId: `rule-world:${worldId}`, ruleWorldId: worldId });
+    const ruleFlowId = `rule-world:${worldId}`;
+    const { startLoading, updateStage, finishLoadingByFlow } = useLoadingStore.getState();
+    startLoading(WORLD_LOADING_STAGES, { flowId: ruleFlowId, ruleWorldId: worldId });
     const onProgress = (progress: LoadingProgress) => updateStage(progress.stage, progress.status, progress.message);
 
     const promise = loadWorldRuleDataset(worldId, onProgress)
@@ -51,7 +52,7 @@ export const useRuleDataStore = create<RuleDataState>((set, get) => ({
       .catch((err) => {
         updateStage('world-ready', 'error', String((err as Error)?.message ?? err));
         set((state) => ({ loadingWorld: null, pending: { ...state.pending, [worldId]: undefined } }));
-        setTimeout(() => finishLoading(), 300);
+        setTimeout(() => finishLoadingByFlow(ruleFlowId), 300);
         throw err;
       });
 
@@ -110,7 +111,7 @@ export const useRuleDataStore = create<RuleDataState>((set, get) => ({
             setTimeout(() => {
               const latest = useLoadingStore.getState();
               if (latest.isLoading && latest.activeFlowId === activeFlowId && latest.activeRuleWorldId === activeWorldId) {
-                latest.finishLoading();
+                latest.finishLoadingByFlow(activeFlowId);
               }
             }, 300);
           }

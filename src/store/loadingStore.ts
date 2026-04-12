@@ -35,6 +35,7 @@ interface LoadingState {
   startLoading: (stages: LoadingStageDefinition[], options?: LoadingStartOptions) => void;
   updateStage: (name: string, status: LoadingStage['status'], message?: string) => void;
   finishLoading: () => void;
+  finishLoadingByFlow: (flowId?: string | null) => void;
   resetLoading: () => void;
   hasStage: (name: string) => boolean;
   isRuleWorldFlow: (worldId: string) => boolean;
@@ -69,6 +70,19 @@ export const useLoadingStore = create<LoadingState>()((set, get): LoadingState =
   },
 
   finishLoading: () => {
+    set({
+      isLoading: false,
+      initialized: true,
+      activeFlowId: null,
+      activeRuleWorldId: null,
+    });
+  },
+
+  finishLoadingByFlow: (flowId) => {
+    const target = flowId ?? null;
+    const state = get();
+    if (!state.isLoading) return;
+    if (target !== null && state.activeFlowId !== target) return;
     set({
       isLoading: false,
       initialized: true,

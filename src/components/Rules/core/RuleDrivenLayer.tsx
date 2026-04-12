@@ -580,7 +580,7 @@ function finishRuleLoading(worldId: string, flowId?: string | null) {
   const state = useLoadingStore.getState();
   if (!state.isRuleWorldFlow(worldId)) return;
   if (flowId && state.activeFlowId !== flowId) return;
-  state.finishLoading();
+  state.finishLoadingByFlow(flowId);
 }
 
 
@@ -1285,10 +1285,11 @@ useEffect(() => {
       if (pendingRuleFirstPaintWorldRef.current === worldId) {
         updateRuleLoadingStage(worldId, 'world-layer-render', 'success', '图层不可见，跳过首帧等待');
         updateRuleLoadingStage(worldId, 'world-first-paint', 'success', '图层当前不可见');
+        const doneFlowId = pendingRuleFirstPaintFlowRef.current;
         pendingRuleFirstPaintWorldRef.current = null;
         pendingRuleFirstPaintFlowRef.current = null;
         renderCompletionScheduledRef.current = false;
-        finishRuleLoading(worldId, pendingRuleFirstPaintFlowRef.current);
+        finishRuleLoading(worldId, doneFlowId);
       }
       return;
     }
@@ -1604,10 +1605,11 @@ declutterLabelMeta.set(req.id, { styleKey, plan: (!pickModeActive && clickPlan &
       requestAnimationFrame(() => {
         updateRuleLoadingStage(worldId, 'world-layer-render', 'success', `图层数 ${shouldShow.size}`);
         updateRuleLoadingStage(worldId, 'world-first-paint', 'success', '地图已显示');
+        const doneFlowId = pendingRuleFirstPaintFlowRef.current;
         pendingRuleFirstPaintWorldRef.current = null;
         pendingRuleFirstPaintFlowRef.current = null;
         renderCompletionScheduledRef.current = false;
-        finishRuleLoading(worldId, pendingRuleFirstPaintFlowRef.current);
+        finishRuleLoading(worldId, doneFlowId);
       });
     });
   }

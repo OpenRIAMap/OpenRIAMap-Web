@@ -242,6 +242,8 @@ export default function TeleportPointWorkflow(props: WorkflowComponentProps) {
 
   // Page 3/4 points
   const [srcPoint, setSrcPoint] = useState<WorldPoint | null>(null);
+  const [srcDraftPoint, setSrcDraftPoint] = useState<WorldPoint | null>(null);
+  const [tgtDraftPoint, setTgtDraftPoint] = useState<WorldPoint | null>(null);
 
   const [srcElevInput, setSrcElevInput] = useState<string>('');
   const [tgtElevInput, setTgtElevInput] = useState<string>('');
@@ -436,16 +438,20 @@ export default function TeleportPointWorkflow(props: WorkflowComponentProps) {
     if (nonEmpty(creatorId)) bridgeRef.current.setEditorId(creatorId.trim());
 
     if (step === 'creator' || step === 'info') {
-      bridgeRef.current.setDrawMode('none');
-      bridgeRef.current.clearTempPoints();
+      bridgeRef.current.suspendDrawMode();
       setSaveError('');
       return;
     }
 
-    // draw: src/tgt 都是 point
     bridgeRef.current.setDrawMode('point');
+    if (step === 'src') {
+      const seed = srcDraftPoint ?? srcPoint;
+      bridgeRef.current.setTempPoints(seed ? firstPointOnly([seed]) : []);
+    } else {
+      bridgeRef.current.setTempPoints(tgtDraftPoint ? firstPointOnly([tgtDraftPoint]) : []);
+    }
     setSaveError('');
-  }, [step, creatorId]);
+  }, [step, creatorId, srcDraftPoint, srcPoint, tgtDraftPoint]);
 
   const canGoNextFromCreator = useMemo(() => nonEmpty(creatorId), [creatorId]);
 
@@ -479,7 +485,7 @@ export default function TeleportPointWorkflow(props: WorkflowComponentProps) {
     const p0 = firstPointOnly(draftPoint)[0];
     if (!p0) return;
     setSrcPoint(p0);
-    bridgeRef.current.clearTempPoints();
+    setSrcDraftPoint(p0);
 
     // 若选择了 Warp 目标，则直接保存（跳过目标坐标页）
     if (useWarpTarget) {
@@ -652,8 +658,6 @@ const commit = () => {
           nextDisabled={!canGoNextFromInfo}
           onPrev={() => setStep('creator')}
           onNext={() => {
-            setSrcPoint(null);
-            bridgeRef.current.clearTempPoints();
             setStep('src');
           }}
         />
@@ -818,7 +822,8 @@ const commit = () => {
           prevDisabled={false}
           nextDisabled={!canGoNextFromSrc}
           onPrev={() => {
-            bridgeRef.current.clearTempPoints();
+            const p = firstPointOnly(bridgeRef.current.getTempPoints?.() ?? [])[0] ?? null;
+            setSrcDraftPoint(p);
             setStep('info');
           }}
           onNext={applySrcPointAndNext}
@@ -854,8 +859,9 @@ const commit = () => {
         prevDisabled={false}
         nextDisabled={!canCommit}
         onPrev={() => {
+          const p = firstPointOnly(bridgeRef.current.getTempPoints?.() ?? [])[0] ?? null;
+          setTgtDraftPoint(p);
           setStep('src');
-          bridgeRef.current.clearTempPoints();
         }}
         onNext={commit}
       />
