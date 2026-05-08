@@ -13,6 +13,7 @@ import { stringifyFeatureJsonArray } from '@/components/Common/featureJsonSerial
 import {
   isExternalLinkValue,
   isFeatureLinkValue,
+  isFeatureLinkListValue,
   normalizeExternalHref,
   type ResolveFeatureById,
 } from '@/components/Rules/cardrules/cardInteractions';
@@ -27,7 +28,7 @@ type Props = {
   /** 由上层（RuleDrivenLayer）提供：用于在“要素跳转”中通过 id 找到目标要素 */
   resolveFeatureById?: ResolveFeatureById;
   /** 由上层（RuleDrivenLayer）提供：用于在“要素跳转”中尝试触发目标要素的 labelClick */
-  onTryTriggerLabelClickById?: (id: string) => void;
+  onTryTriggerLabelClickById?: (id: string, linkTarget?: import('@/components/Rules/cardrules/cardInteractions').CardFeatureLinkTarget) => void;
 
   /** 可选：在图片幕与主信息之间插入额外模块（例如 TRP 交易列表） */
   midSection?: ReactNode;
@@ -55,6 +56,16 @@ function normalizeMultilineText(s: string): string {
     .replace(/\\r\\n/g, '\n')
     .replace(/\\r/g, '\n')
     .replace(/\\n/g, '\n');
+}
+
+function getFeatureInfoValue(feature: FeatureRecord, path: string): unknown {
+  const normalized = String(path ?? '').trim();
+  if (!normalized) return undefined;
+  if (normalized === 'ID') return feature?.meta?.idValue ?? feature?.featureInfo?.ID;
+  return normalized.split('.').reduce<unknown>((acc, key) => {
+    if (acc == null || typeof acc !== 'object') return undefined;
+    return (acc as Record<string, unknown>)[key];
+  }, feature?.featureInfo ?? {});
 }
 
 function formatValue(v: any): string {
@@ -428,11 +439,16 @@ export default function FeatureInteractionCard(props: Props) {
                   );
                 } else if (!rich && isFeatureLinkValue(v)) {
                   const id = String(v.targetId ?? '').trim();
-                  const target = id && resolveFeatureById ? resolveFeatureById(id) : undefined;
+                  const target = id && resolveFeatureById ? resolveFeatureById(id, v.linkTarget) : undefined;
+                  const displayField = String(v.linkTarget?.displayField ?? '').trim();
+                  const displayFromTarget = target && displayField
+                    ? String(getFeatureInfoValue(target, displayField) ?? '').trim()
+                    : '';
                   const display =
                     String(v.text ?? '').trim() ||
+                    displayFromTarget ||
                     (target ? pickFeatureDisplayName(target) : '') ||
-                    id ||
+                    (v.linkTarget?.fallbackDisplay === 'unknown' ? '未知' : id) ||
                     '未知';
 
                   textNode = (
@@ -443,13 +459,43 @@ export default function FeatureInteractionCard(props: Props) {
                         e.stopPropagation();
                         if (!id) return;
                         try {
-                          onTryTriggerLabelClickById?.(id);
+                          onTryTriggerLabelClickById?.(id, v.linkTarget);
                         } catch {
                           // 按需求：静默失败，不抛错、不重试
                         }
                       }}
                     >
                       {display}
+                    </span>
+                  );
+                } else if (!rich && isFeatureLinkListValue(v)) {
+                  textNode = (
+                    <span className="inline-flex flex-wrap justify-end gap-1">
+                      {v.items.map((item, idx) => {
+                        const id = String(item.targetId ?? '').trim();
+                        const target = id && resolveFeatureById ? resolveFeatureById(id, item.linkTarget) : undefined;
+                        const displayField = String(item.linkTarget?.displayField ?? '').trim();
+                        const displayFromTarget = target && displayField ? String(getFeatureInfoValue(target, displayField) ?? '').trim() : '';
+                        const display = String(item.text ?? '').trim() || displayFromTarget || (target ? pickFeatureDisplayName(target) : '') || (item.linkTarget?.fallbackDisplay === 'unknown' ? '未知' : id) || '未知';
+                        return (
+                          <span
+                            key={`${id}-${idx}`}
+                            style={{ color: '#2563eb', textDecoration: 'underline', cursor: 'pointer' }}
+                            title={id || undefined}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!id) return;
+                              try {
+                                onTryTriggerLabelClickById?.(id, item.linkTarget);
+                              } catch {
+                                // 静默失败
+                              }
+                            }}
+                          >
+                            {display}
+                          </span>
+                        );
+                      })}
                     </span>
                   );
                 }
@@ -534,11 +580,16 @@ export default function FeatureInteractionCard(props: Props) {
                         );
                       } else if (!rich && isFeatureLinkValue(v)) {
                         const id = String(v.targetId ?? '').trim();
-                        const target = id && resolveFeatureById ? resolveFeatureById(id) : undefined;
+                        const target = id && resolveFeatureById ? resolveFeatureById(id, v.linkTarget) : undefined;
+                        const displayField = String(v.linkTarget?.displayField ?? '').trim();
+                        const displayFromTarget = target && displayField
+                          ? String(getFeatureInfoValue(target, displayField) ?? '').trim()
+                          : '';
                         const display =
                           String(v.text ?? '').trim() ||
+                          displayFromTarget ||
                           (target ? pickFeatureDisplayName(target) : '') ||
-                          id ||
+                          (v.linkTarget?.fallbackDisplay === 'unknown' ? '未知' : id) ||
                           '未知';
 
                         textNode = (
@@ -549,13 +600,43 @@ export default function FeatureInteractionCard(props: Props) {
                               e.stopPropagation();
                               if (!id) return;
                               try {
-                                onTryTriggerLabelClickById?.(id);
+                                onTryTriggerLabelClickById?.(id, v.linkTarget);
                               } catch {
                                 // 静默失败
                               }
                             }}
                           >
                             {display}
+                          </span>
+                        );
+                      } else if (!rich && isFeatureLinkListValue(v)) {
+                        textNode = (
+                          <span className="inline-flex flex-wrap justify-end gap-1">
+                            {v.items.map((item, idx) => {
+                              const id = String(item.targetId ?? '').trim();
+                              const target = id && resolveFeatureById ? resolveFeatureById(id, item.linkTarget) : undefined;
+                              const displayField = String(item.linkTarget?.displayField ?? '').trim();
+                              const displayFromTarget = target && displayField ? String(getFeatureInfoValue(target, displayField) ?? '').trim() : '';
+                              const display = String(item.text ?? '').trim() || displayFromTarget || (target ? pickFeatureDisplayName(target) : '') || (item.linkTarget?.fallbackDisplay === 'unknown' ? '未知' : id) || '未知';
+                              return (
+                                <span
+                                  key={`${id}-${idx}`}
+                                  style={{ color: '#2563eb', textDecoration: 'underline', cursor: 'pointer' }}
+                                  title={id || undefined}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (!id) return;
+                                    try {
+                                      onTryTriggerLabelClickById?.(id, item.linkTarget);
+                                    } catch {
+                                      // 静默失败
+                                    }
+                                  }}
+                                >
+                                  {display}
+                                </span>
+                              );
+                            })}
                           </span>
                         );
                       }

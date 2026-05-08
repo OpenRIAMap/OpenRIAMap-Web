@@ -1,6 +1,7 @@
 // File: src/components/Mapping/Workflow/BuildingWorkflow.tsx
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkflowComponentProps, WorldPoint } from './WorkflowHost';
+import * as wfRegistry from './workflowRegistryLabels';
 import AppButton from '@/components/ui/AppButton';
 import {
   EXT_VALUE_TYPE_TEXT,
@@ -9,6 +10,8 @@ import {
   listCatalogClassOptions,
 } from '@/components/Common/featureFormats';
 import WorkflowFeatureSearchSelect, { type SearchSelectConfig } from './WorkflowFeatureSearchSelect';
+
+const WF_KEY = 'bud_building';
 
 /**
  * BuildingWorkflow（工作流：建筑 / BUD）
@@ -397,7 +400,7 @@ export default function BuildingWorkflow(props: WorkflowComponentProps) {
 
         <div className="space-y-3">
           <label className="block space-y-1">
-            <div className="text-xs opacity-80">类型（Class=BUD）</div>
+            <div className="text-xs opacity-80">{wfRegistry.getWorkflowClassificationLabel(WF_KEY)}</div>
             <select
               className="w-full border p-1 rounded text-sm"
               value={info.typeKey}
@@ -415,35 +418,35 @@ export default function BuildingWorkflow(props: WorkflowComponentProps) {
             </select>
           </label>
 
-          <LabeledInput label="名称" value={info.name} placeholder="例如：主岛码头" onChange={(v) => setInfo((p) => ({ ...p, name: v }))} />
-          <LabeledInput label="所属分类代号（仅用于ID组装，可选）" value={info.catAbbr} placeholder="例如：HH" onChange={(v) => setInfo((p) => ({ ...p, catAbbr: v }))} />
-          <LabeledInput label="字符简称（用于ID后缀）" value={info.abbr} placeholder="例如：ZDMT" onChange={(v) => setInfo((p) => ({ ...p, abbr: v }))} />
-          <LabeledInput label="命名者（tags.nomenclator，可选）" value={info.nomenclator} placeholder="例如：Codusk" onChange={(v) => setInfo((p) => ({ ...p, nomenclator: v }))} />
+          <LabeledInput label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Name')} value={info.name} placeholder="例如：主岛码头" onChange={(v) => setInfo((p) => ({ ...p, name: v }))} />
+          <LabeledInput label={wfRegistry.getWorkflowAuxLabel(WF_KEY, 'catAbbr')} value={info.catAbbr} placeholder="例如：HH" onChange={(v) => setInfo((p) => ({ ...p, catAbbr: v }))} />
+          <LabeledInput label={wfRegistry.getWorkflowAuxLabel(WF_KEY, 'abbr')} value={info.abbr} placeholder="例如：ZDMT" onChange={(v) => setInfo((p) => ({ ...p, abbr: v }))} />
+          <LabeledInput label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'nomenclator')} value={info.nomenclator} placeholder="例如：Codusk" onChange={(v) => setInfo((p) => ({ ...p, nomenclator: v }))} />
 
           <div className="grid grid-cols-2 gap-2">
             <WorkflowFeatureSearchSelect
               bridge={bridge}
-              label="所属地理单元（可选，将写入 tags.Land）"
+              label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Land')}
               value={String(info.land ?? '')}
               placeholder="输入关键词检索：可匹配 Name / ID"
               config={landUnitSearchCfg}
               onChange={(v) => setInfo((p) => ({ ...p, land: v }))}
             />
             <LabeledInput
-              label="所属聚落(一级)（可选，将写入 tags.Adm）"
+              label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Adm')}
               value={String(info.admLevel1 ?? '')}
               placeholder="例如：鳕鱼鱼"
               onChange={(v) => setInfo((p) => ({ ...p, admLevel1: v }))}
             />
-            <LabeledInput label="相关成员（可选）" value={info.pop ?? ''} onChange={(v) => setInfo((p) => ({ ...p, pop: v }))} />
+            <LabeledInput label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Pop')} value={info.pop ?? ''} onChange={(v) => setInfo((p) => ({ ...p, pop: v }))} />
           </div>
 
-          <LabeledInput label="wiki链接（可选）" value={info.wiki ?? ''} placeholder="例如：wiki.ria.red/xxx" onChange={(v) => setInfo((p) => ({ ...p, wiki: v }))} />
+          <LabeledInput label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'wiki')} value={info.wiki ?? ''} placeholder="例如：wiki.ria.red/xxx" onChange={(v) => setInfo((p) => ({ ...p, wiki: v }))} />
 
 
 
           <LabeledBriefInput
-            label="简介（可选，将写入 extensions.character.brief）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'brief')}
             value={info.brief ?? ''}
             placeholder="支持长文本输入（不支持换行）"
             onChange={(v) => setInfo((prev) => ({ ...prev, brief: v }))}

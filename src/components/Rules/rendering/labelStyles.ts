@@ -20,6 +20,8 @@ export type LabelStyleKey =
   | `bubble-dark-${number}`
   | 'gm-outline'
   | 'gm-outline-bold'
+  | 'structure-label'
+  | `structure-label-${number}`
   | `gm-bw-${number}`
   | `gm-wtb-${number}`
   | `rle-line-${number}`
@@ -317,6 +319,53 @@ export function renderLabelHtml(styleKey: LabelStyleKeyInput, text: string, opts
         font-size:${rlePillSize}px;
         line-height:1;
       ">${safe}</div>
+    `;
+  }
+
+  // structure-label(-xx)：建筑/站房结构名。无底色、轻描边，避免建筑区被黑色气泡铺满。
+  const structureSize =
+    String(styleKeyStr) === 'structure-label'
+      ? 12
+      : parseSizeSuffix(String(styleKeyStr), 'structure-label-');
+
+  if (structureSize !== null) {
+    const o = Math.max(1, Math.round(structureSize / 8));
+    const shadow = [
+      `${o}px 0 0 rgba(255,255,255,0.95)`,
+      `-${o}px 0 0 rgba(255,255,255,0.95)`,
+      `0 ${o}px 0 rgba(255,255,255,0.95)`,
+      `0 -${o}px 0 rgba(255,255,255,0.95)`,
+      `${o}px ${o}px 0 rgba(255,255,255,0.85)`,
+      `${o}px -${o}px 0 rgba(255,255,255,0.85)`,
+      `-${o}px ${o}px 0 rgba(255,255,255,0.85)`,
+      `-${o}px -${o}px 0 rgba(255,255,255,0.85)`,
+      `0 1px 2px rgba(17,24,39,0.28)`,
+    ].join(',');
+
+    return `
+      <div style="
+        transform:${transform};
+        margin-top:${extraMarginTop}px;
+        white-space:${writingMode === 'vertical' ? 'normal' : 'nowrap'};
+        pointer-events:${pe};
+        cursor:${cursor};
+        display:inline-flex;
+        align-items:center;
+        background:transparent;
+        padding:0;
+      ">
+        ${dot}
+        <span style="
+          color:#374151;
+          font-weight:650;
+          font-size:${structureSize}px;
+          line-height:1.05;
+          letter-spacing:0.01em;
+          text-shadow:${shadow};
+          -webkit-font-smoothing:antialiased;
+          text-rendering:geometricPrecision;
+        ">${safe}</span>
+      </div>
     `;
   }
 

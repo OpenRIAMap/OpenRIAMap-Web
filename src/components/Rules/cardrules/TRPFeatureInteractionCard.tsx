@@ -30,6 +30,13 @@ export default function TRPFeatureInteractionCard(props: FeatureCardCommonProps)
       'Kind',
       'SKind',
       'SKind2',
+      '类型',
+      '交互模式',
+      '启用状况',
+      '所属地理单元',
+      'WIKI链接',
+      '简介',
+      '交易列表',
     ]);
     const filtered = all.filter((r) => {
       const label = String((r as any)?.label ?? '').trim();

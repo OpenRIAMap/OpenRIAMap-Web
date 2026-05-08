@@ -1,6 +1,7 @@
 // File: src/components/Mapping/Workflow/SpecialCulturalPointWorkflow.tsx
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkflowComponentProps, WorldPoint } from './WorkflowHost';
+import * as wfRegistry from './workflowRegistryLabels';
 import AppButton from '@/components/ui/AppButton';
 import {
   EXT_VALUE_TYPE_OPTIONS,
@@ -9,6 +10,8 @@ import {
   listCatalogKindOptions,
 } from '@/components/Common/featureFormats';
 import WorkflowFeatureSearchSelect, { type SearchSelectConfig } from './WorkflowFeatureSearchSelect';
+
+const WF_KEY = 'adm_point_special';
 
 /**
  * SpecialCulturalPointWorkflow（工作流：特殊人文点要素）
@@ -434,7 +437,7 @@ export default function SpecialCulturalPointWorkflow(props: WorkflowComponentPro
 
         <div className="space-y-3">
           <label className="block space-y-1">
-            <div className="text-xs opacity-80">类型（Kind=ADM 下所有点要素）</div>
+            <div className="text-xs opacity-80">{wfRegistry.getWorkflowClassificationLabel(WF_KEY)}</div>
             <select
               className="w-full border p-1 rounded text-sm"
               value={info.typeKey}
@@ -452,10 +455,10 @@ export default function SpecialCulturalPointWorkflow(props: WorkflowComponentPro
             </select>
           </label>
 
-          <LabeledInput label="名称" value={info.name} placeholder="例如：历史地标" onChange={(v) => setInfo((prev) => ({ ...prev, name: v }))} />
+          <LabeledInput label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Name')} value={info.name} placeholder="例如：历史地标" onChange={(v) => setInfo((prev) => ({ ...prev, name: v }))} />
 
           <LabeledInput
-            label="字符简称（用于ID）"
+            label={wfRegistry.getWorkflowAuxLabel(WF_KEY, 'abbr')}
             value={info.abbr}
             placeholder="仅建议使用字母/数字/下划线/短横线"
             onChange={(v) => setInfo((prev) => ({ ...prev, abbr: v }))}
@@ -467,7 +470,7 @@ export default function SpecialCulturalPointWorkflow(props: WorkflowComponentPro
           ) : null}
 
           <LabeledInput
-            label="命名者（tags.nomenclator，可选）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'nomenclator')}
             value={info.nomenclator}
             placeholder="例如：官方公告 / OSM / 个人署名"
             onChange={(v) => setInfo((prev) => ({ ...prev, nomenclator: v }))}
@@ -475,7 +478,7 @@ export default function SpecialCulturalPointWorkflow(props: WorkflowComponentPro
 
           <WorkflowFeatureSearchSelect
             bridge={bridge}
-            label="所属地理单元（可选，将写入 tags.Land）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Land')}
             value={String(info.land ?? '')}
             placeholder="输入关键词检索：可匹配 Name / ID"
             config={landUnitSearchCfg}
@@ -484,7 +487,7 @@ export default function SpecialCulturalPointWorkflow(props: WorkflowComponentPro
 
           <WorkflowFeatureSearchSelect
             bridge={bridge}
-            label="所属上级要素（可选，将写入 tags.UAdm）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'UAdm')}
             value={String(info.uadm ?? '')}
             placeholder="输入关键词检索：可匹配 xxxName / xxxID"
             config={uadmAdmAnySearchCfg}
@@ -492,21 +495,21 @@ export default function SpecialCulturalPointWorkflow(props: WorkflowComponentPro
           />
 
           <LabeledInput
-            label="参与人员（可选，将写入 tags.Pop）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Pop')}
             value={info.pop ?? ''}
             placeholder="例如：Codusk"
             onChange={(v) => setInfo((prev) => ({ ...prev, pop: v }))}
           />
 
           <LabeledInput
-            label="事件或类型（可选，将写入 extensions.character.event）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'event')}
             value={info.event ?? ''}
             placeholder="例如：纪念碑 / 战役 / 历史事件"
             onChange={(v) => setInfo((prev) => ({ ...prev, event: v }))}
           />
 
           <LabeledInput
-            label="wiki链接（可选，将写入 extensions.link.wiki）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'wiki')}
             value={info.wiki ?? ''}
             placeholder="https://..."
             onChange={(v) => setInfo((prev) => ({ ...prev, wiki: v }))}
@@ -515,7 +518,7 @@ export default function SpecialCulturalPointWorkflow(props: WorkflowComponentPro
 
 
           <LabeledBriefInput
-            label="简介（可选，将写入 extensions.character.brief）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'brief')}
             value={info.brief ?? ''}
             placeholder="支持长文本输入（不支持换行）"
             onChange={(v) => setInfo((prev) => ({ ...prev, brief: v }))}

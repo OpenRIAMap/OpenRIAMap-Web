@@ -19,8 +19,21 @@ import {
   type FeatureKey,
   type DrawMode,
 } from '@/components/Common/featureFormats';
+import {
+  projectRegistryScene,
+  resolveWorkflowEditorSchema,
+  type ProjectedRegistryScene,
+} from '@/components/Common/workflowEditorRegistry';
+import {
+  mergeEditorDraftIntoFeatureInfo,
+  mergeUnparsedEntriesIntoFeatureInfo,
+  parseFeatureInfoByRegistry,
+  type WorkflowEditorDraftValues,
+  type WorkflowEditorUnparsedEntry,
+} from '@/components/Common/workflowEditorParser';
 
 import TRPTradeEditor, { type TradeGroup as TRPTradeGroup } from '@/components/Mapping/SpecialInput/TRPTradeEditor';
+import WorkflowStyleEditPanel from '@/components/Mapping/Editor/WorkflowStyleEditPanel';
 
 
 import type { DynmapProjection } from '@/lib/DynmapProjection';
@@ -241,6 +254,19 @@ const [featureInfo, setFeatureInfo] = useState<any>({});
 // JSON 表单：动态 fields/groups（由 FORMAT_REGISTRY[subType] 驱动）
 const [groupInfo, setGroupInfo] = useState<Record<string, any[]>>({});
 
+// 图层管理编辑专用中间态：命中 workflowEditorRegistry 时使用 workflow-style editor。
+const [editUiMode, setEditUiMode] = useState<'full-fallback' | 'workflow-style'>('full-fallback');
+const [activeEditorView, setActiveEditorView] = useState<ProjectedRegistryScene | null>(null);
+const [editorDraftValues, setEditorDraftValues] = useState<WorkflowEditorDraftValues>({});
+const [editorDraftUnparsed, setEditorDraftUnparsed] = useState<WorkflowEditorUnparsedEntry[]>([]);
+
+const resetWorkflowStyleEditorState = () => {
+  setEditUiMode('full-fallback');
+  setActiveEditorView(null);
+  setEditorDraftValues({});
+  setEditorDraftUnparsed([]);
+};
+
 // extensions Step A：按组分区编辑时用于新增 extGroup
 const [newExtGroupInput, setNewExtGroupInput] = useState('');
 
@@ -260,6 +286,7 @@ const resetFeatureSelectionState = () => {
   setFeatureInfo(hydrated.values ?? {});
   setGroupInfo(hydrated.groups ?? {});
   setNewExtGroupInput('');
+  resetWorkflowStyleEditorState();
 };
 
 const isExtraInfoNonEmpty = () => {
@@ -722,6 +749,7 @@ const clearTemporaryForVariantSwitch = () => {
   setEditingLayerId(null);
   setDrawing(false);
   setDrawMode('none');
+  resetWorkflowStyleEditorState();
 
   // 工作流态复位
   setWorkflowRunning(false);
@@ -1216,6 +1244,7 @@ const finishLayer = () => {
     const hydrated = FORMAT_REGISTRY['默认'].hydrate({});
     setFeatureInfo(hydrated.values ?? {});
     setGroupInfo(hydrated.groups ?? {});
+    resetWorkflowStyleEditorState();
   };
 
   // =========================
@@ -1408,33 +1437,75 @@ const finishLayer = () => {
   }
 
   // =========================
-  // Normal：单图层保存（原逻辑）
+  // Normal：单图层保存
+  // - 新建 / full fallback：沿用原 featureInfo + groupInfo
+  // - workflow-style 编辑：先把 registry draft 合并回 raw featureInfo，再走现有 buildFeatureInfo
   // =========================
   const def = FORMAT_REGISTRY[subType] ?? FORMAT_REGISTRY['默认'];
-
-  const req = validateRequiredDetailed(def, featureInfo ?? {}, groupInfo ?? {});
-  if (!req.ok) {
-    const detail = formatMissingEntries(req.missing);
-    alert(`无法保存，部分必填的附加信息为空：\n${detail}`);
-    return;
-  }
-
   const op = editingLayerId !== null ? 'edit' : 'create';
   const prevFeatureInfo = editingLayerId !== null
     ? layersRef.current.find(l => l.id === editingLayerId)?.jsonInfo?.featureInfo
     : undefined;
 
-  const finalFeatureInfo = def.buildFeatureInfo({
-    op,
-    mode: drawMode as DrawMode,
-    coords: finalCoords,
-    values: featureInfo ?? {},
-    groups: groupInfo ?? {},
-    worldId: currentWorldId,
-    editorId: editorIdInput,
-    prevFeatureInfo,
-    now: new Date(),
-  });
+  let finalFeatureInfo: any;
+
+  const useWorkflowStyleEditor =
+    editingLayerId !== null &&
+    editUiMode === 'workflow-style' &&
+    activeEditorView !== null;
+
+  if (useWorkflowStyleEditor && activeEditorView) {
+    const mergedDraftFeatureInfo = mergeEditorDraftIntoFeatureInfo({
+      originalFeatureInfo: prevFeatureInfo ?? {},
+      view: activeEditorView,
+      draftValues: editorDraftValues,
+    });
+
+    const hydrated = def.hydrate(mergedDraftFeatureInfo);
+    const nextValues = hydrated.values ?? {};
+    const normalizedGroups = normalizeGroupInfoByDef(def, (hydrated.groups ?? {}) as any);
+    const nextGroups = compactWorkflowStyleGroupInfoByDef(def, normalizedGroups);
+
+    const req = validateRequiredDetailed(def, nextValues, nextGroups);
+    if (!req.ok) {
+      const detail = formatMissingEntries(req.missing);
+      alert(`无法保存，部分必填的附加信息为空：\n${detail}`);
+      return;
+    }
+
+    const builtFeatureInfo = def.buildFeatureInfo({
+      op,
+      mode: drawMode as DrawMode,
+      coords: finalCoords,
+      values: nextValues,
+      groups: nextGroups,
+      worldId: currentWorldId,
+      editorId: editorIdInput,
+      prevFeatureInfo,
+      now: new Date(),
+    });
+
+    finalFeatureInfo = mergeUnparsedEntriesIntoFeatureInfo(builtFeatureInfo, editorDraftUnparsed);
+  } else {
+    const req = validateRequiredDetailed(def, featureInfo ?? {}, groupInfo ?? {});
+    if (!req.ok) {
+      const detail = formatMissingEntries(req.missing);
+      alert(`无法保存，部分必填的附加信息为空：\n${detail}`);
+      return;
+    }
+
+    finalFeatureInfo = def.buildFeatureInfo({
+      op,
+      mode: drawMode as DrawMode,
+      coords: finalCoords,
+      values: featureInfo ?? {},
+      groups: groupInfo ?? {},
+      worldId: currentWorldId,
+      editorId: editorIdInput,
+      prevFeatureInfo,
+      now: new Date(),
+    });
+  }
 
   const newLayerId = editingLayerId ?? nextLayerId.current++;
 
@@ -2096,6 +2167,7 @@ const clearAllLayers = () => {
   setEditingLayerId(null);
   setDrawing(false);
   setDrawMode('none');
+  resetWorkflowStyleEditorState();
 
   // 4) 工作流态复位
   setWorkflowRunning(false);
@@ -2192,7 +2264,9 @@ const editLayer = (id: number) => {
   setTempPoints(layer.coords);
   drawDraftGeometry(layer.coords, layer.mode, layer.color);
 
-  // 恢复 jsonInfo：统一通过 registry.hydrate
+  resetWorkflowStyleEditorState();
+
+  // 恢复 jsonInfo：默认仍通过 FORMAT_REGISTRY.hydrate；命中 registry 且标记可编辑时再切换到 workflow-style editor
   if (layer.jsonInfo) {
     const key = (layer.jsonInfo.subType ?? '默认') as FeatureKey;
     const def = FORMAT_REGISTRY[key] ?? FORMAT_REGISTRY['默认'];
@@ -2202,6 +2276,20 @@ const editLayer = (id: number) => {
     const hydrated = def.hydrate(layer.jsonInfo.featureInfo ?? {});
     setFeatureInfo(hydrated.values ?? {});
     setGroupInfo(normalizeGroupInfoByDef(def, (hydrated.groups ?? {}) as any));
+
+    const schema = resolveWorkflowEditorSchema({
+      subType: key,
+      featureInfo: layer.jsonInfo.featureInfo ?? {},
+    });
+
+    if (schema?.integrations?.editor === 'workflowStyleReady') {
+      const view = projectRegistryScene(schema, 'editor');
+      const draft = parseFeatureInfoByRegistry(layer.jsonInfo.featureInfo ?? {}, view);
+      setEditUiMode('workflow-style');
+      setActiveEditorView(view);
+      setEditorDraftValues(draft.values);
+      setEditorDraftUnparsed(draft.unparsedEntries);
+    }
   } else {
     setSubType('默认');
     const hydrated = FORMAT_REGISTRY['默认'].hydrate({});
@@ -2232,6 +2320,7 @@ if (editingLayerId === id) {
   clearDraftOverlays();
   setTempPoints([]);
   setRedoStack([]);
+  resetWorkflowStyleEditorState();
 }
 
  
@@ -2735,6 +2824,14 @@ const handleImportFileSelected = async (e: ChangeEvent<HTMLInputElement>) => {
 
 // ========= 动态附加信息渲染（由 FORMAT_REGISTRY[subType].fields/groups 驱动） =========
 const activeDef = FORMAT_REGISTRY[subType];
+const isWorkflowStyleEditing =
+  editingLayerId !== null &&
+  editUiMode === 'workflow-style' &&
+  activeEditorView !== null;
+
+const setEditorDraftValue = (path: string, value: unknown) => {
+  setEditorDraftValues(prev => ({ ...prev, [path]: value }));
+};
 
 const setValue = (key: string, value: any) => {
   setFeatureInfo((prev: any) => ({ ...prev, [key]: value }));
@@ -2913,6 +3010,66 @@ const normalizeGroupInfoByDef = (def: any, groups: Record<string, any[]>) => {
     });
     if (mapped !== items) {
       next.extensions = mapped;
+    }
+  }
+
+  return changed ? next : groups;
+};
+
+
+const isWorkflowEditorBlankValue = (value: any): boolean => {
+  if (value === undefined || value === null) return true;
+  if (typeof value === 'string') return value.trim() === '';
+  if (Array.isArray(value)) return value.length === 0;
+  if (typeof value === 'object') return Object.keys(value).length === 0;
+  return false;
+};
+
+const compactWorkflowStyleGroupInfoByDef = (def: any, groups: Record<string, any[]>): Record<string, any[]> => {
+  if (!def?.groups || !groups) return groups;
+
+  let changed = false;
+  const next: Record<string, any[]> = { ...groups };
+
+  for (const g of def.groups ?? []) {
+    const key = g?.key;
+    if (!key || !g?.optional) continue;
+    const items = Array.isArray(next[key]) ? next[key] : [];
+
+    const filtered = items.filter((it: any) => {
+      if (!it || typeof it !== 'object') return !isWorkflowEditorBlankValue(it);
+
+      if (key === 'tags') {
+        return !isWorkflowEditorBlankValue(it.tagValue) || !isWorkflowEditorBlankValue(it.tagKeyOther);
+      }
+
+      if (key === 'extensions') {
+        const extType = String(it.extType ?? EXT_VALUE_TYPE_TEXT);
+        const extKey = String(it.extKey ?? '').trim();
+        const extValue = it.extValue;
+        if (!extKey) return false;
+        if (extType === EXT_VALUE_TYPE_NULL) return true;
+        return !isWorkflowEditorBlankValue(extValue);
+      }
+
+      if (key === 'ConnectL') {
+        return !isWorkflowEditorBlankValue(it.tgt ?? it.Tgt);
+      }
+
+      if (key === 'Blacklist') {
+        return !isWorkflowEditorBlankValue(it.tgt ?? it.ID ?? it.id);
+      }
+
+      if (key === 'Mode') {
+        return !isWorkflowEditorBlankValue(it.code ?? it.tgt ?? it.ID ?? it.id);
+      }
+
+      return (g.fields ?? []).some((f: any) => !isWorkflowEditorBlankValue(it?.[f.key]));
+    });
+
+    if (filtered.length !== items.length) {
+      changed = true;
+      next[key] = filtered;
     }
   }
 
@@ -3260,6 +3417,7 @@ const resetFeatureFormToDefault = () => {
   const hydrated = FORMAT_REGISTRY['默认'].hydrate({});
   setFeatureInfo(hydrated.values ?? {});
   setGroupInfo(hydrated.groups ?? {});
+  resetWorkflowStyleEditorState();
 };
 
 const handleDrawModeButtonClick = (m: 'point' | 'polyline' | 'polygon') => {
@@ -4204,7 +4362,7 @@ const rightDockNode = (
 
 
                 {/* 要素类型下拉 */}
-                {measuringVariant === 'full' && drawMode !== 'none' && (
+                {measuringVariant === 'full' && drawMode !== 'none' && !isWorkflowStyleEditing && (
                   <div className="mb-2">
                     <label className="block text-sm font-bold">要素类型</label>
                     <select
@@ -4543,8 +4701,19 @@ onChange={(e) => {
       </div>
     </div>
 
-    {/* 内容：按 special 模式切换渲染 */}
-    {specialDraftMode === 'merge-point-platform-station' ? (
+    {/* 内容：编辑专用模式优先；否则按 special 模式切换渲染 */}
+    {isWorkflowStyleEditing && activeEditorView ? (
+      <WorkflowStyleEditPanel
+        view={activeEditorView}
+        values={editorDraftValues}
+        unparsedEntries={editorDraftUnparsed}
+        onChangeValue={setEditorDraftValue}
+        onChangeUnparsedEntries={setEditorDraftUnparsed}
+        bridge={workflowBridge}
+        editorId={editorIdInput}
+        onChangeEditorId={setEditorIdInput}
+      />
+    ) : specialDraftMode === 'merge-point-platform-station' ? (
       <MergePointPlatformStation
         draft={mergePointPSDraft}
         onChange={setMergePointPSDraft}
@@ -4602,7 +4771,7 @@ onChange={(e) => {
 </div>
 
 
-              {drawMode !== 'none' && (
+              {drawMode !== 'none' && !isWorkflowStyleEditing && (
                 <div className="mb-2">
                   <label className="block text-sm font-bold">要素类型</label>
                   <select
@@ -4839,8 +5008,19 @@ onChange={(e) => {
       </div>
     </div>
 
-    {/* 内容：按 special 模式切换渲染 */}
-    {specialDraftMode === 'merge-point-platform-station' ? (
+    {/* 内容：编辑专用模式优先；否则按 special 模式切换渲染 */}
+    {isWorkflowStyleEditing && activeEditorView ? (
+      <WorkflowStyleEditPanel
+        view={activeEditorView}
+        values={editorDraftValues}
+        unparsedEntries={editorDraftUnparsed}
+        onChangeValue={setEditorDraftValue}
+        onChangeUnparsedEntries={setEditorDraftUnparsed}
+        bridge={workflowBridge}
+        editorId={editorIdInput}
+        onChangeEditorId={setEditorIdInput}
+      />
+    ) : specialDraftMode === 'merge-point-platform-station' ? (
       <MergePointPlatformStation
         draft={mergePointPSDraft}
         onChange={setMergePointPSDraft}

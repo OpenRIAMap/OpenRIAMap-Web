@@ -5,6 +5,7 @@ import type { LabelDeclutterConfig } from '@/components/Rules/rendering/labelLay
 
 import type { LabelStyleKey } from '@/components/Rules/rendering/labelStyles';
 import type { LabelClickPlan } from '@/components/Rules/rendering/labelClickInteraction';
+import type { FeatureDisplayRuleDraft } from '@/components/Rules/rendering/display/displayTypes';
 import { FEATURE_RENDER_RULES } from '@/components/Rules/rendering/featureRenderRules';
 
 // Re-export shared helpers for backward compatibility.
@@ -142,6 +143,18 @@ export type RenderRule = {
   match: RuleMatch;
   /** zoomLevel 范围（包含） */
   zoom?: [ZoomLevel, ZoomLevel];
+
+  /**
+   * RB_SLU：统一显示驱动配置入口。
+   *
+   * 说明：
+   * - 本字段承载新的 displayTier / visibility / geometry / symbol / label / anchor /
+   *   collision / stability / density / interaction / fallback 结构。
+   * - RB_SLU_11 后，本字段是新增/维护要素显示语义的主入口。
+   * - symbol / label / declutter 等旧执行字段仍可作为 Leaflet 底层绘制能力存在，
+   *   但新增规则应优先通过 display 声明层级、锚点、避让、密度和交互态。
+   */
+  display?: FeatureDisplayRuleDraft;
 
   /**
    * 可读性优先：声明式存在性条件

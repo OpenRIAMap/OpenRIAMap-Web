@@ -1,0 +1,276 @@
+import type { PersistedFieldDef, RegistryGroupDef, WorkflowAuxInputDef, WorkflowEditorSchema } from './types';
+
+const idField: WorkflowEditorSchema['idField'] = {
+  key: 'ID',
+  path: 'ID',
+  labels: { default: '道路ID', workflow: '道路ID', editor: '道路ID', infocard: '道路ID' },
+  workflow: { visible: false },
+  editor: { visible: true, order: 0, control: 'text' },
+  infocard: { visible: false },
+};
+
+const workflowAuxInputs: WorkflowAuxInputDef[] = [
+  {
+    key: 'catAbbr',
+    label: '所属分类代号（仅用于ID组装，可选）',
+    order: 30,
+    control: 'text',
+    placeholder: '例如：HHBE',
+    idAssemblyOnly: true,
+  },
+  {
+    key: 'abbr',
+    label: '字符简称（用于ID末尾）',
+    order: 40,
+    control: 'text',
+    placeholder: '例如：CDA',
+    idAssemblyOnly: true,
+  },
+];
+
+const fields: PersistedFieldDef[] = [
+  {
+    key: 'Name',
+    path: 'Name',
+    labels: { default: '名称', workflow: '道路名称（Name）', editor: '道路名称', infocard: '名称' },
+    workflow: { visible: true, order: 20, control: 'text', placeholder: '例如：中央大道' },
+    editor: { visible: true, order: 20, control: 'text' },
+    infocard: { visible: false },
+  },
+  {
+    key: 'Kind',
+    path: 'Kind',
+    labels: { default: '道路大类' },
+    workflow: { visible: false },
+    editor: { visible: false },
+    infocard: { visible: false },
+  },
+  {
+    key: 'SKind',
+    path: 'SKind',
+    labels: { default: '道路子类' },
+    workflow: { visible: false },
+    editor: { visible: false },
+    infocard: { visible: false },
+  },
+  {
+    key: 'SKind2',
+    path: 'SKind2',
+    labels: { default: '道路三级子类' },
+    workflow: { visible: false },
+    editor: { visible: false },
+    infocard: { visible: false },
+  },
+  {
+    key: 'nomenclator',
+    path: 'tags.nomenclator',
+    labels: { default: '命名者', workflow: '命名者（tags.nomenclator，可选）' },
+    workflow: { visible: true, order: 40, control: 'text', placeholder: '例如：YZ1825' },
+    editor: { visible: true, order: 40, control: 'text' },
+    infocard: { visible: true, order: 20, section: 'main', formatter: 'plain', hideWhenEmpty: true },
+  },
+  {
+    key: 'Land',
+    path: 'tags.Land',
+    labels: { default: '所属地理单元', workflow: '所属地理单元（可选，将写入 tags.Land）' },
+    workflow: {
+      visible: true,
+      order: 50,
+      control: 'featureSearch',
+      searchConfigKey: 'landUnit',
+      placeholder: '输入关键词检索：可匹配 Name / ID',
+    },
+    editor: { visible: true, order: 50, control: 'featureSearch', searchConfigKey: 'landUnit' },
+    infocard: { visible: true, order: 30, section: 'main', formatter: 'plain', hideWhenEmpty: true },
+  },
+  {
+    key: 'UAdm',
+    path: 'tags.UAdm',
+    labels: { default: '所属行政/聚落单元', workflow: '所属聚落(地标点)（可选，将写入 tags.UAdm）' },
+    workflow: {
+      visible: true,
+      order: 60,
+      control: 'featureSearch',
+      searchConfigKey: 'admAny',
+      placeholder: '输入关键词检索：可匹配 Name / ID',
+    },
+    editor: { visible: true, order: 60, control: 'featureSearch', searchConfigKey: 'admAny' },
+    infocard: { visible: true, order: 40, section: 'main', formatter: 'plain', hideWhenEmpty: true },
+  },
+  {
+    key: 'UAdmG',
+    path: 'tags.UAdmG',
+    labels: { default: '所属行政/聚落组', workflow: '所属聚落(区划)（可选，将写入 tags.UAdmG）' },
+    workflow: {
+      visible: true,
+      order: 70,
+      control: 'featureSearch',
+      searchConfigKey: 'admAny',
+      placeholder: '输入关键词检索：可匹配 Name / ID',
+    },
+    editor: { visible: true, order: 70, control: 'text' },
+    infocard: { visible: true, order: 50, section: 'main', formatter: 'plain', hideWhenEmpty: true },
+  },
+  {
+    key: 'Level',
+    path: 'Level',
+    labels: { default: '道路层级', workflow: '道路层级（Level，必选）' },
+    workflow: { visible: true, order: 80, control: 'number' },
+    editor: { visible: true, order: 80, control: 'number' },
+    infocard: { visible: true, order: 60, section: 'main', formatter: 'plain', hideWhenEmpty: true },
+  },
+  {
+    key: 'Oneway',
+    path: 'Oneway',
+    labels: { default: '是否单向', workflow: '是否单向（Oneway，必选）' },
+    workflow: { visible: true, order: 90, control: 'bool' },
+    editor: { visible: true, order: 90, control: 'bool' },
+    infocard: { visible: true, order: 70, section: 'main', formatter: 'boolText', hideWhenEmpty: true },
+  },
+  {
+    key: 'Enter',
+    path: 'Enter',
+    labels: { default: '允许作为起点入口', workflow: '是否可进入（Enter，可选，缺省=true）', infocard: '起点入口' },
+    workflow: { visible: true, order: 100, control: 'bool' },
+    editor: { visible: true, order: 100, control: 'bool' },
+    infocard: { visible: true, order: 80, section: 'main', formatter: 'boolText', hideWhenEmpty: true },
+  },
+  {
+    key: 'Exit',
+    path: 'Exit',
+    labels: { default: '允许作为终点出口', workflow: '是否可离开（Exit，可选，缺省=true）', infocard: '终点出口' },
+    workflow: { visible: true, order: 110, control: 'bool' },
+    editor: { visible: true, order: 110, control: 'bool' },
+    infocard: { visible: true, order: 90, section: 'main', formatter: 'boolText', hideWhenEmpty: true },
+  },
+  {
+    key: 'SelfJunction',
+    path: 'SelfJunction',
+    labels: { default: '允许自相交连通', workflow: '是否允许自交（SelfJunction，可选，缺省=false）' },
+    workflow: { visible: true, order: 120, control: 'bool' },
+    editor: { visible: true, order: 120, control: 'bool' },
+    infocard: { visible: true, order: 100, section: 'main', formatter: 'boolText', hideWhenEmpty: true },
+  },
+  {
+    key: 'Speed',
+    path: 'Speed',
+    labels: { default: '道路速度', workflow: '限速（Speed，可选，float）' },
+    workflow: { visible: true, order: 130, control: 'number', placeholder: '例如：4.5（留空则使用默认出行方式速度）' },
+    editor: { visible: true, order: 130, control: 'number' },
+    infocard: { visible: true, order: 110, section: 'main', formatter: 'plain', hideWhenEmpty: true },
+  },
+  {
+    key: 'Situation',
+    path: 'Situation',
+    labels: { default: '状态' },
+    workflow: { visible: false },
+    editor: { visible: true, order: 135, control: 'text' },
+    infocard: { visible: true, order: 115, section: 'main', formatter: 'plain', hideWhenEmpty: true },
+  },
+  {
+    key: 'wiki',
+    path: 'extensions.link.wiki',
+    labels: { default: 'wiki链接', workflow: 'Wiki（可选，将写入 extensions.link.wiki）', infocard: 'WIKI链接' },
+    workflow: { visible: true, order: 160, control: 'text', placeholder: '例如：https://...' },
+    editor: { visible: true, order: 160, control: 'text' },
+    infocard: { visible: true, order: 140, section: 'main', formatter: 'externalLink', hideWhenEmpty: true },
+  },
+  {
+    key: 'brief',
+    path: 'extensions.character.brief',
+    labels: { default: '简介', workflow: '简介（可选，将写入 extensions.character.brief）' },
+    workflow: { visible: true, order: 170, control: 'textarea', rows: 4, placeholder: '支持长文本输入（不支持换行）' },
+    editor: { visible: true, order: 170, control: 'textarea', rows: 4 },
+    infocard: { visible: true, order: 150, section: 'main', formatter: 'plain', hideWhenEmpty: true },
+  },
+];
+
+const groups: RegistryGroupDef[] = [
+  {
+    key: 'ConnectL',
+    path: 'ConnectL',
+    labels: { default: '显式连接关系', workflow: '显式连接关系（ConnectL，可选）' },
+    optional: true,
+    workflow: { visible: true, order: 140, control: 'json' },
+    editor: { visible: true, order: 140, control: 'json' },
+    infocard: { visible: true, order: 120, section: 'other', formatter: 'json', hideWhenEmpty: true },
+    fields: [
+      {
+        key: 'mode',
+        labels: { default: '连接方式' },
+        control: 'select',
+        options: [
+          {
+            label: '端点',
+            value: 'endpoint',
+          },
+          {
+            label: '中段',
+            value: 'middle',
+          },
+        ],
+        defaultValue: 'endpoint',
+      },
+      {
+        key: 'tgt',
+        labels: { default: '目标道路ID' },
+        control: 'text',
+        placeholder: '检索道路（Name/ID），选择后写入ID',
+      },
+    ],
+  },
+  {
+    key: 'Blacklist',
+    path: 'Blacklist',
+    labels: { default: '禁用连接对象', workflow: '黑名单（Blacklist，可选）' },
+    optional: true,
+    workflow: { visible: true, order: 150, control: 'json' },
+    editor: { visible: true, order: 150, control: 'json' },
+    infocard: { visible: true, order: 130, section: 'other', formatter: 'json', hideWhenEmpty: true },
+    fields: [
+      {
+        key: 'tgt',
+        labels: { default: '目标道路ID' },
+        control: 'text',
+        placeholder: '检索道路（Name/ID），选择后写入ID',
+      },
+    ],
+  },
+  {
+    key: 'Mode',
+    path: 'Mode',
+    labels: { default: '允许出行方式', workflow: '允许的出行方式（Mode，可选）' },
+    optional: true,
+    workflow: { visible: true, order: 155, control: 'json' },
+    editor: { visible: true, order: 155, control: 'json' },
+    infocard: { visible: true, order: 135, section: 'other', formatter: 'json', hideWhenEmpty: true },
+    fields: [
+      {
+        key: 'code',
+        labels: { default: '出行方式编码' },
+        control: 'text',
+      },
+    ],
+  },
+];
+
+export const SCHEMA_ROD_ROAD: WorkflowEditorSchema = {
+  schemaKey: 'rod_road',
+  displayName: '道路',
+  match: { subType: '道路', classCode: 'ROD', workflowKeys: ['rod_road'] },
+  classification: {
+    ref: { mode: 'classCatalog', classCode: 'ROD', geom: '线' },
+    editScope: 'classScope',
+    workflow: { visible: true, label: '道路类型（Class=ROD）', order: 10 },
+    editor: { visible: true, label: '道路类型', order: 10 },
+    infocard: { visible: true, label: '类型', order: 10, section: 'main' },
+  },
+  idField,
+  workflowAuxInputs,
+  persistedFields: fields,
+  groups,
+  allowUnparsedBlock: true,
+  integrations: { editor: 'workflowStyleReady', workflow: 'registryOnly', infocard: 'registryOnly' },
+};
+
+export const ROD_SCHEMAS: WorkflowEditorSchema[] = [SCHEMA_ROD_ROAD];

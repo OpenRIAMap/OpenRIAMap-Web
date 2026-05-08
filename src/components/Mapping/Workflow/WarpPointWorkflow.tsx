@@ -1,10 +1,13 @@
 // File: src/components/Mapping/Workflow/WarpPointWorkflow.tsx
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkflowComponentProps, WorldPoint } from './WorkflowHost';
+import * as wfRegistry from './workflowRegistryLabels';
 import AppButton from '@/components/ui/AppButton';
 import { EXT_VALUE_TYPE_TEXT, listCatalogClassOptions, type FeatureKey } from '@/components/Common/featureFormats';
 import { HUB_RETURN_POINTS } from '@/components/Navigation/teleportHubReturnPoints';
 import WorkflowFeatureSearchSelect, { type SearchSelectConfig } from './WorkflowFeatureSearchSelect';
+
+const WF_KEY = 'wrp_point';
 
 /**
  * WarpPointWorkflow（工作流：Warp点）
@@ -405,18 +408,18 @@ export default function WarpPointWorkflow(props: WorkflowComponentProps) {
             </select>
           </label>
 
-          <LabeledInput label="Warp点名称（Name）" value={info.name} placeholder="例如：主城-中心" onChange={(v) => setInfo((s) => ({ ...s, name: v }))} />
-          <LabeledInput label="字符简称（用于组装 ID）" value={info.abbr} placeholder="例如：MAIN1" onChange={(v) => setInfo((s) => ({ ...s, abbr: v }))} />
+          <LabeledInput label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Name')} value={info.name} placeholder="例如：主城-中心" onChange={(v) => setInfo((s) => ({ ...s, name: v }))} />
+          <LabeledInput label={wfRegistry.getWorkflowAuxLabel(WF_KEY, 'abbr')} value={info.abbr} placeholder="例如：MAIN1" onChange={(v) => setInfo((s) => ({ ...s, abbr: v }))} />
 
           <LabeledInput
-            label="服内Warp名（必填，将写入 WRPointI2D）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'WRPointI2D')}
             value={info.wrpI2D}
             placeholder="例如：zthspawn"
             onChange={(v) => setInfo((s) => ({ ...s, wrpI2D: v }))}
           />
 
           <label className="block">
-            <div className="text-xs text-gray-600 mb-1">所属枢纽区（可选，hub）</div>
+            <div className="text-xs text-gray-600 mb-1">{wfRegistry.getWorkflowFieldLabel(WF_KEY, 'hub')}</div>
             <select
               className="w-full border rounded px-2 py-1 text-sm"
               value={String(info.hub ?? '')}
@@ -433,7 +436,7 @@ export default function WarpPointWorkflow(props: WorkflowComponentProps) {
 
           <WorkflowFeatureSearchSelect
             bridge={bridge}
-            label="所属地理单元（可选，写入 tags.Land）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Land')}
             value={String(info.land ?? '')}
             placeholder="输入关键词检索：可匹配 Name / ID"
             config={landUnitSearchCfg}
@@ -441,7 +444,7 @@ export default function WarpPointWorkflow(props: WorkflowComponentProps) {
           />
           <WorkflowFeatureSearchSelect
             bridge={bridge}
-            label="所属聚落(地标点)（可选，写入 tags.UAdm）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'UAdm')}
             value={String(info.uadm ?? '')}
             placeholder="输入关键词检索：可匹配 Name / ID"
             config={uadmLandmarkSearchCfg}
@@ -449,13 +452,13 @@ export default function WarpPointWorkflow(props: WorkflowComponentProps) {
           />
           <WorkflowFeatureSearchSelect
             bridge={bridge}
-            label="所属聚落(区划)（可选，写入 tags.UAdmG）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'UAdmG')}
             value={String(info.uadmg ?? '')}
             placeholder="输入关键词检索：可匹配 Name / ID"
             config={uadmGSearchCfg}
             onChange={(v) => setInfo((s) => ({ ...s, uadmg: v }))}
           />
-          <LabeledInput label="wiki链接（可选，写入 extensions.link.wiki）" value={String(info.wiki ?? '')} placeholder="例如：wiki.ria.red/xxx" onChange={(v) => setInfo((s) => ({ ...s, wiki: v }))} />
+          <LabeledInput label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'wiki')} value={String(info.wiki ?? '')} placeholder="例如：wiki.ria.red/xxx" onChange={(v) => setInfo((s) => ({ ...s, wiki: v }))} />
         </div>
       </div>
     );
@@ -485,7 +488,7 @@ export default function WarpPointWorkflow(props: WorkflowComponentProps) {
         <div className="text-xs text-gray-600">请在地图上点选 Warp 点坐标。</div>
 
         <LabeledInput
-          label="高度值（可选，将写入 elevation；若点坐标含 y，则优先使用 y）"
+          label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'elevation')}
           value={srcElevInput}
           placeholder="例如：64"
           type="number"

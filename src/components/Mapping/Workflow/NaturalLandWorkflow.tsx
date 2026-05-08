@@ -1,6 +1,7 @@
 // File: src/components/Mapping/Workflow/NaturalLandWorkflow.tsx
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkflowComponentProps, WorldPoint } from './WorkflowHost';
+import * as wfRegistry from './workflowRegistryLabels';
 import AppButton from '@/components/ui/AppButton';
 import {
   EXT_VALUE_TYPE_OPTIONS,
@@ -8,6 +9,8 @@ import {
   type ExtValueType,
   listCatalogSKind2Options,
 } from '@/components/Common/featureFormats';
+
+const WF_KEY = 'ngf_land';
 
 /**
  * NaturalLandWorkflow（工作流：自然要素-陆地）
@@ -366,7 +369,7 @@ export default function NaturalLandWorkflow(props: WorkflowComponentProps) {
 
         <div className="space-y-3">
           <label className="block space-y-1">
-            <div className="text-xs opacity-80">类型（Kind=NGF, SKind=LAD）</div>
+            <div className="text-xs opacity-80">{wfRegistry.getWorkflowClassificationLabel(WF_KEY)}</div>
             <select
               className="w-full border p-1 rounded text-sm"
               value={info.skind2}
@@ -384,10 +387,10 @@ export default function NaturalLandWorkflow(props: WorkflowComponentProps) {
             </select>
           </label>
 
-          <LabeledInput label="名称" value={info.name} placeholder="例如：主岛" onChange={(v) => setInfo((prev) => ({ ...prev, name: v }))} />
+          <LabeledInput label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Name')} value={info.name} placeholder="例如：主岛" onChange={(v) => setInfo((prev) => ({ ...prev, name: v }))} />
 
           <LabeledInput
-            label="字符简称（用于ID）"
+            label={wfRegistry.getWorkflowAuxLabel(WF_KEY, 'abbr')}
             value={info.abbr}
             placeholder="仅建议使用字母/数字/下划线/短横线"
             onChange={(v) => setInfo((prev) => ({ ...prev, abbr: v }))}
@@ -399,14 +402,14 @@ export default function NaturalLandWorkflow(props: WorkflowComponentProps) {
           ) : null}
 
           <LabeledInput
-            label="命名者（tags.nomenclator，可选）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'nomenclator')}
             value={info.nomenclator}
             placeholder="例如：XXX社团 / 聚落 / 个人署名"
             onChange={(v) => setInfo((prev) => ({ ...prev, nomenclator: v }))}
           />
 
           <LabeledInput
-            label="wiki链接（可选，将写入 extensions.link.wiki）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'wiki')}
             value={info.wiki ?? ''}
             placeholder="https://..."
             onChange={(v) => setInfo((prev) => ({ ...prev, wiki: v }))}
@@ -415,7 +418,7 @@ export default function NaturalLandWorkflow(props: WorkflowComponentProps) {
 
 
           <LabeledBriefInput
-            label="简介（可选，将写入 extensions.character.brief）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'brief')}
             value={info.brief ?? ''}
             placeholder="支持长文本输入（不支持换行）"
             onChange={(v) => setInfo((prev) => ({ ...prev, brief: v }))}

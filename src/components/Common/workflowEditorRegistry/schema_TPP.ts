@@ -1,0 +1,188 @@
+import type { PersistedFieldDef, WorkflowAuxInputDef, WorkflowEditorSchema } from './types';
+
+const idField: WorkflowEditorSchema['idField'] = {
+  key: 'ID',
+  path: 'ID',
+  labels: { default: '传送点ID', workflow: '传送点ID', editor: '传送点ID', infocard: '传送点ID' },
+  workflow: { visible: false },
+  editor: { visible: true, order: 0, control: 'text' },
+  infocard: { visible: false },
+};
+
+const workflowAuxInputs: WorkflowAuxInputDef[] = [
+  {
+    key: 'abbr',
+    label: '字符简称（用于ID）',
+    order: 30,
+    control: 'text',
+    placeholder: '仅建议使用字母/数字/下划线/短横线',
+    idAssemblyOnly: true,
+  },
+];
+
+const fields: PersistedFieldDef[] = [
+  {
+    key: 'Name',
+    path: 'Name',
+    labels: { default: '名称', workflow: '名称', editor: '传送点名', infocard: '名称' },
+    workflow: { visible: true, order: 20, control: 'text', placeholder: '例如：主城传送柱-北门' },
+    editor: { visible: true, order: 20, control: 'text' },
+    infocard: { visible: false },
+  },
+  {
+    key: 'Kind',
+    path: 'Kind',
+    labels: { default: '类型' },
+    workflow: { visible: false },
+    editor: { visible: false },
+    infocard: { visible: false },
+  },
+  {
+    key: 'SKind',
+    path: 'SKind',
+    labels: { default: '子类型' },
+    workflow: { visible: false },
+    editor: { visible: false },
+    infocard: { visible: false },
+  },
+  {
+    key: 'SKind2',
+    path: 'SKind2',
+    labels: { default: '三级子类型' },
+    workflow: { visible: false },
+    editor: { visible: false },
+    infocard: { visible: false },
+  },
+  {
+    key: 'hub',
+    path: 'hub',
+    labels: { default: '枢纽', workflow: '所属枢纽区（可选，将写入 hub）' },
+    workflow: { visible: true, order: 40, control: 'text' },
+    editor: { visible: true, order: 40, control: 'text' },
+    infocard: { visible: true, order: 20, section: 'main', formatter: 'plain', hideWhenEmpty: true },
+  },
+  {
+    key: 'Land',
+    path: 'tags.Land',
+    labels: { default: '所属地理单元', workflow: '所属地理单元（可选，将写入 tags.Land）' },
+    workflow: {
+      visible: true,
+      order: 42,
+      control: 'featureSearch',
+      searchConfigKey: 'landUnit',
+      placeholder: '输入关键词检索：可匹配 Name / ID',
+    },
+    editor: { visible: true, order: 42, control: 'featureSearch', searchConfigKey: 'landUnit' },
+    infocard: { visible: true, order: 22, section: 'main', formatter: 'plain', hideWhenEmpty: true },
+  },
+  {
+    key: 'UAdm',
+    path: 'tags.UAdm',
+    labels: { default: '所属聚落(地标点)', workflow: '所属聚落(地标点)（可选，将写入 tags.UAdm）' },
+    workflow: {
+      visible: true,
+      order: 44,
+      control: 'featureSearch',
+      searchConfigKey: 'admAny',
+      placeholder: '输入关键词检索：可匹配 Name / ID',
+    },
+    editor: { visible: true, order: 44, control: 'featureSearch', searchConfigKey: 'admAny' },
+    infocard: { visible: true, order: 24, section: 'main', formatter: 'plain', hideWhenEmpty: true },
+  },
+  {
+    key: 'UAdmG',
+    path: 'tags.UAdmG',
+    labels: { default: '所属聚落(区划)', workflow: '所属聚落(区划)（可选，将写入 tags.UAdmG）' },
+    workflow: {
+      visible: true,
+      order: 46,
+      control: 'featureSearch',
+      searchConfigKey: 'admAny',
+      placeholder: '输入关键词检索：可匹配 Name / ID',
+    },
+    editor: { visible: true, order: 46, control: 'featureSearch', searchConfigKey: 'admAny' },
+    infocard: { visible: true, order: 26, section: 'main', formatter: 'plain', hideWhenEmpty: true },
+  },
+  {
+    key: 'TGTWarp',
+    path: 'TGTWarp',
+    labels: { default: '目标Warp', workflow: '目标Warp点(若有)（可选，将写入 TGTWarp；填写后将跳过“目标点坐标”页面）' },
+    workflow: {
+      visible: true,
+      order: 50,
+      control: 'featureSearch',
+      searchConfigKey: 'warpPoint',
+      placeholder: '输入关键词检索：可匹配 Name 或 WRPointI2D',
+    },
+    editor: { visible: true, order: 50, control: 'featureSearch', searchConfigKey: 'warpPoint' },
+    infocard: { visible: true, order: 30, section: 'main', formatter: 'plain', hideWhenEmpty: true },
+  },
+  {
+    key: 'TGT_x',
+    path: 'TGTcoordinate.x',
+    labels: { default: '目标点X' },
+    workflow: { visible: false },
+    editor: { visible: true, order: 60, control: 'number' },
+    infocard: { visible: true, order: 40, section: 'main', formatter: 'plain', hideWhenEmpty: true },
+  },
+  {
+    key: 'TGT_z',
+    path: 'TGTcoordinate.z',
+    labels: { default: '目标点Z' },
+    workflow: { visible: false },
+    editor: { visible: true, order: 70, control: 'number' },
+    infocard: { visible: true, order: 50, section: 'main', formatter: 'plain', hideWhenEmpty: true },
+  },
+  {
+    key: 'elevation',
+    path: 'elevation',
+    labels: { default: '传送点高度(y)', workflow: '高度值（可选，将写入 elevation；若点坐标含 y，则优先使用 y）' },
+    workflow: { visible: false, order: 80, control: 'number', placeholder: '例如：64' },
+    editor: { visible: true, order: 80, control: 'number' },
+    infocard: { visible: true, order: 60, section: 'main', formatter: 'plain', hideWhenEmpty: true },
+  },
+  {
+    key: 'TGTelevation',
+    path: 'TGTelevation',
+    labels: { default: '目标点高度', workflow: '高度值（可选，将写入 TGTelevation；若点坐标含 y，则优先使用 y）' },
+    workflow: { visible: false, order: 90, control: 'number', placeholder: '例如：64' },
+    editor: { visible: true, order: 90, control: 'number' },
+    infocard: { visible: true, order: 70, section: 'main', formatter: 'plain', hideWhenEmpty: true },
+  },
+  {
+    key: 'wiki',
+    path: 'extensions.link.wiki',
+    labels: { default: 'wiki链接', workflow: 'wiki链接（可选，将写入 extensions.link.wiki）', infocard: 'WIKI链接' },
+    workflow: { visible: true, order: 100, control: 'text', placeholder: 'https://...' },
+    editor: { visible: true, order: 100, control: 'text' },
+    infocard: { visible: true, order: 80, section: 'main', formatter: 'externalLink', hideWhenEmpty: true },
+  },
+  {
+    key: 'brief',
+    path: 'extensions.character.brief',
+    labels: { default: '简介' },
+    workflow: { visible: false },
+    editor: { visible: true, order: 110, control: 'textarea', rows: 4 },
+    infocard: { visible: true, order: 90, section: 'main', formatter: 'plain', hideWhenEmpty: true },
+  },
+];
+
+export const SCHEMA_TPP_TELEPORT: WorkflowEditorSchema = {
+  schemaKey: 'tpp_teleport',
+  displayName: '传送点',
+  match: { subType: '传送点', classCode: 'TPP', workflowKeys: ['tpp_point'] },
+  classification: {
+    ref: { mode: 'classCatalog', classCode: 'TPP', geom: '点' },
+    editScope: 'classScope',
+    workflow: { visible: true, label: '类型（Class=TPP）', order: 10 },
+    editor: { visible: true, label: '传送点类型', order: 10 },
+    infocard: { visible: true, label: '类型', order: 10, section: 'main' },
+  },
+  idField,
+  workflowAuxInputs,
+  persistedFields: fields,
+  allowUnparsedBlock: true,
+  integrations: { editor: 'workflowStyleReady', workflow: 'registryOnly', infocard: 'registryOnly' },
+};
+
+export const TPP_SCHEMAS: WorkflowEditorSchema[] = [SCHEMA_TPP_TELEPORT];

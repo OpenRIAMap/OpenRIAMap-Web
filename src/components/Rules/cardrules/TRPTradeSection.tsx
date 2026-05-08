@@ -2,13 +2,14 @@ import React from 'react';
 import { useMemo, useRef, type WheelEvent } from 'react';
 
 import type { FeatureRecord } from '@/components/Rules/rendering/renderRules';
+import type { CardFeatureLinkTarget } from './cardInteractions';
 // 仅作为 TRP 专用展示模块，不依赖 FIELD_RULES。
 import { WORKFLOW_FEATURE_CATALOG } from '@/components/Common/featureFormats';
 
 type Props = {
   feature: FeatureRecord;
   /** 可选：用于“所属地理单元”等内链接跳转 */
-  onTryTriggerLabelClickById?: (id: string) => void;
+  onTryTriggerLabelClickById?: (id: string, linkTarget?: CardFeatureLinkTarget) => void;
 };
 
 type TradeItem = {
@@ -161,7 +162,7 @@ export default function TRPTradeSection({ feature, onTryTriggerLabelClickById }:
                 onClick={(e) => {
                   e.stopPropagation();
                   try {
-                    onTryTriggerLabelClickById?.(landId);
+                    onTryTriggerLabelClickById?.(landId, { classCode: 'ISG', kind: 'NGF', matchField: 'ID', displayField: 'Name', fallbackDisplay: 'raw' });
                   } catch {
                     // 静默失败
                   }

@@ -4,7 +4,7 @@ import FeatureInteractionCard from '@/components/Rules/core/FeatureInteractionCa
 import TRPFeatureInteractionCard from './TRPFeatureInteractionCard';
 
 import type { FeatureRecord } from '@/components/Rules/rendering/renderRules';
-import type { ResolveFeatureById } from './cardInteractions';
+import type { CardFeatureLinkTarget, ResolveFeatureById } from './cardInteractions';
 
 export type FeatureCardCommonProps = {
   open: boolean;
@@ -12,7 +12,7 @@ export type FeatureCardCommonProps = {
   onClose?: () => void;
   // Optional hooks used by the default card; special cards may ignore.
   resolveFeatureById?: ResolveFeatureById;
-  onTryTriggerLabelClickById?: (id: string) => void;
+  onTryTriggerLabelClickById?: (id: string, linkTarget?: CardFeatureLinkTarget) => void;
   variant?: 'floating' | 'embedded';
   onOpenJsonPanel?: (payload: { title: string; jsonText: string; filename: string }) => void;
 };

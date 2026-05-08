@@ -1,4 +1,34 @@
-import * as L from 'leaflet';
+import * as L from "leaflet";
+import {
+  LabelDensityLimiter,
+  resolveLabelDensityConfig,
+  type ResolvedLabelDensityConfig,
+  type LabelDensityReduceStep,
+} from "./label/labelDensity";
+import {
+  getDefaultLabelPlacementCache,
+  resolveLabelPlacementCacheConfig,
+  type ResolvedLabelPlacementCacheConfig,
+} from "./label/labelPlacementCache";
+import {
+  buildTextPathApproxMetrics,
+  isMostlyCjkText,
+} from "./label/labelTextPath";
+import { buildCjkGlyphPathApproxMetricsResult } from "./label/labelGlyphPath";
+import { buildLineTextRepositionCandidates } from "./label/labelLineChainageReposition";
+import { resolveLineTextViewportRect } from "./label/labelLineViewportGate";
+import type {
+  LineLabelViewportAttemptAudit,
+  LineLabelViewportFailureSubtype,
+} from "@/components/Rules/debug/lineLabelAudit";
+import type { PolygonLayoutCandidateAudit } from "@/components/Rules/debug/polygonLabelAudit";
+import type {
+  DisplayAnchorConfig,
+  TextPathStatus,
+  DisplayCollisionBlockTarget,
+  DisplayCollisionRole,
+  DisplayCollisionTarget,
+} from "./display/displayTypes";
 
 /**
  * LabelLayout 引擎（屏幕空间去重/避让）
@@ -56,7 +86,16 @@ export function getLabelLayoutParams(): LabelLayoutParams {
 
 // ---------------------------- 外部接口（规则层） ----------------------------
 
-export type LabelCandidateName = 'C' | 'N' | 'NE' | 'E' | 'SE' | 'S' | 'SW' | 'W' | 'NW';
+export type LabelCandidateName =
+  | "C"
+  | "N"
+  | "NE"
+  | "E"
+  | "SE"
+  | "S"
+  | "SW"
+  | "W"
+  | "NW";
 
 export type LabelCandidate = {
   /** 候选位置名称。若 dx/dy 不给，则由引擎按名称自动计算 */
@@ -71,7 +110,11 @@ export type LabelCandidate = {
   score?: number;
 };
 
-export type LabelDeclutterStrategy = 'greedy';
+export type LabelDeclutterStrategy = "greedy";
+
+export type LineLabelMode = "free" | "strictOnLine";
+export type LineTextMode = "rotatedLabel" | "textPath" | "auto";
+export type TextPathFallbackMode = "rotatedLabel" | "hide" | "svgStraightLabel";
 
 export type LabelDeclutterConfig = {
   /** 布局策略（预留，当前实现 greedy） */
@@ -82,6 +125,67 @@ export type LabelDeclutterConfig = {
 
   /** 优先级：越大越先放（同优先级再看更靠近屏幕中心） */
   priority?: number;
+
+  /**
+   * RB_SLU_4: DisplayPlan 碰撞信息的只读镜像。
+   * - 当前 labelLayout 仍然使用 priority / allowHide / groupKey 执行旧式 greedy 布局；
+   * - 这些字段用于把 DisplayPlan 的 role/group/hidePolicy 随请求进入布局层，
+   *   后续 patch 可在不改规则注册文件的情况下升级为完整碰撞矩阵。
+   */
+  collisionRole?: DisplayCollisionRole;
+  collisionGroup?: string;
+  hidePolicy?:
+    | "hide"
+    | "abbreviateThenHide"
+    | "forceShow"
+    | "showWithoutBlocking"
+    | "geometryOnly";
+  /** RB_SLU_9: optional explicit collision matrix fields copied from DisplayPlan.collision. */
+  collisionAllowOverlap?: boolean;
+  collisionCollideWith?: DisplayCollisionTarget[];
+  collisionBlocks?: DisplayCollisionBlockTarget[];
+
+  /**
+   * RB_SLU_6: 高密度 label 降级元数据。
+   * - 当前执行层只消费 label density：每个屏幕网格最多保留若干同组 label；
+   * - required label 会按 densityPreserveRequired 默认穿透密度限制；
+   * - reduceOrder 先作为只读审计字段进入布局层，后续可继续扩展为更细的降级策略。
+   */
+  densityEnabled?: boolean;
+  densityGridSizePx?: number;
+  densityMaxLabelsPerGrid?: number;
+  densityPreserveRequired?: boolean;
+  densityGroupKey?: string;
+  densityReduceOrder?: LabelDensityReduceStep[];
+
+  /**
+   * RB_SLU_7: label placement cache 元数据。
+   * - 只缓存上一次成功的 anchor/candidate 选择；
+   * - 下一次布局仍会重新经过 viewport / collision / density 检查；
+   * - 因此它只提升稳定性，不会绕过避让。
+   */
+  placementCacheEnabled?: boolean;
+  placementCacheKey?:
+    | "featureID"
+    | "featureID+zoomBucket"
+    | "featureID+mode"
+    | "custom"
+    | string;
+  placementCacheCustomKey?: string;
+  placementZoomBucketSize?: number;
+  placementKeepPreviousCandidate?: boolean;
+  placementKeepPreviousAnchor?: boolean;
+
+  /**
+   * RB_SLU_13: line label mode.
+   * - free keeps the legacy screen-candidate behavior.
+   * - strictOnLine only tries the C candidate at line-derived anchors, so a line label never floats away from its polyline.
+   */
+  lineLabelMode?: LineLabelMode;
+
+  /** RB_SLU_17: pure line-text SVG textPath mode. */
+  lineTextMode?: LineTextMode;
+  textPathFallback?: TextPathFallbackMode;
 
   /** label 碰撞间距（覆盖全局 minSpacingPx） */
   minSpacingPx?: number;
@@ -130,8 +234,39 @@ export type LabelRequest = {
    */
   rotateDegCandidates?: number[];
 
+  /** RB_SLU_17: one path candidate per anchor index, used by RuleDrivenLayer for optional SVG textPath rendering. */
+  anchorCandidateIds?: string[];
+  anchorCandidateSourceIndexes?: number[];
+  anchorCandidateDisplayOrders?: number[];
+
+  lineTextPathCandidates?: Array<{
+    candidateId?: string;
+    sourceIndex?: number;
+    displayOrder?: number;
+    kind?: string;
+    chainage?: number;
+    totalLengthWorld?: number;
+    pathLatLngs: L.LatLng[];
+    fullPathLatLngs?: L.LatLng[];
+    pathLengthWorld?: number;
+    staticWeight?: number;
+    finalScore?: number;
+    scoreParts?: unknown;
+  }>;
+  lineTextMode?: LineTextMode;
+  textPathFallback?: TextPathFallbackMode;
+  textPathBudgetStatus?: "allowed" | "disabled" | "budgetExceeded";
+  textPathFallbackReason?: string;
+  textPathStatus?: TextPathStatus;
+  glyphPathBudgetStatus?: "allowed" | "disabled" | "budgetExceeded";
+  glyphPathFallbackReason?: string;
+  glyphPathGlyphCount?: number;
+  displayAnchor?: Partial<DisplayAnchorConfig>;
+  /** RB_SLU_A1: polygon geo-anchor diagnostics passed from labelAnchor. */
+  geoAnchorDebug?: unknown;
+
   /** 复用现有 makeLabelMarker 的 placement（决定 CSS transform 参考点） */
-  placement: 'center' | 'near';
+  placement: "center" | "near";
 
   /** 你现有规则字段：点位 label 垂直偏移（px） */
   offsetY?: number;
@@ -149,6 +284,19 @@ export type LabelRequest = {
   font?: string;
 };
 
+export type LabelHiddenReason =
+  | "notPlaced"
+  | "viewport"
+  | "collision"
+  | "collisionRequired"
+  | "collisionImportant"
+  | "collisionOptional"
+  | "collisionSoft"
+  | "collisionSymbol"
+  | "groupLimit"
+  | "densityLimit"
+  | "hiddenByPolicy";
+
 export type PlacedLabel = {
   id: string;
   featureUid?: string;
@@ -157,12 +305,98 @@ export type PlacedLabel = {
   dx: number;
   dy: number;
   hidden: boolean;
+  /** RB_SLU_6: 调试/审计用隐藏原因；渲染层可忽略。 */
+  hiddenReason?: LabelHiddenReason;
+
+  /** RB_SLU_7: 调试/审计用最终候选位；渲染层可忽略。 */
+  candidateName?: LabelCandidateName;
+  /** RB_SLU_7: 调试/审计用最终 anchor 候选序号；渲染层可忽略。 */
+  anchorCandidateIndex?: number;
+  /** RB_SLU_21: stable anchor candidate identity. */
+  anchorCandidateId?: string;
+  anchorCandidateSourceIndex?: number;
+  anchorCandidateDisplayOrder?: number;
+  textPathBudgetStatus?: "allowed" | "disabled" | "budgetExceeded";
+  textPathFallbackReason?: string;
+  /** RB_SLU_20: weighted candidate diagnostics. */
+  candidateStaticWeight?: number;
+  candidateScore?: number;
+  candidateScoreParts?: unknown;
+  /** RB_SLU_20: textPath / vertical / fallback decision diagnostics. */
+  textPathStatus?: TextPathStatus;
+  /** RB_SLU_22: CJK glyph-on-path diagnostics. */
+  glyphPathStatus?: "allowed" | "disabled" | "budgetExceeded";
+  glyphPathFallbackReason?: string;
+  glyphPathGlyphCount?: number;
+  glyphPathUsed?: boolean;
+  glyphPathCompactUsed?: boolean;
+  glyphPathAdvanceScale?: number;
+  glyphPathRenderable?: boolean;
+  glyphPathFailureReason?: string;
+  lineTextPathSignature?: string;
+  lineTextZoomBucket?: number;
+  lineTextPathLatLngs?: L.LatLng[];
+  lineTextRepositionMode?: string;
+  lineTextRepositionUsed?: boolean;
+  lineTextRepositionShiftIndex?: number;
+  lineTextRepositionBaseCandidateId?: string;
+  lineTextRepositionAttempts?: number;
+  lineTextRepositionFailureReason?: string;
+  lineTextStrictSvgRequired?: boolean;
+  lineTextAvoidLineGeometry?: boolean;
+  lineTextRealViewportFirst?: boolean;
+  lineTextViewportFailureSubtype?: LineLabelViewportFailureSubtype;
+  lineTextViewportFailureSummary?: string;
+  lineTextViewportBufferPx?: number;
+  lineTextViewportSizePx?: { w: number; h: number };
+  lineTextViewportAttempts?: LineLabelViewportAttemptAudit[];
+  lineTextViewportBestAttempt?: LineLabelViewportAttemptAudit;
+  lineTextAnyAttemptAnchorInsideViewport?: boolean;
+  lineTextAnyAttemptRectInsideViewport?: boolean;
+  lineTextAnyAttemptRectOversized?: boolean;
+  lineTextSourcePathKind?: "fullPathLatLngs" | "localPathLatLngs" | "unknown";
+  lineTextSourcePathPointCount?: number;
+  lineTextSourcePathLengthPx?: number;
+  lineTextEstimatedLabelSpanPx?: number;
+  lineTextEffectiveStepPx?: number;
+  lineTextViewportRectMode?: string;
+  lineTextViewportCandidateMode?: string;
+  lineTextRectSource?: string;
+  lineTextRawRectImplausible?: boolean;
+  lineTextRawRectCenterDistancePx?: number;
+  lineTextViewportTempBase?: boolean;
+  lineTextViewportLocalIntervalIndex?: number;
+  lineTextViewportLocalIntervalLengthPx?: number;
+
+  /** RB_SLU_A1: polygon label audit diagnostics. */
+  polygonLayoutCandidateName?: string;
+  polygonLayoutCandidateOffsetPx?: { x: number; y: number };
+  polygonFinalLabelPx?: { x: number; y: number };
+  polygonLayoutCandidates?: PolygonLayoutCandidateAudit[];
+  densityEnabled?: boolean;
+  densityPassed?: boolean;
+  densityGridKey?: string;
+  densityGridSizePx?: number;
+  densityCountBefore?: number;
+  densityMaxPerGrid?: number;
+  densityBlockedReason?: string;
+  collisionPassed?: boolean;
+  collisionBlockedBy?: PolygonLayoutCandidateAudit["collisionBlockedBy"];
+
+  /** RB_SLU_10: 调试/审计用最终 collision 元数据；渲染层可忽略。 */
+  collisionRole?: DisplayCollisionRole;
+  collisionGroup?: string;
+  priority?: number;
 
   /**
    * 当某些样式需要“沿线旋转”时，这里给出最终选择 anchor 对应的旋转角。
    * - 若未提供，则渲染侧可继续使用 request.rotateDeg
    */
   rotateDeg?: number;
+
+  /** RB_SLU_17: final line text mode selected for rendering. */
+  lineTextMode?: LineTextMode;
+  textPathFallback?: TextPathFallbackMode;
 };
 
 export type AvoidRectPx = {
@@ -173,23 +407,36 @@ export type AvoidRectPx = {
   inflatePx?: number;
   /** 该障碍矩形的归属要素 uid，用于“忽略自己” */
   ownerUid?: string;
+  /** RB_SLU_9: obstacle kind used by the label collision matrix. Defaults to symbol. */
+  collisionSource?: "symbol" | "geometry" | "label";
+  collisionRole?: DisplayCollisionRole;
+  collisionGroup?: string;
+  priority?: number;
+  collisionBlocks?: DisplayCollisionBlockTarget[];
 };
-
-
 
 // ---------------------------- 核心实现 ----------------------------
 
 type Rect = { x: number; y: number; w: number; h: number };
 
 function rectIntersects(a: Rect, b: Rect) {
-  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  return (
+    a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
+  );
 }
 
 function inflateRect(r: Rect, pad: number): Rect {
   return { x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 };
 }
 
-type IndexedRect = Rect & { ownerUid?: string };
+type IndexedRect = Rect & {
+  ownerUid?: string;
+  collisionSource?: "symbol" | "geometry" | "label";
+  collisionRole?: DisplayCollisionRole;
+  collisionGroup?: string;
+  priority?: number;
+  collisionBlocks?: DisplayCollisionBlockTarget[];
+};
 
 class GridIndex {
   private cell: number;
@@ -209,7 +456,8 @@ class GridIndex {
     const minY = Math.floor(r.y / this.cell);
     const maxY = Math.floor((r.y + r.h) / this.cell);
     const out: Array<[number, number]> = [];
-    for (let ix = minX; ix <= maxX; ix++) for (let iy = minY; iy <= maxY; iy++) out.push([ix, iy]);
+    for (let ix = minX; ix <= maxX; ix++)
+      for (let iy = minY; iy <= maxY; iy++) out.push([ix, iy]);
     return out;
   }
 
@@ -233,7 +481,6 @@ class GridIndex {
   }
 }
 
-
 type Measured = { w: number; h: number };
 const _measureCache = new Map<string, Measured>();
 
@@ -248,7 +495,7 @@ function measureText(text: string, font: string, withDot: boolean): Measured {
   if (hit) return hit;
 
   // SSR/构建环境兜底：用近似估计，避免 document 未定义导致 build 报错
-  if (typeof document === 'undefined') {
+  if (typeof document === "undefined") {
     const fontSize = getFontSizePx(font);
     const approx = {
       w: Math.ceil(text.length * fontSize * 0.62) + 12 + (withDot ? 14 : 0),
@@ -259,8 +506,10 @@ function measureText(text: string, font: string, withDot: boolean): Measured {
   }
 
   // canvas measureText
-  const canvas = (measureText as any).__canvas || ((measureText as any).__canvas = document.createElement('canvas'));
-  const ctx = canvas.getContext('2d');
+  const canvas =
+    (measureText as any).__canvas ||
+    ((measureText as any).__canvas = document.createElement("canvas"));
+  const ctx = canvas.getContext("2d");
   if (!ctx) {
     const fontSize = getFontSizePx(font);
     const approx = {
@@ -295,8 +544,13 @@ function measureText(text: string, font: string, withDot: boolean): Measured {
  * 根据 placement + offsetY 计算 label bbox（屏幕像素）
  * - 这里要与 makeLabelMarker 的 CSS transform 逻辑保持一致
  */
-function computeLabelRect(anchor: L.Point, size: Measured, placement: 'center' | 'near', offsetY: number): Rect {
-  if (placement === 'center') {
+function computeLabelRect(
+  anchor: L.Point,
+  size: Measured,
+  placement: "center" | "near",
+  offsetY: number,
+): Rect {
+  if (placement === "center") {
     const x = anchor.x - size.w / 2;
     const y = anchor.y - size.h / 2;
     return { x, y, w: size.w, h: size.h };
@@ -315,29 +569,55 @@ function normalizeCandidates(
 ): LabelCandidate[] {
   const raw = req.declutter.candidates;
 
-  const asCandidate = (c: LabelCandidate | LabelCandidateName): LabelCandidate => {
-    if (typeof c === 'string') return { name: c };
+  const asCandidate = (
+    c: LabelCandidate | LabelCandidateName,
+  ): LabelCandidate => {
+    if (typeof c === "string") return { name: c };
     return c;
   };
 
-  const list = (raw && raw.length ? raw.map(asCandidate) : defaultCandidates(req.placement)).slice(
-    0,
-    Math.max(1, params.maxCandidatesPerLabel),
-  );
+  if (req.declutter?.lineLabelMode === "strictOnLine") {
+    return [{ name: "C", dx: 0, dy: 0, score: 100 }];
+  }
+
+  const list = (
+    raw && raw.length ? raw.map(asCandidate) : defaultCandidates(req.placement)
+  ).slice(0, Math.max(1, params.maxCandidatesPerLabel));
 
   // 将 name 转为 dx/dy（若用户未给 dx/dy）
   return list.map((c, idx) => {
-    if (typeof c.dx === 'number' && typeof c.dy === 'number') return c;
+    if (typeof c.dx === "number" && typeof c.dy === "number") return c;
 
-    const { dx, dy } = candidateShift(c.name, req.placement, size, params.gapPx);
+    const { dx, dy } = candidateShift(
+      c.name,
+      req.placement,
+      size,
+      params.gapPx,
+    );
     return { ...c, dx, dy, score: (c.score ?? 0) + (list.length - idx) * 0.01 };
   });
 }
 
-function defaultCandidates(placement: 'center' | 'near'): LabelCandidate[] {
-  if (placement === 'center') return [{ name: 'C' }, { name: 'N' }, { name: 'S' }, { name: 'E' }, { name: 'W' }];
+function defaultCandidates(placement: "center" | "near"): LabelCandidate[] {
+  if (placement === "center")
+    return [
+      { name: "C" },
+      { name: "N" },
+      { name: "S" },
+      { name: "E" },
+      { name: "W" },
+    ];
   // near：优先在点上方（与你现有 near 样式一致），然后尝试斜上/左右/斜下等
-  return [{ name: 'N' }, { name: 'NE' }, { name: 'NW' }, { name: 'E' }, { name: 'W' }, { name: 'SE' }, { name: 'SW' }, { name: 'S' }];
+  return [
+    { name: "N" },
+    { name: "NE" },
+    { name: "NW" },
+    { name: "E" },
+    { name: "W" },
+    { name: "SE" },
+    { name: "SW" },
+    { name: "S" },
+  ];
 }
 
 /**
@@ -346,7 +626,7 @@ function defaultCandidates(placement: 'center' | 'near'): LabelCandidate[] {
  */
 function candidateShift(
   name: LabelCandidateName,
-  placement: 'center' | 'near',
+  placement: "center" | "near",
   size: Measured,
   gap: number,
 ): { dx: number; dy: number } {
@@ -354,48 +634,48 @@ function candidateShift(
   const halfH = size.h / 2;
 
   // 经验偏移：尽量让 bbox 远离 anchor
-  if (placement === 'center') {
+  if (placement === "center") {
     switch (name) {
-      case 'C':
+      case "C":
         return { dx: 0, dy: 0 };
-      case 'N':
+      case "N":
         return { dx: 0, dy: -(halfH + gap) };
-      case 'S':
+      case "S":
         return { dx: 0, dy: halfH + gap };
-      case 'E':
+      case "E":
         return { dx: halfW + gap, dy: 0 };
-      case 'W':
+      case "W":
         return { dx: -(halfW + gap), dy: 0 };
-      case 'NE':
+      case "NE":
         return { dx: halfW + gap, dy: -(halfH + gap) };
-      case 'NW':
+      case "NW":
         return { dx: -(halfW + gap), dy: -(halfH + gap) };
-      case 'SE':
+      case "SE":
         return { dx: halfW + gap, dy: halfH + gap };
-      case 'SW':
+      case "SW":
         return { dx: -(halfW + gap), dy: halfH + gap };
     }
   }
 
   // placement === 'near'：默认 bbox 已在 anchor 上方；因此更多用“水平”错开
   switch (name) {
-    case 'N':
+    case "N":
       return { dx: 0, dy: 0 };
-    case 'NE':
+    case "NE":
       return { dx: halfW + gap, dy: 0 };
-    case 'NW':
+    case "NW":
       return { dx: -(halfW + gap), dy: 0 };
-    case 'E':
+    case "E":
       return { dx: halfW + gap, dy: Math.max(0, size.h * 0.25) };
-    case 'W':
+    case "W":
       return { dx: -(halfW + gap), dy: Math.max(0, size.h * 0.25) };
-    case 'SE':
+    case "SE":
       return { dx: halfW + gap, dy: size.h + gap };
-    case 'SW':
+    case "SW":
       return { dx: -(halfW + gap), dy: size.h + gap };
-    case 'S':
+    case "S":
       return { dx: 0, dy: size.h + gap };
-    case 'C':
+    case "C":
       return { dx: 0, dy: 0 };
   }
 }
@@ -405,7 +685,12 @@ function inViewport(rect: Rect, size: L.Point, pad: number): boolean {
   const top = pad;
   const right = size.x - pad;
   const bottom = size.y - pad;
-  return rect.x >= left && rect.y >= top && rect.x + rect.w <= right && rect.y + rect.h <= bottom;
+  return (
+    rect.x >= left &&
+    rect.y >= top &&
+    rect.x + rect.w <= right &&
+    rect.y + rect.h <= bottom
+  );
 }
 
 type LayoutItem = {
@@ -419,10 +704,350 @@ type LayoutItem = {
   abbrev?: (s: string) => string;
   groupKey?: string;
   maxPerScreen?: number;
+  density?: ResolvedLabelDensityConfig;
+  placementCache?: ResolvedLabelPlacementCacheConfig;
+  collisionRole: DisplayCollisionRole;
+  collisionGroup?: string;
+  hidePolicy?: LabelDeclutterConfig["hidePolicy"];
+  collisionAllowOverlap?: boolean;
+  collisionCollideWith?: DisplayCollisionTarget[];
+  collisionBlocks?: DisplayCollisionBlockTarget[];
+  lineLabelMode?: LineLabelMode;
+  lastFailureReason?: LabelHiddenReason;
   minSpacingPx: number;
   viewportPaddingPx: number;
   centerDist2: number;
 };
+
+const DEFAULT_COLLISION_ROLE: DisplayCollisionRole = "optional";
+
+function normalizeCollisionRole(role: unknown): DisplayCollisionRole {
+  if (
+    role === "required" ||
+    role === "important" ||
+    role === "optional" ||
+    role === "soft" ||
+    role === "ignore"
+  )
+    return role;
+  return DEFAULT_COLLISION_ROLE;
+}
+
+function collisionRoleOrder(role: DisplayCollisionRole): number {
+  switch (role) {
+    case "required":
+      return 400;
+    case "important":
+      return 300;
+    case "optional":
+      return 200;
+    case "soft":
+      return 100;
+    case "ignore":
+      return 0;
+  }
+}
+
+function shouldForceShow(item: LayoutItem): boolean {
+  return (
+    item.collisionRole === "required" ||
+    item.hidePolicy === "forceShow" ||
+    item.allowHide === false
+  );
+}
+
+function blockerTarget(blocker: IndexedRect): DisplayCollisionTarget {
+  if (blocker.collisionSource === "symbol") return "symbol";
+  if (blocker.collisionSource === "geometry") return "geometry";
+  switch (normalizeCollisionRole(blocker.collisionRole)) {
+    case "required":
+      return "requiredLabel";
+    case "important":
+      return "importantLabel";
+    case "optional":
+      return "optionalLabel";
+    case "soft":
+      return "softLabel";
+    case "ignore":
+      return "softLabel";
+  }
+}
+
+function incomingBlockTarget(
+  item: LayoutItem,
+): DisplayCollisionBlockTarget | undefined {
+  if (item.collisionGroup === "poiLabel") return "poiLabel";
+  if (item.collisionGroup === "structureLabel") return "structureLabel";
+  switch (item.collisionRole) {
+    case "optional":
+      return "optionalLabel";
+    case "soft":
+      return "softLabel";
+    default:
+      return undefined;
+  }
+}
+
+function doesBlockerExplicitlyBlock(
+  blocker: IndexedRect,
+  item: LayoutItem,
+): boolean | undefined {
+  const blocks = blocker.collisionBlocks;
+  if (!Array.isArray(blocks) || blocks.length === 0) return undefined;
+  const incomingTarget = incomingBlockTarget(item);
+  return !!incomingTarget && blocks.includes(incomingTarget);
+}
+
+function shouldCollisionBlock(item: LayoutItem, blocker: IndexedRect): boolean {
+  if (
+    item.collisionAllowOverlap ||
+    item.collisionRole === "ignore" ||
+    item.hidePolicy === "showWithoutBlocking"
+  )
+    return false;
+
+  const target = blockerTarget(blocker);
+  if (
+    Array.isArray(item.collisionCollideWith) &&
+    item.collisionCollideWith.length > 0 &&
+    !item.collisionCollideWith.includes(target)
+  ) {
+    return false;
+  }
+
+  const explicit = doesBlockerExplicitlyBlock(blocker, item);
+  if (typeof explicit === "boolean") return explicit;
+
+  if (target === "symbol") {
+    // RB_SLU_9: symbol boxes protect dense low-priority labels but should not suppress
+    // required/important surface, network, or interaction labels.
+    return (
+      item.collisionRole !== "required" && item.collisionRole !== "important"
+    );
+  }
+
+  if (target === "geometry") {
+    return item.collisionRole === "soft" || item.collisionRole === "optional";
+  }
+
+  const blockerRole = normalizeCollisionRole(blocker.collisionRole);
+  switch (item.collisionRole) {
+    case "required":
+      return blockerRole === "required";
+    case "important":
+      return blockerRole === "required" || blockerRole === "important";
+    case "optional":
+      return (
+        blockerRole === "required" ||
+        blockerRole === "important" ||
+        blockerRole === "optional"
+      );
+    case "soft":
+      return blockerRole !== "ignore";
+  }
+  return false;
+}
+
+function collisionHiddenReason(blocker: IndexedRect): LabelHiddenReason {
+  if (blocker.collisionSource === "symbol") return "collisionSymbol";
+  switch (normalizeCollisionRole(blocker.collisionRole)) {
+    case "required":
+      return "collisionRequired";
+    case "important":
+      return "collisionImportant";
+    case "optional":
+      return "collisionOptional";
+    case "soft":
+      return "collisionSoft";
+    case "ignore":
+      return "collision";
+  }
+}
+
+function rectForCandidate(
+  item: LayoutItem,
+  measured: Measured,
+  anchorPxCand: L.Point,
+  candidate: LabelCandidate,
+): { rect: Rect; dx: number; dy: number } {
+  const baseReq = item.req;
+  const baseDeltaX = anchorPxCand.x - item.anchorPx.x;
+  const baseDeltaY = anchorPxCand.y - item.anchorPx.y;
+  const dx = (candidate.dx ?? 0) + baseDeltaX;
+  const dy = (candidate.dy ?? 0) + baseDeltaY;
+  const anchor = L.point(item.anchorPx.x + dx, item.anchorPx.y + dy);
+  const rect = computeLabelRect(
+    anchor,
+    measured,
+    baseReq.placement,
+    Number(baseReq.offsetY ?? 0),
+  );
+  return { rect, dx, dy };
+}
+
+function indexedLabelRect(rect: Rect, item: LayoutItem): IndexedRect {
+  return {
+    ...rect,
+    ownerUid: item.req.featureUid,
+    collisionSource: "label",
+    collisionRole: item.collisionRole,
+    collisionGroup: item.collisionGroup,
+    priority: item.priority,
+    collisionBlocks: item.collisionBlocks,
+  };
+}
+
+function isPolygonAuditRequest(req: LabelRequest): boolean {
+  const dbg = (req as any).geoAnchorDebug;
+  return !!dbg && typeof dbg === "object";
+}
+
+function rectToAudit(rect: Rect): { x: number; y: number; w: number; h: number } {
+  return { x: rect.x, y: rect.y, w: rect.w, h: rect.h };
+}
+
+function pointToAudit(p: L.Point): { x: number; y: number } {
+  return { x: p.x, y: p.y };
+}
+
+function densityAuditFor(
+  limiter: LabelDensityLimiter,
+  rect: Rect,
+  density: ResolvedLabelDensityConfig | undefined,
+): { key?: string; current?: number; max?: number } {
+  const inspect = limiter.inspect(rect, density);
+  return { key: inspect.key, current: inspect.current, max: inspect.max };
+}
+
+type AnchorLayoutCandidate = {
+  px: L.Point;
+  rotateDeg?: number;
+  index: number;
+  candidateId?: string;
+  sourceIndex?: number;
+  displayOrder?: number;
+  pathLatLngs?: L.LatLng[];
+};
+
+function getLineTextPathCandidate(
+  req: LabelRequest,
+  ac: { index: number; candidateId?: string; pathLatLngs?: L.LatLng[] },
+): NonNullable<LabelRequest["lineTextPathCandidates"]>[number] | undefined {
+  if (Array.isArray(ac.pathLatLngs) && ac.pathLatLngs.length >= 2) {
+    return {
+      candidateId: ac.candidateId,
+      pathLatLngs: ac.pathLatLngs,
+    } as NonNullable<LabelRequest["lineTextPathCandidates"]>[number];
+  }
+  const candidates = Array.isArray(req.lineTextPathCandidates)
+    ? req.lineTextPathCandidates
+    : [];
+  if (ac.candidateId) {
+    const byId = candidates.find((c) => c.candidateId === ac.candidateId);
+    if (byId) return byId;
+  }
+  return candidates[ac.index];
+}
+
+function movePreferredAnchorFirst<
+  T extends { index: number; candidateId?: string },
+>(
+  items: T[],
+  preferredIndex: number | undefined,
+  enabled: boolean,
+  preferredId?: string,
+): T[] {
+  if (!enabled) return items;
+  const idx = preferredId
+    ? items.findIndex((it) => it.candidateId === preferredId)
+    : typeof preferredIndex === "number"
+      ? items.findIndex((it) => it.index === preferredIndex)
+      : -1;
+  if (idx <= 0) return items;
+  return [items[idx], ...items.slice(0, idx), ...items.slice(idx + 1)];
+}
+
+function shouldPreferCachedAnchor(
+  req: LabelRequest,
+  preferredIndex: number | undefined,
+  preferredId?: string,
+): boolean {
+  if (!preferredId && typeof preferredIndex !== "number") return false;
+  const lineCandidates = Array.isArray(req.lineTextPathCandidates)
+    ? req.lineTextPathCandidates
+    : [];
+  if (!lineCandidates.length) return true;
+  const preferred = preferredId
+    ? lineCandidates.find((c) => c.candidateId === preferredId)
+    : lineCandidates[preferredIndex ?? -1];
+  if (!preferred) return false;
+  const anchor = req.displayAnchor ?? {};
+  const reuseBonus = Number(anchor.lineCandidateReuseBonus ?? 12);
+  const switchThreshold = Number(anchor.lineCandidateSwitchThreshold ?? 16);
+  const preferredScore =
+    Number(preferred.finalScore ?? preferred.staticWeight ?? 0) +
+    (Number.isFinite(reuseBonus) ? reuseBonus : 12);
+  let bestScore = -Infinity;
+  for (const c of lineCandidates) {
+    bestScore = Math.max(
+      bestScore,
+      Number(c.finalScore ?? c.staticWeight ?? 0),
+    );
+  }
+  if (!Number.isFinite(bestScore)) return true;
+  return (
+    bestScore <=
+    preferredScore + (Number.isFinite(switchThreshold) ? switchThreshold : 16)
+  );
+}
+
+function movePreferredCandidateFirst(
+  candidates: LabelCandidate[],
+  preferredName: LabelCandidateName | undefined,
+  enabled: boolean,
+): LabelCandidate[] {
+  if (!enabled || !preferredName) return candidates;
+  const idx = candidates.findIndex((it) => it.name === preferredName);
+  if (idx <= 0) return candidates;
+  return [
+    candidates[idx],
+    ...candidates.slice(0, idx),
+    ...candidates.slice(idx + 1),
+  ];
+}
+
+function isStructureCenterLabelRequest(req: LabelRequest): boolean {
+  const declutter = req.declutter ?? {};
+  const collisionGroup = declutter.collisionGroup ?? declutter.groupKey;
+  return req.placement === "center" && collisionGroup === "structureLabel";
+}
+
+function moveCenterBeforeCachedStructureCandidate(
+  candidates: LabelCandidate[],
+  preferredName: LabelCandidateName | undefined,
+  enabled: boolean,
+): LabelCandidate[] {
+  const centerIndex = candidates.findIndex((it) => it.name === "C");
+  if (centerIndex < 0) {
+    return movePreferredCandidateFirst(candidates, preferredName, enabled);
+  }
+
+  const center = candidates[centerIndex];
+  const rest = candidates.filter((_, idx) => idx !== centerIndex);
+  if (!enabled || !preferredName || preferredName === "C") {
+    return [center, ...rest];
+  }
+
+  const preferredIndex = rest.findIndex((it) => it.name === preferredName);
+  if (preferredIndex < 0) return [center, ...rest];
+
+  return [
+    center,
+    rest[preferredIndex],
+    ...rest.slice(0, preferredIndex),
+    ...rest.slice(preferredIndex + 1),
+  ];
+}
 
 /**
  * 执行一次布局（建议在 moveend/zoomend 时调用，不要在 mousemove/drag 时高频调用）
@@ -439,24 +1064,38 @@ export function layoutLabelsOnMap(
 
     /** 新增：对 avoidRects 额外膨胀（px），用于给图标留出更大缓冲区 */
     avoidSpacingPx?: number;
+
+    /**
+     * RB_SLU_15：允许调用方扩大/缩小有效布局视口。
+     * - 正数：视口更严格（向内缩）
+     * - 负数：允许 label 在当前视口外的 padded layout window 中提前布局
+     */
+    viewportPaddingPx?: number;
   },
 ): PlacedLabel[] {
-
   const params = _runtimeParams;
   const size = map.getSize();
   const center = L.point(size.x / 2, size.y / 2);
+  const layoutViewportPaddingPx =
+    typeof opts?.viewportPaddingPx === "number"
+      ? opts.viewportPaddingPx
+      : undefined;
 
   const items: LayoutItem[] = [];
 
   for (const req of requests) {
     const decl = req.declutter ?? {};
-    const font = req.font ?? '12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    const font =
+      req.font ?? "12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
     const measured = measureText(req.text, font, !!req.withDot);
 
     const anchorPx = map.latLngToContainerPoint(req.anchorLatLng);
     const candidates = normalizeCandidates(req, measured, {
       ...params,
-      viewportPaddingPx: decl.viewportPaddingPx ?? params.viewportPaddingPx,
+      viewportPaddingPx:
+        layoutViewportPaddingPx ??
+        decl.viewportPaddingPx ??
+        params.viewportPaddingPx,
     });
 
     const dx = anchorPx.x - center.x;
@@ -469,18 +1108,55 @@ export function layoutLabelsOnMap(
       candidates,
       priority: decl.priority ?? 0,
       allowHide: decl.allowHide !== false,
-      allowAbbrev: !!decl.allowAbbrev && typeof decl.abbrev === 'function',
+      allowAbbrev: !!decl.allowAbbrev && typeof decl.abbrev === "function",
       abbrev: decl.abbrev,
       groupKey: decl.groupKey,
       maxPerScreen: decl.maxPerScreen,
+      density: resolveLabelDensityConfig(decl),
+      placementCache: resolveLabelPlacementCacheConfig({
+        id: req.id,
+        featureUid: req.featureUid,
+        text: req.text,
+        placement: req.placement,
+        zoom: map.getZoom(),
+        collisionGroup: decl.collisionGroup,
+        groupKey: decl.groupKey,
+        placementCacheEnabled: decl.placementCacheEnabled,
+        placementCacheKey: decl.placementCacheKey,
+        placementCacheCustomKey: decl.placementCacheCustomKey,
+        placementZoomBucketSize: decl.placementZoomBucketSize,
+        placementKeepPreviousCandidate: decl.placementKeepPreviousCandidate,
+        placementKeepPreviousAnchor: decl.placementKeepPreviousAnchor,
+      }),
+      collisionRole: normalizeCollisionRole(decl.collisionRole),
+      collisionGroup: decl.collisionGroup ?? decl.groupKey,
+      hidePolicy: decl.hidePolicy,
+      collisionAllowOverlap: !!decl.collisionAllowOverlap,
+      collisionCollideWith: Array.isArray(decl.collisionCollideWith)
+        ? decl.collisionCollideWith
+        : undefined,
+      collisionBlocks: Array.isArray(decl.collisionBlocks)
+        ? decl.collisionBlocks
+        : undefined,
+      lineLabelMode:
+        decl.lineLabelMode === "strictOnLine"
+          ? "strictOnLine"
+          : decl.lineLabelMode === "free"
+            ? "free"
+            : undefined,
+      lastFailureReason: undefined,
       minSpacingPx: decl.minSpacingPx ?? params.minSpacingPx,
       viewportPaddingPx: decl.viewportPaddingPx ?? params.viewportPaddingPx,
       centerDist2: dx * dx + dy * dy,
     });
   }
 
-  // 排序：priority desc；同级按“离屏幕中心更近”优先（可关）；再按文本短优先（更易放）
+  // RB_SLU_9 排序：collision role desc，再 priority desc；同级按“离屏幕中心更近”优先（可关）；再按文本短优先。
+  // 这样 required / important 标签会先占位，optional / soft 标签随后自然避让。
   items.sort((a, b) => {
+    const roleDiff =
+      collisionRoleOrder(b.collisionRole) - collisionRoleOrder(a.collisionRole);
+    if (roleDiff !== 0) return roleDiff;
     if (b.priority !== a.priority) return b.priority - a.priority;
     if (opts?.preferNearCenter !== false) {
       if (a.centerDist2 !== b.centerDist2) return a.centerDist2 - b.centerDist2;
@@ -492,49 +1168,769 @@ export function layoutLabelsOnMap(
   const index = new GridIndex(params.gridCellPx);
 
   // 新增：把点图标等“硬占用区”提前写入索引，label 将自动避开
-const avoidPadExtra = opts?.avoidSpacingPx ?? 0;
-const avoidRects = opts?.avoidRectsPx ?? [];
-for (const ar of avoidRects) {
-  const pad = (ar.inflatePx ?? 0) + avoidPadExtra + params.minSpacingPx;
-  const inflated = inflateRect({ x: ar.x, y: ar.y, w: ar.w, h: ar.h }, pad);
-  index.add({ ...inflated, ownerUid: ar.ownerUid });
-}
-
+  const avoidPadExtra = opts?.avoidSpacingPx ?? 0;
+  const avoidRects = opts?.avoidRectsPx ?? [];
+  for (const ar of avoidRects) {
+    const pad = (ar.inflatePx ?? 0) + avoidPadExtra + params.minSpacingPx;
+    const inflated = inflateRect({ x: ar.x, y: ar.y, w: ar.w, h: ar.h }, pad);
+    index.add({
+      ...inflated,
+      ownerUid: ar.ownerUid,
+      collisionSource: ar.collisionSource ?? "symbol",
+      collisionRole: normalizeCollisionRole(ar.collisionRole ?? "important"),
+      collisionGroup: ar.collisionGroup,
+      priority: typeof ar.priority === "number" ? ar.priority : 5000,
+      collisionBlocks: ar.collisionBlocks,
+    });
+  }
 
   const groupCount = new Map<string, number>();
+  const densityLimiter = new LabelDensityLimiter();
+
+  const maybeTextPathMetrics = (
+    item: LayoutItem,
+    text: string,
+    ac: AnchorLayoutCandidate,
+  ) => {
+    const req = item.req;
+    const mode = req.lineTextMode;
+    if (mode !== "auto" && mode !== "textPath") return null;
+    const pathCandidate = getLineTextPathCandidate(req, ac);
+    if (
+      !pathCandidate ||
+      !Array.isArray(pathCandidate.pathLatLngs) ||
+      pathCandidate.pathLatLngs.length < 2
+    )
+      return null;
+    const anchor = req.displayAnchor ?? null;
+    if (
+      isMostlyCjkText(text) &&
+      ((anchor as any)?.cjkGlyphPathMode ?? "auto") !== "off" &&
+      ((req as any).glyphPathBudgetStatus ??
+        (req as any).textPathBudgetStatus) === "allowed"
+    ) {
+      const glyphResult = buildCjkGlyphPathApproxMetricsResult({
+        map,
+        text,
+        pathLatLngs: pathCandidate.pathLatLngs,
+        anchor,
+        metricsOnly: true,
+      });
+      if (glyphResult.metrics) {
+        return {
+          metrics: {
+            collisionRect: glyphResult.metrics.collisionRect,
+            pathLengthPx: glyphResult.metrics.pathLengthPx,
+            estimatedTextWidthPx: glyphResult.metrics.estimatedTextWidthPx,
+            letterSpacingPx: Number((anchor as any)?.cjkGlyphSpacingPx ?? 0),
+            mode: "curvedTextPath" as const,
+            status: glyphResult.metrics.status,
+          },
+          glyphResult,
+        };
+      }
+      return {
+        metrics: null,
+        glyphResult,
+      };
+    }
+
+    return buildTextPathApproxMetrics({
+      map,
+      text,
+      pathLatLngs: pathCandidate.pathLatLngs,
+      anchor,
+    });
+  };
+
+  const lineViewportBufferPx = 72;
+
+  const isInLineLabelViewport = (rect: Rect): boolean =>
+    params.allowOutsideViewport ||
+    inViewport(rect, size, -lineViewportBufferPx);
+
+  const pointInLineLabelViewport = (p: L.Point): boolean =>
+    p.x >= -lineViewportBufferPx &&
+    p.y >= -lineViewportBufferPx &&
+    p.x <= size.x + lineViewportBufferPx &&
+    p.y <= size.y + lineViewportBufferPx;
+
+  const orderAnchorsRealViewportFirst = (
+    anchors: AnchorLayoutCandidate[],
+  ): AnchorLayoutCandidate[] =>
+    [...anchors].sort((a, b) => {
+      const av = pointInLineLabelViewport(a.px) ? 0 : 1;
+      const bv = pointInLineLabelViewport(b.px) ? 0 : 1;
+      if (av !== bv) return av - bv;
+      const ad = (a.px.x - center.x) ** 2 + (a.px.y - center.y) ** 2;
+      const bd = (b.px.x - center.x) ** 2 + (b.px.y - center.y) ** 2;
+      if (ad !== bd) return ad - bd;
+      return (a.displayOrder ?? a.index) - (b.displayOrder ?? b.index);
+    });
+  const lineViewportRect = (): Rect => ({
+    x: -lineViewportBufferPx,
+    y: -lineViewportBufferPx,
+    w: size.x + lineViewportBufferPx * 2,
+    h: size.y + lineViewportBufferPx * 2,
+  });
+
+  const rectOverflow = (rect: Rect, vp: Rect) => {
+    const left = Math.max(0, vp.x - rect.x);
+    const top = Math.max(0, vp.y - rect.y);
+    const right = Math.max(0, rect.x + rect.w - (vp.x + vp.w));
+    const bottom = Math.max(0, rect.y + rect.h - (vp.y + vp.h));
+    return {
+      left,
+      right,
+      top,
+      bottom,
+      max: Math.max(left, right, top, bottom),
+    };
+  };
+
+  const rectInsideLineViewport = (rect: Rect): boolean => {
+    const vp = lineViewportRect();
+    return (
+      rect.x >= vp.x &&
+      rect.y >= vp.y &&
+      rect.x + rect.w <= vp.x + vp.w &&
+      rect.y + rect.h <= vp.y + vp.h
+    );
+  };
+
+  const pathSliceAudit = (latlngs: L.LatLng[] | undefined) => {
+    if (!Array.isArray(latlngs) || latlngs.length < 2) {
+      return {
+        bounds: undefined as Rect | undefined,
+        insideRatio: undefined as number | undefined,
+        lengthPx: undefined as number | undefined,
+      };
+    }
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    let lengthPx = 0;
+    let prev: L.Point | null = null;
+    let inside = 0;
+    let total = 0;
+    const vp = lineViewportRect();
+    for (const ll of latlngs) {
+      let p: L.Point;
+      try {
+        p = map.latLngToContainerPoint(ll);
+      } catch {
+        continue;
+      }
+      if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+      if (
+        p.x >= vp.x &&
+        p.y >= vp.y &&
+        p.x <= vp.x + vp.w &&
+        p.y <= vp.y + vp.h
+      )
+        inside += 1;
+      total += 1;
+      if (prev) lengthPx += Math.hypot(p.x - prev.x, p.y - prev.y);
+      prev = p;
+    }
+    if (!Number.isFinite(minX) || total <= 0) {
+      return {
+        bounds: undefined as Rect | undefined,
+        insideRatio: undefined as number | undefined,
+        lengthPx: undefined as number | undefined,
+      };
+    }
+    return {
+      bounds: {
+        x: minX,
+        y: minY,
+        w: Math.max(0, maxX - minX),
+        h: Math.max(0, maxY - minY),
+      },
+      insideRatio: inside / total,
+      lengthPx,
+    };
+  };
+
+  const buildViewportAttemptAudit = (args: {
+    attemptIndex: number;
+    candidateId?: string;
+    baseCandidateId?: string;
+    shiftIndex?: number;
+    anchorPx: L.Point;
+    rect: Rect;
+    rawRect?: Rect;
+    normalizedRect?: Rect;
+    rectSource?: "rawMetrics" | "anchorNormalized" | "anchorNormalizedFallback";
+    rawRectCenterDistancePx?: number;
+    rawRectImplausible?: boolean;
+    viewportTempBase?: boolean;
+    viewportLocalIntervalIndex?: number;
+    viewportLocalIntervalLengthPx?: number;
+    pathLatLngs?: L.LatLng[];
+    estimatedLabelSpanPx?: number;
+    effectiveStepPx?: number;
+    sourcePathKind?: "fullPathLatLngs" | "localPathLatLngs" | "unknown";
+    sourcePathPointCount?: number;
+    sourcePathLengthPx?: number;
+    svgEligible?: boolean;
+    svgFailureReason?: string;
+    glyphPathStatus?: string;
+    textPathStatus?: string;
+  }): LineLabelViewportAttemptAudit => {
+    const vp = lineViewportRect();
+    const anchorInsideViewport =
+      args.anchorPx.x >= vp.x &&
+      args.anchorPx.y >= vp.y &&
+      args.anchorPx.x <= vp.x + vp.w &&
+      args.anchorPx.y <= vp.y + vp.h;
+    const rectInsideViewport = rectInsideLineViewport(args.rect);
+    const rectOversizedForViewport = args.rect.w > vp.w || args.rect.h > vp.h;
+    const overflow = rectOverflow(args.rect, vp);
+    const ps = pathSliceAudit(args.pathLatLngs);
+    let viewportSubtype: LineLabelViewportFailureSubtype | undefined;
+    if (!anchorInsideViewport) viewportSubtype = "anchorPointOutsideViewport";
+    else if (rectOversizedForViewport)
+      viewportSubtype = "labelRectOversizedForViewport";
+    else if (!rectInsideViewport && overflow.max > 0 && overflow.max <= 24)
+      viewportSubtype = "viewportBufferTooSmall";
+    else if (!rectInsideViewport) viewportSubtype = "labelRectOutsideViewport";
+    else if (ps.insideRatio !== undefined && ps.insideRatio < 0.2)
+      viewportSubtype = "pathSliceOutsideViewport";
+
+    return {
+      attemptIndex: args.attemptIndex,
+      candidateId: args.candidateId,
+      baseCandidateId: args.baseCandidateId,
+      shiftIndex: args.shiftIndex,
+      anchorPx: { x: args.anchorPx.x, y: args.anchorPx.y },
+      anchorInsideViewport,
+      rect: { ...args.rect },
+      rawRect: args.rawRect ? { ...args.rawRect } : undefined,
+      normalizedRect: args.normalizedRect ? { ...args.normalizedRect } : undefined,
+      rectSource: args.rectSource,
+      rawRectCenterDistancePx: args.rawRectCenterDistancePx,
+      rawRectImplausible: args.rawRectImplausible,
+      viewportTempBase: args.viewportTempBase,
+      viewportLocalIntervalIndex: args.viewportLocalIntervalIndex,
+      viewportLocalIntervalLengthPx: args.viewportLocalIntervalLengthPx,
+      rectInsideViewport,
+      rectOversizedForViewport,
+      overflow,
+      pathSliceBoundsPx: ps.bounds,
+      pathSliceInsideRatio: ps.insideRatio,
+      pathSliceLengthPx: ps.lengthPx,
+      estimatedLabelSpanPx: args.estimatedLabelSpanPx,
+      effectiveStepPx: args.effectiveStepPx,
+      sourcePathKind: args.sourcePathKind,
+      sourcePathPointCount: args.sourcePathPointCount,
+      sourcePathLengthPx: args.sourcePathLengthPx,
+      viewportSubtype,
+      viewportReason: viewportSubtype,
+      svgEligible: args.svgEligible,
+      svgFailureReason: args.svgFailureReason,
+      glyphPathStatus: args.glyphPathStatus,
+      textPathStatus: args.textPathStatus,
+    };
+  };
+
+  const chooseBestViewportAttempt = (
+    attempts: LineLabelViewportAttemptAudit[],
+  ): LineLabelViewportAttemptAudit | undefined => {
+    return [...attempts].sort((a, b) => {
+      const ai = a.anchorInsideViewport ? 0 : 1;
+      const bi = b.anchorInsideViewport ? 0 : 1;
+      if (ai !== bi) return ai - bi;
+      const ao = a.overflow?.max ?? Infinity;
+      const bo = b.overflow?.max ?? Infinity;
+      if (ao !== bo) return ao - bo;
+      const ar = a.rectOversizedForViewport ? 1 : 0;
+      const br = b.rectOversizedForViewport ? 1 : 0;
+      if (ar !== br) return ar - br;
+      const as = Math.abs(Number(a.shiftIndex ?? 0));
+      const bs = Math.abs(Number(b.shiftIndex ?? 0));
+      if (as !== bs) return as - bs;
+      return a.attemptIndex - b.attemptIndex;
+    })[0];
+  };
+
+  const summarizeViewportAttempts = (
+    attempts: LineLabelViewportAttemptAudit[],
+  ) => {
+    const anyAnchor = attempts.some((a) => a.anchorInsideViewport);
+    const anyRect = attempts.some((a) => a.rectInsideViewport);
+    const anyOversized = attempts.some((a) => a.rectOversizedForViewport);
+    const sourceLimited = attempts.some(
+      (a) => a.sourcePathKind === "localPathLatLngs",
+    );
+    const stepTooSmall = attempts.some((a) => {
+      const step = Number(a.effectiveStepPx ?? NaN);
+      const shortSide = Math.min(size.x, size.y);
+      return Number.isFinite(step) && (step < 48 || step < shortSide * 0.08);
+    });
+    const best = chooseBestViewportAttempt(attempts);
+    let subtype: LineLabelViewportFailureSubtype = "unknownViewportFailure";
+    if (!anyAnchor) subtype = "noAttemptAnchorInsideViewport";
+    else if (!anyRect) subtype = "noAttemptRectInsideViewport";
+    else if (sourceLimited) subtype = "candidateSourcePathLimited";
+    else if (stepTooSmall) subtype = "candidateStepTooSmall";
+    else if (best?.viewportSubtype) subtype = best.viewportSubtype;
+    const summary = [
+      `subtype=${subtype}`,
+      `attempts=${attempts.length}`,
+      `anchorInsideAny=${anyAnchor ? "yes" : "no"}`,
+      `rectInsideAny=${anyRect ? "yes" : "no"}`,
+      `rectOversizedAny=${anyOversized ? "yes" : "no"}`,
+      best?.overflow
+        ? `bestOverflow=${Math.round(best.overflow.max * 10) / 10}`
+        : undefined,
+    ]
+      .filter(Boolean)
+      .join("; ");
+    return {
+      subtype,
+      summary,
+      best,
+      anyAnchor,
+      anyRect,
+      anyOversized,
+      sourceLimited,
+      stepTooSmall,
+    };
+  };
+
+  const tryPlaceLineTextWithChainageSearch = (
+    item: LayoutItem,
+    text: string,
+    measured: Measured,
+    anchorCandidates: AnchorLayoutCandidate[],
+  ): PlacedLabel | null => {
+    const baseReq = item.req;
+    const anchor = baseReq.displayAnchor ?? {};
+    if (anchor.lineTextRepositionMode !== "chainageSearch") return null;
+    if (
+      !Array.isArray(baseReq.lineTextPathCandidates) ||
+      !baseReq.lineTextPathCandidates.length
+    )
+      return null;
+
+    const attemptsPerDirection = Math.max(
+      0,
+      Math.min(
+        8,
+        Math.floor(Number(anchor.lineTextRepositionAttemptsPerDirection ?? 3)),
+      ),
+    );
+    const strictSvg = anchor.lineTextRepositionStrictSvg !== false;
+    const failureMode = anchor.lineTextRepositionFailure ?? "hide";
+    let attempts = 0;
+    let lastFailure: string | undefined;
+    const viewportAttempts: LineLabelViewportAttemptAudit[] = [];
+
+    const orderedBaseAnchors = orderAnchorsRealViewportFirst(anchorCandidates);
+    const hasStableAnchorInsideViewport = orderedBaseAnchors.some((ac) =>
+      pointInLineLabelViewport(ac.px),
+    );
+    for (let baseIndex = 0; baseIndex < orderedBaseAnchors.length; baseIndex++) {
+      const baseAc = orderedBaseAnchors[baseIndex];
+      const baseCandidate = getLineTextPathCandidate(baseReq, baseAc);
+      if (!baseCandidate) continue;
+      const enableViewportTempFallback =
+        baseIndex === 0 &&
+        !hasStableAnchorInsideViewport &&
+        (anchor.lineTextViewportCandidateMode ?? "stableFirstViewportFallback") ===
+          "stableFirstViewportFallback";
+      const repositionCandidates = buildLineTextRepositionCandidates({
+        baseCandidate,
+        anchorPx: baseAc.px,
+        anchor,
+        labelText: text,
+        map,
+        estimatedLabelSpanPx: Math.max(measured.w, 28),
+        attemptsPerDirection,
+        enableViewportTempFallback,
+        viewportRectPx: lineViewportRect(),
+        viewportTempMaxTargets: Number(anchor.lineTextViewportCandidateMaxTargets ?? 1),
+        viewportTempMinIntervalPx: Number(anchor.lineTextViewportCandidateMinIntervalPx ?? 48),
+      });
+
+      for (const rc of repositionCandidates) {
+        attempts += 1;
+        let px: L.Point;
+        try {
+          px = map.latLngToContainerPoint(rc.latlng);
+        } catch {
+          lastFailure = "invalidCandidate";
+          continue;
+        }
+        const ac: AnchorLayoutCandidate = {
+          px,
+          rotateDeg: rc.rotateDeg,
+          index: baseAc.index,
+          candidateId: rc.candidateId,
+          sourceIndex: baseAc.sourceIndex,
+          displayOrder: baseAc.displayOrder,
+          pathLatLngs: rc.pathLatLngs,
+        };
+        const textPathMetrics = maybeTextPathMetrics(item, text, ac);
+        const rectAudit = resolveLineTextViewportRect({
+          anchorPx: px,
+          rotateDeg: rc.rotateDeg,
+          estimatedLabelSpanPx: rc.estimatedLabelSpanPx,
+          rawMetricsRect: textPathMetrics?.metrics?.collisionRect ?? null,
+          fontSizePx: measured.h,
+          paddingPx: Math.max(6, item.minSpacingPx),
+          mode: (anchor.lineTextViewportRectMode ?? "anchorNormalized") as any,
+        });
+        const rect = rectAudit.normalizedRect;
+        const attemptAudit = buildViewportAttemptAudit({
+          attemptIndex: attempts,
+          candidateId: rc.candidateId,
+          baseCandidateId: rc.baseCandidateId,
+          shiftIndex: rc.shiftIndex,
+          anchorPx: px,
+          rect,
+          rawRect: rectAudit.rawRect,
+          normalizedRect: rectAudit.normalizedRect,
+          rectSource: rectAudit.rectSource,
+          rawRectCenterDistancePx: rectAudit.rawRectCenterDistancePx,
+          rawRectImplausible: rectAudit.rawRectImplausible,
+          viewportTempBase: rc.viewportTempBase,
+          viewportLocalIntervalIndex: rc.viewportLocalIntervalIndex,
+          viewportLocalIntervalLengthPx: rc.viewportLocalIntervalLengthPx,
+          pathLatLngs: rc.pathLatLngs,
+          estimatedLabelSpanPx: rc.estimatedLabelSpanPx,
+          effectiveStepPx: rc.effectiveStepPx,
+          sourcePathKind: rc.sourcePathKind,
+          sourcePathPointCount: rc.sourcePathPointCount,
+          sourcePathLengthPx: rc.sourcePathLengthPx,
+          svgEligible: !!textPathMetrics?.metrics,
+          svgFailureReason:
+            String(
+              (textPathMetrics as any)?.glyphResult?.failureReason ?? "",
+            ) || undefined,
+          glyphPathStatus:
+            String((textPathMetrics as any)?.glyphResult?.status ?? "") ||
+            undefined,
+          textPathStatus:
+            String(textPathMetrics?.metrics?.status ?? "") || undefined,
+        });
+        viewportAttempts.push(attemptAudit);
+        if (strictSvg && !textPathMetrics?.metrics) {
+          lastFailure = String(
+            (textPathMetrics as any)?.glyphResult?.failureReason ??
+              "svgIneligible",
+          );
+          continue;
+        }
+        if (!isInLineLabelViewport(rect)) {
+          lastFailure = "viewport";
+          item.lastFailureReason = "viewport";
+          continue;
+        }
+        const expanded = inflateRect(rect, item.minSpacingPx);
+        const hits = index.query(expanded);
+        let ok = true;
+        for (const h of hits) {
+          if (h.ownerUid && h.ownerUid === baseReq.featureUid) continue;
+          if (
+            h.collisionSource === "geometry" &&
+            (anchor.lineTextAvoidLineGeometry ?? false) === false
+          )
+            continue;
+          if (
+            h.collisionSource === "symbol" &&
+            (anchor.lineTextAvoidPointSymbols ?? true) === false
+          )
+            continue;
+          if (rectIntersects(expanded, h) && shouldCollisionBlock(item, h)) {
+            ok = false;
+            lastFailure = collisionHiddenReason(h);
+            item.lastFailureReason = collisionHiddenReason(h);
+            break;
+          }
+        }
+        if (!ok) continue;
+        if (item.groupKey && typeof item.maxPerScreen === "number") {
+          const cur = groupCount.get(item.groupKey) ?? 0;
+          if (cur >= item.maxPerScreen) {
+            lastFailure = "groupLimit";
+            item.lastFailureReason = "groupLimit";
+            continue;
+          }
+        }
+        if (!densityLimiter.canPlace(expanded, item.density)) {
+          lastFailure = "densityLimit";
+          item.lastFailureReason = "densityLimit";
+          continue;
+        }
+        index.add(indexedLabelRect(expanded, item));
+        densityLimiter.commit(expanded, item.density);
+        if (item.groupKey && typeof item.maxPerScreen === "number") {
+          groupCount.set(
+            item.groupKey,
+            (groupCount.get(item.groupKey) ?? 0) + 1,
+          );
+        }
+        return {
+          id: baseReq.id,
+          featureUid: baseReq.featureUid,
+          text,
+          dx: px.x - item.anchorPx.x,
+          dy: px.y - item.anchorPx.y,
+          hidden: false,
+          candidateName: "C",
+          anchorCandidateIndex: baseAc.index,
+          anchorCandidateId: rc.candidateId,
+          anchorCandidateSourceIndex: baseAc.sourceIndex,
+          anchorCandidateDisplayOrder: baseAc.displayOrder,
+          textPathBudgetStatus: (baseReq as any).textPathBudgetStatus,
+          textPathFallbackReason: (baseReq as any).textPathFallbackReason,
+          glyphPathStatus: (baseReq as any).glyphPathBudgetStatus,
+          glyphPathFallbackReason: (baseReq as any).glyphPathFallbackReason,
+          glyphPathGlyphCount: (baseReq as any).glyphPathGlyphCount,
+          glyphPathUsed:
+            textPathMetrics?.metrics?.status === "usedCjkGlyphPath" ||
+            textPathMetrics?.metrics?.status === "usedCjkGlyphPathCompact",
+          glyphPathCompactUsed: (textPathMetrics as any)?.glyphResult
+            ?.compactUsed,
+          glyphPathAdvanceScale: (textPathMetrics as any)?.glyphResult
+            ?.advanceScale,
+          glyphPathRenderable: !!textPathMetrics?.metrics,
+          glyphPathFailureReason: (textPathMetrics as any)?.glyphResult
+            ?.failureReason,
+          collisionRole: item.collisionRole,
+          collisionGroup: item.collisionGroup,
+          priority: item.priority,
+          rotateDeg: rc.rotateDeg,
+          lineTextMode: baseReq.lineTextMode,
+          textPathFallback: baseReq.textPathFallback,
+          textPathStatus:
+            textPathMetrics?.metrics?.status ??
+            "usedLineTextChainageReposition",
+          candidateStaticWeight: baseCandidate.staticWeight,
+          candidateScore: baseCandidate.finalScore,
+          candidateScoreParts: baseCandidate.scoreParts,
+          lineTextPathLatLngs: rc.pathLatLngs,
+          lineTextRepositionMode: "chainageSearch",
+          lineTextRepositionUsed: rc.shiftIndex !== 0,
+          lineTextRepositionShiftIndex: rc.shiftIndex,
+          lineTextRepositionBaseCandidateId: rc.baseCandidateId,
+          lineTextRepositionAttempts: attempts,
+          lineTextStrictSvgRequired: strictSvg,
+          lineTextAvoidLineGeometry: anchor.lineTextAvoidLineGeometry ?? false,
+          lineTextRealViewportFirst: true,
+          lineTextViewportBufferPx: lineViewportBufferPx,
+          lineTextViewportSizePx: { w: size.x, h: size.y },
+          lineTextViewportAttempts: viewportAttempts,
+          lineTextViewportBestAttempt:
+            chooseBestViewportAttempt(viewportAttempts),
+          lineTextAnyAttemptAnchorInsideViewport: viewportAttempts.some(
+            (a) => a.anchorInsideViewport,
+          ),
+          lineTextAnyAttemptRectInsideViewport: viewportAttempts.some(
+            (a) => a.rectInsideViewport,
+          ),
+          lineTextAnyAttemptRectOversized: viewportAttempts.some(
+            (a) => a.rectOversizedForViewport,
+          ),
+          lineTextSourcePathKind: rc.sourcePathKind,
+          lineTextSourcePathPointCount: rc.sourcePathPointCount,
+          lineTextSourcePathLengthPx: rc.sourcePathLengthPx,
+          lineTextEstimatedLabelSpanPx: rc.estimatedLabelSpanPx,
+          lineTextEffectiveStepPx: rc.effectiveStepPx,
+          lineTextViewportRectMode: anchor.lineTextViewportRectMode ?? "anchorNormalized",
+          lineTextViewportCandidateMode: anchor.lineTextViewportCandidateMode ?? "stableFirstViewportFallback",
+          lineTextRectSource: rectAudit.rectSource,
+          lineTextRawRectImplausible: rectAudit.rawRectImplausible,
+          lineTextRawRectCenterDistancePx: rectAudit.rawRectCenterDistancePx,
+          lineTextViewportTempBase: rc.viewportTempBase,
+          lineTextViewportLocalIntervalIndex: rc.viewportLocalIntervalIndex,
+          lineTextViewportLocalIntervalLengthPx: rc.viewportLocalIntervalLengthPx,
+        };
+      }
+    }
+    item.lastFailureReason =
+      lastFailure === "viewport"
+        ? "viewport"
+        : lastFailure === "densityLimit"
+          ? "densityLimit"
+          : lastFailure === "groupLimit"
+            ? "groupLimit"
+            : lastFailure && String(lastFailure).startsWith("collision")
+              ? "collision"
+              : "notPlaced";
+    const viewportSummary = summarizeViewportAttempts(viewportAttempts);
+    if (failureMode === "simpleLineLabel") return null;
+    return {
+      id: baseReq.id,
+      featureUid: baseReq.featureUid,
+      text,
+      dx: 0,
+      dy: 0,
+      hidden: true,
+      hiddenReason: item.lastFailureReason ?? "notPlaced",
+      collisionRole: item.collisionRole,
+      collisionGroup: item.collisionGroup,
+      priority: item.priority,
+      lineTextMode: baseReq.lineTextMode,
+      textPathFallback: baseReq.textPathFallback,
+      textPathStatus: "fallbackLineTextChainageRepositionHidden",
+      textPathBudgetStatus: (baseReq as any).textPathBudgetStatus,
+      glyphPathStatus: (baseReq as any).glyphPathBudgetStatus,
+      glyphPathUsed: false,
+      lineTextRepositionMode: "chainageSearch",
+      lineTextRepositionAttempts: attempts,
+      lineTextRepositionFailureReason: lastFailure ?? "notPlaced",
+      lineTextStrictSvgRequired: strictSvg,
+      lineTextAvoidLineGeometry: anchor.lineTextAvoidLineGeometry ?? false,
+      lineTextRealViewportFirst: true,
+      lineTextViewportFailureSubtype:
+        lastFailure === "viewport" ? viewportSummary.subtype : undefined,
+      lineTextViewportFailureSummary:
+        lastFailure === "viewport" ? viewportSummary.summary : undefined,
+      lineTextViewportBufferPx: lineViewportBufferPx,
+      lineTextViewportSizePx: { w: size.x, h: size.y },
+      lineTextViewportAttempts: viewportAttempts,
+      lineTextViewportBestAttempt: viewportSummary.best,
+      lineTextAnyAttemptAnchorInsideViewport: viewportSummary.anyAnchor,
+      lineTextAnyAttemptRectInsideViewport: viewportSummary.anyRect,
+      lineTextAnyAttemptRectOversized: viewportSummary.anyOversized,
+      lineTextSourcePathKind: viewportSummary.best?.sourcePathKind,
+      lineTextSourcePathPointCount: viewportSummary.best?.sourcePathPointCount,
+      lineTextSourcePathLengthPx: viewportSummary.best?.sourcePathLengthPx,
+      lineTextEstimatedLabelSpanPx: viewportSummary.best?.estimatedLabelSpanPx,
+      lineTextEffectiveStepPx: viewportSummary.best?.effectiveStepPx,
+      lineTextViewportRectMode: anchor.lineTextViewportRectMode ?? "anchorNormalized",
+      lineTextViewportCandidateMode: anchor.lineTextViewportCandidateMode ?? "stableFirstViewportFallback",
+      lineTextRectSource: viewportSummary.best?.rectSource,
+      lineTextRawRectImplausible: viewportSummary.best?.rawRectImplausible,
+      lineTextRawRectCenterDistancePx: viewportSummary.best?.rawRectCenterDistancePx,
+      lineTextViewportTempBase: viewportSummary.best?.viewportTempBase,
+      lineTextViewportLocalIntervalIndex: viewportSummary.best?.viewportLocalIntervalIndex,
+      lineTextViewportLocalIntervalLengthPx: viewportSummary.best?.viewportLocalIntervalLengthPx,
+    };
+  };
 
   const tryPlace = (item: LayoutItem, text: string): PlacedLabel | null => {
+    item.lastFailureReason = "notPlaced";
     const baseReq = item.req;
-    const font = baseReq.font ?? '12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    const font =
+      baseReq.font ??
+      "12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
     const measured = measureText(text, font, !!baseReq.withDot);
+    const polygonAuditEnabled = isPolygonAuditRequest(baseReq);
+    const polygonLayoutCandidates: PolygonLayoutCandidateAudit[] = [];
 
-    const candidates = normalizeCandidates(
-      { ...baseReq, text },
-      measured,
-      { ...params, viewportPaddingPx: item.viewportPaddingPx },
-    )
+    const placementCache = getDefaultLabelPlacementCache();
+    const placementCacheConfig =
+      resolveLabelPlacementCacheConfig({
+        id: baseReq.id,
+        featureUid: baseReq.featureUid,
+        text,
+        placement: baseReq.placement,
+        zoom: map.getZoom(),
+        collisionGroup: baseReq.declutter?.collisionGroup,
+        groupKey: baseReq.declutter?.groupKey,
+        placementCacheEnabled: baseReq.declutter?.placementCacheEnabled,
+        placementCacheKey: baseReq.declutter?.placementCacheKey,
+        placementCacheCustomKey: baseReq.declutter?.placementCacheCustomKey,
+        placementZoomBucketSize: baseReq.declutter?.placementZoomBucketSize,
+        placementKeepPreviousCandidate:
+          baseReq.declutter?.placementKeepPreviousCandidate,
+        placementKeepPreviousAnchor:
+          baseReq.declutter?.placementKeepPreviousAnchor,
+      }) ?? item.placementCache;
+
+    const cachedPlacement = placementCache.get(placementCacheConfig);
+
+    const sortedCandidates = normalizeCandidates({ ...baseReq, text }, measured, {
+      ...params,
+      viewportPaddingPx: item.viewportPaddingPx,
+    })
       .slice(0, params.maxCandidatesPerLabel)
       .sort((c1, c2) => (c2.score ?? 0) - (c1.score ?? 0));
 
-    const anchorCandidates: Array<{ px: L.Point; rotateDeg?: number }> = [
-      { px: item.anchorPx, rotateDeg: typeof baseReq.rotateDeg === 'number' ? baseReq.rotateDeg : undefined },
+    const candidates = isStructureCenterLabelRequest(baseReq)
+      ? moveCenterBeforeCachedStructureCandidate(
+          sortedCandidates,
+          cachedPlacement?.candidateName,
+          !!placementCacheConfig?.keepPreviousCandidate,
+        )
+      : movePreferredCandidateFirst(
+          sortedCandidates,
+          cachedPlacement?.candidateName,
+          !!placementCacheConfig?.keepPreviousCandidate,
+        );
+
+    const anchorCandidates: AnchorLayoutCandidate[] = [
+      {
+        px: item.anchorPx,
+        rotateDeg:
+          typeof baseReq.rotateDeg === "number" ? baseReq.rotateDeg : undefined,
+        index: 0,
+        candidateId: baseReq.anchorCandidateIds?.[0],
+        sourceIndex: baseReq.anchorCandidateSourceIndexes?.[0],
+        displayOrder: baseReq.anchorCandidateDisplayOrders?.[0],
+      },
     ];
-    if (Array.isArray(baseReq.anchorCandidatesLatLng) && baseReq.anchorCandidatesLatLng.length) {
-      const rotArr = Array.isArray((baseReq as any).rotateDegCandidates) ? (baseReq as any).rotateDegCandidates : [];
+    if (
+      Array.isArray(baseReq.anchorCandidatesLatLng) &&
+      baseReq.anchorCandidatesLatLng.length
+    ) {
+      const rotArr = Array.isArray((baseReq as any).rotateDegCandidates)
+        ? (baseReq as any).rotateDegCandidates
+        : [];
       for (let i = 0; i < baseReq.anchorCandidatesLatLng.length; i++) {
         const ll = baseReq.anchorCandidatesLatLng[i];
         try {
           const candPx = map.latLngToContainerPoint(ll);
-          const candRot = typeof rotArr?.[i] === 'number' ? Number(rotArr[i]) : undefined;
-          anchorCandidates.push({ px: candPx, rotateDeg: candRot });
+          const candRot =
+            typeof rotArr?.[i] === "number" ? Number(rotArr[i]) : undefined;
+          anchorCandidates.push({
+            px: candPx,
+            rotateDeg: candRot,
+            index: i + 1,
+            candidateId: baseReq.anchorCandidateIds?.[i + 1],
+            sourceIndex: baseReq.anchorCandidateSourceIndexes?.[i + 1],
+            displayOrder: baseReq.anchorCandidateDisplayOrders?.[i + 1],
+          });
         } catch {
           // ignore invalid candidate
         }
       }
     }
 
-    // 依次尝试不同 anchor（例如沿线其它点），每个 anchor 再尝试 candidates
-    for (const ac of anchorCandidates) {
+    const chainagePlaced = tryPlaceLineTextWithChainageSearch(
+      item,
+      text,
+      measured,
+      anchorCandidates,
+    );
+    if (chainagePlaced) return chainagePlaced;
+
+    // 依次尝试不同 anchor（例如沿线其它点），每个 anchor 再尝试 candidates。
+    // RB_SLU_7: 若缓存中的 anchor 仍可放置，则优先沿用，避免轻微移动导致 label 大规模跳位。
+    const preferCachedAnchor =
+      !!placementCacheConfig?.keepPreviousAnchor &&
+      shouldPreferCachedAnchor(
+        baseReq,
+        cachedPlacement?.anchorIndex,
+        cachedPlacement?.anchorId,
+      );
+    const orderedAnchorCandidates = movePreferredAnchorFirst(
+      anchorCandidates,
+      cachedPlacement?.anchorIndex,
+      preferCachedAnchor,
+      cachedPlacement?.anchorId,
+    );
+
+    for (const ac of orderedAnchorCandidates) {
       const anchorPxCand = ac.px;
       const baseDeltaX = anchorPxCand.x - item.anchorPx.x;
       const baseDeltaY = anchorPxCand.y - item.anchorPx.y;
@@ -543,40 +1939,124 @@ for (const ar of avoidRects) {
         const dx = (c.dx ?? 0) + baseDeltaX;
         const dy = (c.dy ?? 0) + baseDeltaY;
 
-        const anchor = L.point(item.anchorPx.x + dx, item.anchorPx.y + dy);
-        const rect = computeLabelRect(anchor, measured, baseReq.placement, Number(baseReq.offsetY ?? 0));
+        const trial = rectForCandidate(item, measured, anchorPxCand, c);
+        const textPathMetrics = maybeTextPathMetrics(item, text, ac);
+        const rect = textPathMetrics?.metrics?.collisionRect ?? trial.rect;
+        const auditCandidate: PolygonLayoutCandidateAudit | undefined =
+          polygonAuditEnabled
+            ? {
+                index: polygonLayoutCandidates.length,
+                name: c.name,
+                offsetPx: { x: dx, y: dy },
+                anchorPx: pointToAudit(anchorPxCand),
+                labelRect: rectToAudit(rect),
+                rectInsideViewport:
+                  params.allowOutsideViewport ||
+                  inViewport(rect, size, item.viewportPaddingPx),
+              }
+            : undefined;
 
-        if (!params.allowOutsideViewport && !inViewport(rect, size, item.viewportPaddingPx)) {
+        if (
+          !params.allowOutsideViewport &&
+          !inViewport(rect, size, item.viewportPaddingPx)
+        ) {
+          item.lastFailureReason = "viewport";
+          if (auditCandidate) {
+            auditCandidate.rejected = true;
+            auditCandidate.rejectedReason = "viewport";
+            polygonLayoutCandidates.push(auditCandidate);
+          }
           continue;
         }
 
-      const expanded = inflateRect(rect, item.minSpacingPx);
+        const expanded = inflateRect(rect, item.minSpacingPx);
         const hits = index.query(expanded);
         let ok = true;
+        let collisionBlockedBy: PolygonLayoutCandidateAudit["collisionBlockedBy"] | undefined;
         for (const h of hits) {
-        // 忽略“自己的点图标占用区”，否则 near label 会必然撞到自己
-            if (h.ownerUid && h.ownerUid === baseReq.featureUid) continue;
+          // 忽略“自己的点图标占用区”，否则 near label 会必然撞到自己
+          if (h.ownerUid && h.ownerUid === baseReq.featureUid) continue;
 
-            if (rectIntersects(expanded, h)) {
-                ok = false;
-                break;
-            }
+          if (rectIntersects(expanded, h) && shouldCollisionBlock(item, h)) {
+            ok = false;
+            item.lastFailureReason = collisionHiddenReason(h);
+            collisionBlockedBy = [
+              {
+                uid: h.ownerUid,
+                collisionRole: h.collisionRole,
+                collisionGroup: h.collisionGroup,
+                reason: collisionHiddenReason(h),
+              },
+            ];
+            break;
+          }
         }
 
-        if (!ok) continue;
+        if (!ok) {
+          if (auditCandidate) {
+            auditCandidate.collisionPassed = false;
+            auditCandidate.collisionBlockedBy = collisionBlockedBy;
+            auditCandidate.rejected = true;
+            auditCandidate.rejectedReason = item.lastFailureReason;
+            polygonLayoutCandidates.push(auditCandidate);
+          }
+          continue;
+        }
+        if (auditCandidate) auditCandidate.collisionPassed = true;
 
         // group 限制
-        if (item.groupKey && typeof item.maxPerScreen === 'number') {
+        if (item.groupKey && typeof item.maxPerScreen === "number") {
           const cur = groupCount.get(item.groupKey) ?? 0;
           if (cur >= item.maxPerScreen) {
+            item.lastFailureReason = "groupLimit";
+            if (auditCandidate) {
+              auditCandidate.rejected = true;
+              auditCandidate.rejectedReason = "groupLimit";
+              polygonLayoutCandidates.push(auditCandidate);
+            }
             continue;
           }
         }
 
-        index.add(expanded);
+        // RB_SLU_6：高密度网格限制。它发生在碰撞之后、真正写入 index 之前。
+        // 这样 required/important 已按 priority 先占位，soft/optional 会自然降级。
+        const densityInfo = densityAuditFor(densityLimiter, expanded, item.density);
+        if (!densityLimiter.canPlace(expanded, item.density)) {
+          item.lastFailureReason = "densityLimit";
+          if (auditCandidate) {
+            auditCandidate.densityPassed = false;
+            auditCandidate.densityGridKey = densityInfo.key;
+            auditCandidate.densityCountBefore = densityInfo.current;
+            auditCandidate.densityMaxPerGrid = densityInfo.max;
+            auditCandidate.densityBlockedReason = "densityLimit";
+            auditCandidate.rejected = true;
+            auditCandidate.rejectedReason = "densityLimit";
+            polygonLayoutCandidates.push(auditCandidate);
+          }
+          continue;
+        }
+        if (auditCandidate) {
+          auditCandidate.densityPassed = true;
+          auditCandidate.densityGridKey = densityInfo.key;
+          auditCandidate.densityCountBefore = densityInfo.current;
+          auditCandidate.densityMaxPerGrid = densityInfo.max;
+          auditCandidate.selected = true;
+          polygonLayoutCandidates.push(auditCandidate);
+        }
 
-        if (item.groupKey && typeof item.maxPerScreen === 'number') {
-          groupCount.set(item.groupKey, (groupCount.get(item.groupKey) ?? 0) + 1);
+        index.add(indexedLabelRect(expanded, item));
+        densityLimiter.commit(expanded, item.density);
+        placementCache.commit(placementCacheConfig, {
+          anchorIndex: ac.index,
+          anchorId: ac.candidateId,
+          candidateName: c.name,
+        });
+
+        if (item.groupKey && typeof item.maxPerScreen === "number") {
+          groupCount.set(
+            item.groupKey,
+            (groupCount.get(item.groupKey) ?? 0) + 1,
+          );
         }
 
         return {
@@ -586,12 +2066,236 @@ for (const ar of avoidRects) {
           dx,
           dy,
           hidden: false,
-          rotateDeg: typeof ac.rotateDeg === 'number' ? ac.rotateDeg : undefined,
+          candidateName: c.name,
+          anchorCandidateIndex: ac.index,
+          anchorCandidateId: ac.candidateId,
+          anchorCandidateSourceIndex: ac.sourceIndex,
+          anchorCandidateDisplayOrder: ac.displayOrder,
+          textPathBudgetStatus: (baseReq as any).textPathBudgetStatus,
+          textPathFallbackReason: (baseReq as any).textPathFallbackReason,
+          glyphPathStatus: (baseReq as any).glyphPathBudgetStatus,
+          glyphPathFallbackReason: (baseReq as any).glyphPathFallbackReason,
+          glyphPathGlyphCount: (baseReq as any).glyphPathGlyphCount,
+          polygonLayoutCandidateName: polygonAuditEnabled ? c.name : undefined,
+          polygonLayoutCandidateOffsetPx: polygonAuditEnabled ? { x: dx, y: dy } : undefined,
+          polygonFinalLabelPx: polygonAuditEnabled
+            ? { x: item.anchorPx.x + dx, y: item.anchorPx.y + dy }
+            : undefined,
+          polygonLayoutCandidates: polygonAuditEnabled
+            ? polygonLayoutCandidates
+            : undefined,
+          densityEnabled: polygonAuditEnabled ? !!item.density?.enabled : undefined,
+          densityPassed: polygonAuditEnabled ? true : undefined,
+          densityGridKey: polygonAuditEnabled
+            ? densityAuditFor(densityLimiter, expanded, item.density).key
+            : undefined,
+          densityGridSizePx: polygonAuditEnabled ? item.density?.gridSizePx : undefined,
+          densityCountBefore: polygonAuditEnabled
+            ? densityAuditFor(densityLimiter, expanded, item.density).current
+            : undefined,
+          densityMaxPerGrid: polygonAuditEnabled ? item.density?.maxLabelsPerGrid : undefined,
+          collisionPassed: polygonAuditEnabled ? true : undefined,
+          glyphPathUsed:
+            textPathMetrics?.metrics?.status === "usedCjkGlyphPath" ||
+            textPathMetrics?.metrics?.status === "usedCjkGlyphPathCompact",
+          glyphPathCompactUsed: (textPathMetrics as any)?.glyphResult
+            ?.compactUsed,
+          glyphPathAdvanceScale: (textPathMetrics as any)?.glyphResult
+            ?.advanceScale,
+          glyphPathRenderable: !!textPathMetrics?.metrics,
+          glyphPathFailureReason: (textPathMetrics as any)?.glyphResult
+            ?.failureReason,
+          collisionRole: item.collisionRole,
+          collisionGroup: item.collisionGroup,
+          priority: item.priority,
+          rotateDeg:
+            typeof ac.rotateDeg === "number" ? ac.rotateDeg : undefined,
+          lineTextMode: baseReq.lineTextMode,
+          textPathFallback: baseReq.textPathFallback,
+          textPathStatus: textPathMetrics?.metrics?.status,
+          candidateStaticWeight: getLineTextPathCandidate(baseReq, ac)
+            ?.staticWeight,
+          candidateScore: getLineTextPathCandidate(baseReq, ac)?.finalScore,
+          candidateScoreParts: getLineTextPathCandidate(baseReq, ac)
+            ?.scoreParts,
         };
       }
     }
 
     return null;
+  };
+
+  const forcePlace = (item: LayoutItem, text: string): PlacedLabel => {
+    const baseReq = item.req;
+    const font =
+      baseReq.font ??
+      "12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+    const measured = measureText(text, font, !!baseReq.withDot);
+    const candidates = normalizeCandidates({ ...baseReq, text }, measured, {
+      ...params,
+      viewportPaddingPx: item.viewportPaddingPx,
+    })
+      .slice(0, params.maxCandidatesPerLabel)
+      .sort((c1, c2) => (c2.score ?? 0) - (c1.score ?? 0));
+
+    const anchorCandidates: AnchorLayoutCandidate[] = [
+      {
+        px: item.anchorPx,
+        rotateDeg:
+          typeof baseReq.rotateDeg === "number" ? baseReq.rotateDeg : undefined,
+        index: 0,
+        candidateId: baseReq.anchorCandidateIds?.[0],
+        sourceIndex: baseReq.anchorCandidateSourceIndexes?.[0],
+        displayOrder: baseReq.anchorCandidateDisplayOrders?.[0],
+      },
+    ];
+    if (
+      Array.isArray(baseReq.anchorCandidatesLatLng) &&
+      baseReq.anchorCandidatesLatLng.length
+    ) {
+      const rotArr = Array.isArray((baseReq as any).rotateDegCandidates)
+        ? (baseReq as any).rotateDegCandidates
+        : [];
+      for (let i = 0; i < baseReq.anchorCandidatesLatLng.length; i++) {
+        try {
+          const candPx = map.latLngToContainerPoint(
+            baseReq.anchorCandidatesLatLng[i],
+          );
+          const candRot =
+            typeof rotArr?.[i] === "number" ? Number(rotArr[i]) : undefined;
+          anchorCandidates.push({
+            px: candPx,
+            rotateDeg: candRot,
+            index: i + 1,
+            candidateId: baseReq.anchorCandidateIds?.[i + 1],
+            sourceIndex: baseReq.anchorCandidateSourceIndexes?.[i + 1],
+            displayOrder: baseReq.anchorCandidateDisplayOrders?.[i + 1],
+          });
+        } catch {
+          // ignore invalid candidate
+        }
+      }
+    }
+
+    let fallback:
+      | {
+          rect: Rect;
+          dx: number;
+          dy: number;
+          candidate: LabelCandidate;
+          anchorIndex: number;
+          anchorId?: string;
+          sourceIndex?: number;
+          displayOrder?: number;
+          rotateDeg?: number;
+          textPathStatus?: TextPathStatus;
+        }
+      | undefined;
+
+    for (const ac of anchorCandidates) {
+      for (const c of candidates) {
+        const nextBase = rectForCandidate(item, measured, ac.px, c);
+        const textPathMetrics = maybeTextPathMetrics(item, text, ac);
+        const nextRect =
+          textPathMetrics?.metrics?.collisionRect ?? nextBase.rect;
+        const next = { ...nextBase, rect: nextRect };
+        const trial = {
+          ...next,
+          candidate: c,
+          anchorIndex: ac.index,
+          anchorId: ac.candidateId,
+          sourceIndex: ac.sourceIndex,
+          displayOrder: ac.displayOrder,
+          rotateDeg: ac.rotateDeg,
+          textPathStatus: textPathMetrics?.metrics?.status,
+        };
+        fallback = fallback ?? trial;
+        if (
+          params.allowOutsideViewport ||
+          inViewport(next.rect, size, item.viewportPaddingPx)
+        ) {
+          fallback = trial;
+          break;
+        }
+      }
+      if (
+        fallback &&
+        (params.allowOutsideViewport ||
+          inViewport(fallback.rect, size, item.viewportPaddingPx))
+      )
+        break;
+    }
+
+    if (!fallback) {
+      const c = candidates[0] ?? {
+        name: "C" as LabelCandidateName,
+        dx: 0,
+        dy: 0,
+      };
+      const next = rectForCandidate(item, measured, item.anchorPx, c);
+      fallback = {
+        ...next,
+        candidate: c,
+        anchorIndex: 0,
+        rotateDeg: baseReq.rotateDeg,
+      };
+    }
+
+    const expanded = inflateRect(fallback.rect, item.minSpacingPx);
+    index.add(indexedLabelRect(expanded, item));
+    densityLimiter.commit(expanded, item.density);
+
+    if (item.groupKey && typeof item.maxPerScreen === "number") {
+      groupCount.set(item.groupKey, (groupCount.get(item.groupKey) ?? 0) + 1);
+    }
+
+    return {
+      id: baseReq.id,
+      featureUid: baseReq.featureUid,
+      text,
+      dx: fallback.dx,
+      dy: fallback.dy,
+      hidden: false,
+      hiddenReason: item.lastFailureReason ?? "hiddenByPolicy",
+      candidateName: fallback.candidate.name,
+      anchorCandidateIndex: fallback.anchorIndex,
+      anchorCandidateId: fallback.anchorId,
+      anchorCandidateSourceIndex: fallback.sourceIndex,
+      anchorCandidateDisplayOrder: fallback.displayOrder,
+      textPathBudgetStatus: (baseReq as any).textPathBudgetStatus,
+      textPathFallbackReason: (baseReq as any).textPathFallbackReason,
+      glyphPathStatus: (baseReq as any).glyphPathBudgetStatus,
+      glyphPathFallbackReason: (baseReq as any).glyphPathFallbackReason,
+      glyphPathGlyphCount: (baseReq as any).glyphPathGlyphCount,
+      glyphPathUsed:
+        fallback.textPathStatus === "usedCjkGlyphPath" ||
+        fallback.textPathStatus === "usedCjkGlyphPathCompact",
+      glyphPathCompactUsed:
+        fallback.textPathStatus === "usedCjkGlyphPathCompact",
+      glyphPathRenderable:
+        fallback.textPathStatus === "usedCjkGlyphPath" ||
+        fallback.textPathStatus === "usedCjkGlyphPathCompact",
+      collisionRole: item.collisionRole,
+      collisionGroup: item.collisionGroup,
+      priority: item.priority,
+      rotateDeg:
+        typeof fallback.rotateDeg === "number" ? fallback.rotateDeg : undefined,
+      lineTextMode: baseReq.lineTextMode,
+      textPathFallback: baseReq.textPathFallback,
+      textPathStatus: fallback.textPathStatus,
+      candidateStaticWeight: getLineTextPathCandidate(baseReq, {
+        index: fallback.anchorIndex,
+        candidateId: fallback.anchorId,
+      })?.staticWeight,
+      candidateScore: getLineTextPathCandidate(baseReq, {
+        index: fallback.anchorIndex,
+        candidateId: fallback.anchorId,
+      })?.finalScore,
+      candidateScoreParts: getLineTextPathCandidate(baseReq, {
+        index: fallback.anchorIndex,
+        candidateId: fallback.anchorId,
+      })?.scoreParts,
+    };
   };
 
   for (const item of items) {
@@ -604,6 +2308,10 @@ for (const ar of avoidRects) {
       if (short && short !== item.req.text) {
         p = tryPlace(item, short);
       }
+    }
+
+    if (!p && shouldForceShow(item)) {
+      p = forcePlace(item, item.req.text);
     }
 
     if (p) {
@@ -619,6 +2327,37 @@ for (const ar of avoidRects) {
       dx: 0,
       dy: 0,
       hidden: item.allowHide,
+      hiddenReason: item.lastFailureReason ?? "notPlaced",
+      collisionRole: item.collisionRole,
+      collisionGroup: item.collisionGroup,
+      priority: item.priority,
+      lineTextMode: item.req.lineTextMode,
+      textPathFallback: item.req.textPathFallback,
+      textPathStatus: "fallbackCollision",
+      textPathBudgetStatus: (item.req as any).textPathBudgetStatus,
+      textPathFallbackReason: (item.req as any).textPathFallbackReason,
+      glyphPathStatus: (item.req as any).glyphPathBudgetStatus,
+      glyphPathFallbackReason: (item.req as any).glyphPathFallbackReason,
+      glyphPathGlyphCount: (item.req as any).glyphPathGlyphCount,
+      glyphPathUsed: false,
+      polygonLayoutCandidates: isPolygonAuditRequest(item.req)
+        ? ((item as any).polygonLayoutCandidates ?? undefined)
+        : undefined,
+      densityEnabled: isPolygonAuditRequest(item.req) ? !!item.density?.enabled : undefined,
+      densityPassed: isPolygonAuditRequest(item.req)
+        ? item.lastFailureReason !== "densityLimit"
+        : undefined,
+      densityGridSizePx: isPolygonAuditRequest(item.req) ? item.density?.gridSizePx : undefined,
+      densityMaxPerGrid: isPolygonAuditRequest(item.req)
+        ? item.density?.maxLabelsPerGrid
+        : undefined,
+      densityBlockedReason:
+        isPolygonAuditRequest(item.req) && item.lastFailureReason === "densityLimit"
+          ? "densityLimit"
+          : undefined,
+      collisionPassed: isPolygonAuditRequest(item.req)
+        ? !String(item.lastFailureReason ?? "").startsWith("collision")
+        : undefined,
     });
   }
 

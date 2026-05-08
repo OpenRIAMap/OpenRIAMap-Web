@@ -1,9 +1,12 @@
 // File: src/components/Mapping/Workflow/TradePointWorkflow.tsx
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkflowComponentProps, WorldPoint } from './WorkflowHost';
+import * as wfRegistry from './workflowRegistryLabels';
 import AppButton from '@/components/ui/AppButton';
 import { EXT_VALUE_TYPE_TEXT, listCatalogClassOptions, type FeatureKey } from '@/components/Common/featureFormats';
 import WorkflowFeatureSearchSelect, { type SearchSelectConfig } from './WorkflowFeatureSearchSelect';
+
+const WF_KEY = 'trp_point';
 
 /**
  * TradePointWorkflow（工作流：交易点）
@@ -560,7 +563,7 @@ export default function TradePointWorkflow(props: WorkflowComponentProps) {
 
         <div className="space-y-3">
           <label className="block space-y-1">
-            <div className="text-xs opacity-80">交易点种类（必填）</div>
+            <div className="text-xs opacity-80">{wfRegistry.getWorkflowClassificationLabel(WF_KEY)}</div>
             <select
               className="w-full border p-1 rounded text-sm"
               value={String(info.typeKey ?? '')}
@@ -578,12 +581,12 @@ export default function TradePointWorkflow(props: WorkflowComponentProps) {
             </select>
           </label>
 
-          <LabeledInput label="交易点名称（必填）" value={info.name} placeholder="例如：村民交易站" onChange={(v) => setInfo((p) => ({ ...p, name: v }))} />
-          <LabeledInput label="字符简称（必填，用于ID）" value={info.abbr} placeholder="例如：VIL" onChange={(v) => setInfo((p) => ({ ...p, abbr: v }))} />
+          <LabeledInput label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Name')} value={info.name} placeholder="例如：村民交易站" onChange={(v) => setInfo((p) => ({ ...p, name: v }))} />
+          <LabeledInput label={wfRegistry.getWorkflowAuxLabel(WF_KEY, 'abbr')} value={info.abbr} placeholder="例如：VIL" onChange={(v) => setInfo((p) => ({ ...p, abbr: v }))} />
 
           <WorkflowFeatureSearchSelect
             bridge={bridgeRef.current}
-            label="所属地理单元（可选，将写入 tags.Land）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Land')}
             placeholder="输入关键词检索：可匹配 Name / ID"
             value={String(info.landId ?? '')}
             config={landUnitSearchCfg}
@@ -592,7 +595,7 @@ export default function TradePointWorkflow(props: WorkflowComponentProps) {
 
           <WorkflowFeatureSearchSelect
             bridge={bridgeRef.current}
-            label="所属聚落(地标点)（可选，将写入 tags.UAdm）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'UAdm')}
             placeholder="输入关键词检索：可匹配 Name / ID"
             value={String(info.uadmId ?? '')}
             config={uadmLandmarkSearchCfg}
@@ -601,19 +604,19 @@ export default function TradePointWorkflow(props: WorkflowComponentProps) {
 
           <WorkflowFeatureSearchSelect
             bridge={bridgeRef.current}
-            label="所属聚落(区划)（可选，将写入 tags.UAdmG）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'UAdmG')}
             placeholder="输入关键词检索：可匹配 Name / ID"
             value={String(info.uadmgId ?? '')}
             config={uadmGSearchCfg}
             onChange={(v) => setInfo((p) => ({ ...p, uadmgId: v }))}
           />
 
-          <LabeledInput label="wiki链接（可选，将写入 extensions.link.wiki）" value={String(info.wiki ?? '')} placeholder="https://..." onChange={(v) => setInfo((p) => ({ ...p, wiki: v }))} />
-          <LabeledInput label="交互方式（可选，将写入 Interaction）" value={String(info.interaction ?? '')} placeholder="例如：右键打开" onChange={(v) => setInfo((p) => ({ ...p, interaction: v }))} />
-          <LabeledInput label="启用状况（可选，将写入 Situation）" value={String(info.situation ?? '')} placeholder="例如：Enable" onChange={(v) => setInfo((p) => ({ ...p, situation: v }))} />
+          <LabeledInput label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'wiki')} value={String(info.wiki ?? '')} placeholder="https://..." onChange={(v) => setInfo((p) => ({ ...p, wiki: v }))} />
+          <LabeledInput label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Interaction')} value={String(info.interaction ?? '')} placeholder="例如：右键打开" onChange={(v) => setInfo((p) => ({ ...p, interaction: v }))} />
+          <LabeledInput label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Situation')} value={String(info.situation ?? '')} placeholder="例如：Enable" onChange={(v) => setInfo((p) => ({ ...p, situation: v }))} />
 
           <LabeledTextarea
-            label="简介（可选，将写入 extensions.character.brief）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'brief')}
             value={String(info.brief ?? '')}
             placeholder="支持换行"
             onChange={(v) => setInfo((p) => ({ ...p, brief: v }))}
@@ -1040,7 +1043,7 @@ export default function TradePointWorkflow(props: WorkflowComponentProps) {
       <div className="space-y-2">
         <div className="text-xs text-gray-600">请在地图上点选交易点坐标。</div>
         <LabeledInput
-          label="高度值（可选，将写入 elevation；若点坐标含 y，则优先使用 y）"
+          label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'elevation')}
           value={elevInput}
           type="number"
           placeholder="例如：64"

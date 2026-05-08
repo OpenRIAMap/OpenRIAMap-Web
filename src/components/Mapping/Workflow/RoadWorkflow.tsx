@@ -1,6 +1,7 @@
 // File: src/components/Mapping/Workflow/RoadWorkflow.tsx
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkflowComponentProps, WorldPoint } from './WorkflowHost';
+import * as wfRegistry from './workflowRegistryLabels';
 import AppButton from '@/components/ui/AppButton';
 import {
   EXT_VALUE_TYPE_TEXT,
@@ -10,6 +11,8 @@ import {
 } from '@/components/Common/featureFormats';
 import WorkflowFeatureSearchSelect, { type SearchSelectConfig } from './WorkflowFeatureSearchSelect';
 import { ROAD_TRAVEL_PROFILES } from '@/components/Navigation/Navigation_Road';
+
+const WF_KEY = 'rod_road';
 
 /**
  * RoadWorkflow（工作流：道路）
@@ -526,7 +529,7 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
         <div className="space-y-3">
           {/* 类型（Class=ROD） */}
           <label className="block space-y-1">
-            <div className="text-xs opacity-80">道路类型（Class=ROD）</div>
+            <div className="text-xs opacity-80">{wfRegistry.getWorkflowClassificationLabel(WF_KEY)}</div>
             <select
               className="w-full border p-1 rounded text-sm"
               value={`${info.kind}/${info.skind}`}
@@ -550,7 +553,7 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
           {/* Road specific fields */}
           <div className="grid grid-cols-3 gap-2">
             <label className="block space-y-1">
-              <div className="text-xs opacity-80">道路层级（Level，必选）</div>
+              <div className="text-xs opacity-80">{wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Level')}</div>
               <select
                 className="w-full border p-1 rounded text-sm"
                 value={String(info.level)}
@@ -571,7 +574,7 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
             </label>
 
             <label className="block space-y-1">
-              <div className="text-xs opacity-80">是否单向（Oneway，必选）</div>
+              <div className="text-xs opacity-80">{wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Oneway')}</div>
               <select
                 className="w-full border p-1 rounded text-sm"
                 value={info.oneway ? 'true' : 'false'}
@@ -586,7 +589,7 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
             </label>
 
             <label className="block space-y-1">
-              <div className="text-xs opacity-80">是否可进入（Enter，可选，缺省=true）</div>
+              <div className="text-xs opacity-80">{wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Enter')}</div>
               <select
                 className="w-full border p-1 rounded text-sm"
                 value={info.enter ? 'true' : 'false'}
@@ -601,7 +604,7 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
             </label>
 
             <label className="block space-y-1">
-              <div className="text-xs opacity-80">是否可离开（Exit，可选，缺省=true）</div>
+              <div className="text-xs opacity-80">{wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Exit')}</div>
               <select
                 className="w-full border p-1 rounded text-sm"
                 value={info.exit ? 'true' : 'false'}
@@ -616,7 +619,7 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
             </label>
 
             <label className="block space-y-1">
-              <div className="text-xs opacity-80">是否允许自交（SelfJunction，可选，缺省=false）</div>
+              <div className="text-xs opacity-80">{wfRegistry.getWorkflowFieldLabel(WF_KEY, 'SelfJunction')}</div>
               <select
                 className="w-full border p-1 rounded text-sm"
                 value={info.selfJunction ? 'true' : 'false'}
@@ -632,9 +635,9 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
           </div>
 
           {/* 基本信息 */}
-          <LabeledInput label="道路名称（Name）" value={info.name} placeholder="例如：中央大道" onChange={(v) => setInfo((prev) => ({ ...prev, name: v }))} />
+          <LabeledInput label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Name')} value={info.name} placeholder="例如：中央大道" onChange={(v) => setInfo((prev) => ({ ...prev, name: v }))} />
           <LabeledInput
-            label="所属分类代号（仅用于ID组装，可选）"
+            label={wfRegistry.getWorkflowAuxLabel(WF_KEY, 'catAbbr')}
             value={info.catAbbr}
             placeholder="例如：HHBE"
             onChange={(v) => {
@@ -646,7 +649,7 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
             }}
           />
           <LabeledInput
-            label="字符简称（用于ID末尾）"
+            label={wfRegistry.getWorkflowAuxLabel(WF_KEY, 'abbr')}
             value={info.abbr}
             placeholder="例如：CDA"
             onChange={(v) => setInfo((prev) => ({ ...prev, abbr: v }))}
@@ -658,7 +661,7 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
           {/* 显式连接关系（ConnectL，可选） */}
           <div className="border rounded p-2">
             <div className="flex items-center justify-between mb-2">
-              <div className="text-sm font-semibold">显式连接关系（ConnectL，可选）</div>
+              <div className="text-sm font-semibold">{wfRegistry.getWorkflowGroupLabel(WF_KEY, 'ConnectL')}</div>
               <AppButton
                 type="button"
                 className="px-2 py-1 text-xs rounded border bg-white hover:bg-gray-50"
@@ -730,7 +733,7 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
           {/* 黑名单（Blacklist，可选） */}
           <div className="border rounded p-2">
             <div className="flex items-center justify-between mb-2">
-              <div className="text-sm font-semibold">黑名单（Blacklist，可选）</div>
+              <div className="text-sm font-semibold">{wfRegistry.getWorkflowGroupLabel(WF_KEY, 'Blacklist')}</div>
               <AppButton
                 type="button"
                 className="px-2 py-1 text-xs rounded border bg-white hover:bg-gray-50"
@@ -782,7 +785,7 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
           {/* 出行方式限制（Mode，可选） */}
           <div className="border rounded p-2">
             <div className="flex items-center justify-between mb-2">
-              <div className="text-sm font-semibold">允许的出行方式（Mode，可选）</div>
+              <div className="text-sm font-semibold">{wfRegistry.getWorkflowGroupLabel(WF_KEY, 'Mode')}</div>
               <AppButton
                 type="button"
                 className="px-2 py-1 text-xs rounded border bg-white hover:bg-gray-50"
@@ -843,7 +846,7 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
           </div>
 
           <LabeledInput
-            label="限速（Speed，可选，float）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Speed')}
             value={info.speed}
             placeholder="例如：4.5（留空则使用默认出行方式速度）"
             onChange={(v) => setInfo((prev) => ({ ...prev, speed: v }))}
@@ -851,7 +854,7 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
           />
 
           <LabeledInput
-            label="命名者（tags.nomenclator，可选）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'nomenclator')}
             value={info.nomenclator}
             placeholder="例如：YZ1825"
             onChange={(v) => setInfo((prev) => ({ ...prev, nomenclator: v }))}
@@ -860,7 +863,7 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
           {/* 以下三个可选项与传送点工作流一致，写入 tags.Land / tags.UAdm / tags.UAdmG */}
           <WorkflowFeatureSearchSelect
             bridge={bridge}
-            label="所属地理单元（可选，将写入 tags.Land）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Land')}
             value={String(info.land ?? '')}
             placeholder="输入关键词检索：可匹配 Name / ID"
             config={landUnitSearchCfg}
@@ -869,7 +872,7 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
 
           <WorkflowFeatureSearchSelect
             bridge={bridge}
-            label="所属聚落(地标点)（可选，将写入 tags.UAdm）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'UAdm')}
             value={String(info.uadm ?? '')}
             placeholder="输入关键词检索：可匹配 Name / ID"
             config={uadmLandmarkSearchCfg}
@@ -878,7 +881,7 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
 
           <WorkflowFeatureSearchSelect
             bridge={bridge}
-            label="所属聚落(区划)（可选，将写入 tags.UAdmG）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'UAdmG')}
             value={String(info.uadmg ?? '')}
             placeholder="输入关键词检索：可匹配 Name / ID"
             config={uadmGSearchCfg}
@@ -886,7 +889,7 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
           />
 
           <LabeledInput
-            label="Wiki（可选，将写入 extensions.link.wiki）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'wiki')}
             value={info.wiki ?? ''}
             placeholder="例如：https://..."
             onChange={(v) => setInfo((prev) => ({ ...prev, wiki: v }))}

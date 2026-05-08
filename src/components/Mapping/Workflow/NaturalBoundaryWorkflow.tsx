@@ -1,6 +1,7 @@
 // File: src/components/Mapping/Workflow/NaturalBoundaryWorkflow.tsx
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkflowComponentProps, WorldPoint } from './WorkflowHost';
+import * as wfRegistry from './workflowRegistryLabels';
 import AppButton from '@/components/ui/AppButton';
 import {
   EXT_VALUE_TYPE_OPTIONS,
@@ -9,6 +10,8 @@ import {
   listCatalogSKind2Options,
 } from '@/components/Common/featureFormats';
 import WorkflowFeatureSearchSelect, { type SearchSelectConfig } from './WorkflowFeatureSearchSelect';
+
+const WF_KEY = 'ngf_bod';
 
 /**
  * NaturalBoundaryWorkflow（工作流：自然要素-地理边界）
@@ -385,7 +388,7 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
 
         <div className="space-y-3">
           <label className="block space-y-1">
-            <div className="text-xs opacity-80">类型（Kind=NGF, SKind=BOD）</div>
+            <div className="text-xs opacity-80">{wfRegistry.getWorkflowClassificationLabel(WF_KEY)}</div>
             <select
               className="w-full border p-1 rounded text-sm"
               value={info.skind2}
@@ -403,10 +406,10 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
             </select>
           </label>
 
-          <LabeledInput label="名称" value={info.name} placeholder="例如：xx大陆海上边界" onChange={(v) => setInfo((prev) => ({ ...prev, name: v }))} />
+          <LabeledInput label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Name')} value={info.name} placeholder="例如：xx大陆海上边界" onChange={(v) => setInfo((prev) => ({ ...prev, name: v }))} />
 
           <LabeledInput
-            label="字符简称（用于ID）"
+            label={wfRegistry.getWorkflowAuxLabel(WF_KEY, 'abbr')}
             value={info.abbr}
             placeholder="仅建议使用字母/数字/下划线/短横线"
             onChange={(v) => setInfo((prev) => ({ ...prev, abbr: v }))}
@@ -418,7 +421,7 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
           ) : null}
 
           <LabeledInput
-            label="命名者（tags.nomenclator，可选）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'nomenclator')}
             value={info.nomenclator}
             placeholder="例如：XX社团 / 聚落 / 个人署名"
             onChange={(v) => setInfo((prev) => ({ ...prev, nomenclator: v }))}
@@ -426,7 +429,7 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
 
           <WorkflowFeatureSearchSelect
             bridge={bridge}
-            label="边界1（可选，将写入 tags.BNgf1）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'BNgf1')}
             value={String(info.bngf1 ?? '')}
             placeholder="输入关键词检索：可匹配 Name / ID"
             config={ngfBoundarySearchCfg}
@@ -435,7 +438,7 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
 
           <WorkflowFeatureSearchSelect
             bridge={bridge}
-            label="边界2（可选，将写入 tags.BNgf2）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'BNgf2')}
             value={String(info.bngf2 ?? '')}
             placeholder="输入关键词检索：可匹配 Name / ID"
             config={ngfBoundarySearchCfg}
@@ -443,7 +446,7 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
           />
 
           <LabeledInput
-            label="wiki链接（可选，将写入 extensions.link.wiki）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'wiki')}
             value={info.wiki ?? ''}
             placeholder="https://..."
             onChange={(v) => setInfo((prev) => ({ ...prev, wiki: v }))}
@@ -452,7 +455,7 @@ export default function NaturalBoundaryWorkflow(props: WorkflowComponentProps) {
 
 
           <LabeledBriefInput
-            label="简介（可选，将写入 extensions.character.brief）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'brief')}
             value={info.brief ?? ''}
             placeholder="支持长文本输入（不支持换行）"
             onChange={(v) => setInfo((prev) => ({ ...prev, brief: v }))}

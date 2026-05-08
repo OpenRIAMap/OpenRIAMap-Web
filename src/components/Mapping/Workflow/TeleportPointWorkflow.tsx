@@ -1,11 +1,14 @@
 // File: src/components/Mapping/Workflow/TeleportPointWorkflow.tsx
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkflowComponentProps, WorldPoint } from './WorkflowHost';
+import * as wfRegistry from './workflowRegistryLabels';
 import AppButton from '@/components/ui/AppButton';
 import { EXT_VALUE_TYPE_TEXT, listCatalogClassOptions, type FeatureKey } from '@/components/Common/featureFormats';
 import { listHubReturnPoints, type HubReturnPoint } from '@/components/Navigation/teleportHubReturnPoints';
 import { loadRuleItemsForWorld } from '@/components/Rules/data/ruleDataSources';
 import WorkflowFeatureSearchSelect, { type SearchSelectConfig } from './WorkflowFeatureSearchSelect';
+
+const WF_KEY = 'tpp_point';
 
 /**
  * TeleportPointWorkflow（工作流：传送点）
@@ -664,7 +667,7 @@ const commit = () => {
 
         <div className="space-y-3">
           <label className="block space-y-1">
-            <div className="text-xs opacity-80">类型（Class=TPP）</div>
+            <div className="text-xs opacity-80">{wfRegistry.getWorkflowClassificationLabel(WF_KEY)}</div>
             <select
               className="w-full border p-1 rounded text-sm"
               value={info.typeKey}
@@ -682,10 +685,10 @@ const commit = () => {
             </select>
           </label>
 
-          <LabeledInput label="名称" value={info.name} placeholder="例如：主城传送柱-北门" onChange={(v) => setInfo((prev) => ({ ...prev, name: v }))} />
+          <LabeledInput label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Name')} value={info.name} placeholder="例如：主城传送柱-北门" onChange={(v) => setInfo((prev) => ({ ...prev, name: v }))} />
 
           <LabeledInput
-            label="字符简称（用于ID）"
+            label={wfRegistry.getWorkflowAuxLabel(WF_KEY, 'abbr')}
             value={info.abbr}
             placeholder="仅建议使用字母/数字/下划线/短横线"
             onChange={(v) => setInfo((prev) => ({ ...prev, abbr: v }))}
@@ -697,7 +700,7 @@ const commit = () => {
           ) : null}
 
           <label className="block space-y-1">
-            <div className="text-xs opacity-80">所属枢纽区（可选，将写入 hub）</div>
+            <div className="text-xs opacity-80">{wfRegistry.getWorkflowFieldLabel(WF_KEY, 'hub')}</div>
             <select
               className="w-full border p-1 rounded text-sm"
               value={String(info.hub ?? '')}
@@ -717,7 +720,7 @@ const commit = () => {
 
           <WorkflowFeatureSearchSelect
             bridge={bridge}
-            label="所属地理单元（可选，将写入 tags.Land）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'Land')}
             value={String(info.land ?? '')}
             placeholder="输入关键词检索：可匹配 Name / ID"
             config={landUnitSearchCfg}
@@ -726,7 +729,7 @@ const commit = () => {
 
           <WorkflowFeatureSearchSelect
             bridge={bridge}
-            label="所属聚落(地标点)（可选，将写入 tags.UAdm）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'UAdm')}
             value={String(info.uadm ?? '')}
             placeholder="输入关键词检索：可匹配 Name / ID"
             config={uadmLandmarkSearchCfg}
@@ -735,7 +738,7 @@ const commit = () => {
 
           <WorkflowFeatureSearchSelect
             bridge={bridge}
-            label="所属聚落(区划)（可选，将写入 tags.UAdmG）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'UAdmG')}
             value={String(info.uadmg ?? '')}
             placeholder="输入关键词检索：可匹配 Name / ID"
             config={uadmGSearchCfg}
@@ -743,7 +746,7 @@ const commit = () => {
           />
 
           <LabeledInput
-            label="wiki链接（可选，将写入 extensions.link.wiki）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'wiki')}
             value={info.wiki ?? ''}
             placeholder="https://..."
             onChange={(v) => setInfo((prev) => ({ ...prev, wiki: v }))}
@@ -751,7 +754,7 @@ const commit = () => {
 
           {/* NEW: 目标 Warp 点（可选） */}
           <div className="space-y-1">
-            <div className="text-xs opacity-80">目标Warp点(若有)（可选，将写入 TGTWarp；填写后将跳过“目标点坐标”页面）</div>
+            <div className="text-xs opacity-80">{wfRegistry.getWorkflowFieldLabel(WF_KEY, 'TGTWarp')}</div>
             <input
               className="w-full border p-1 rounded text-sm"
               value={String(info.tgtWarpText ?? '')}
@@ -833,7 +836,7 @@ const commit = () => {
           <div className="text-xs text-gray-600">请在地图上点选起点坐标（触发方块位置）。</div>
 
           <LabeledInput
-            label="高度值（可选，将写入 elevation；若点坐标含 y，则优先使用 y）"
+            label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'elevation')}
             value={srcElevInput}
             placeholder="例如：64"
             type="number"
@@ -870,7 +873,7 @@ const commit = () => {
         <div className="text-xs text-gray-600">请在地图上点选目标点坐标（传送到达位置）。</div>
 
         <LabeledInput
-          label="高度值（可选，将写入 TGTelevation；若点坐标含 y，则优先使用 y）"
+          label={wfRegistry.getWorkflowFieldLabel(WF_KEY, 'TGTelevation')}
           value={tgtElevInput}
           placeholder="例如：64"
           type="number"
