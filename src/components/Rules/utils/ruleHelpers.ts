@@ -1,5 +1,6 @@
 import type { FeatureStore } from '@/components/Rules/data/featureStore';
 import type { FeatureRecord, FloorViewConfig } from '@/components/Rules/rendering/renderRules';
+import { formatFloorDisplayLabel } from '@/components/Rules/rendering/order/floorDisplayOrder';
 
 /**
  * Shared helpers for rule evaluation.
@@ -28,17 +29,7 @@ export const DEFAULT_FLOOR_VIEW: FloorViewConfig = {
  * - Accepts numbers/strings like 1, '1', 'B1', 'GF', 'G', etc.
  */
 export function fmtFloorLabel(n: any): string {
-  const s = String(n ?? '').trim();
-  if (!s) return '';
-  // Common aliases
-  const up = s.toUpperCase();
-  if (up === 'G' || up === 'GF' || up === 'GROUND') return 'G';
-  // Try numeric first
-  const v = Number(s);
-  if (!Number.isNaN(v) && Number.isFinite(v)) {
-    return v >= 0 ? `L${v}` : `B${Math.abs(v)}`;
-  }
-  return s;
+  return formatFloorDisplayLabel(n);
 }
 
 // ------------------------------

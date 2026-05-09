@@ -759,3 +759,26 @@ Use this tool before changing polygon label placement logic. In particular, use 
 - STB labels no longer require `Stations.length >= 2`; outside floor view, non-empty `Name` is sufficient to enter the label request pipeline.
 - STB / BUD density, collision role, priority, hide policy, and style are unchanged.
 - ISG / `surfaceLabel`, line labels, geo-anchor scoring, density logic, and collision logic are not changed.
+
+## RB_SLU_SF1 Structure/Floor Display Rework
+
+1. BUD/STB are zoom-aware structure labels.
+2. zoomLevel < 3: geometry and label are hidden.
+3. zoomLevel 3-5: polygon geometry is hidden and the feature uses a lightweight point+label mode at the fixed interior anchor.
+4. Regular low-zoom BUD/STB labels only try the center candidate; priority-listed BUD/STB labels can try C/N/S/E/W and receive higher priority.
+5. Priority IDs are maintained in `src/components/Rules/priority/structureLabelPriority.ts`.
+6. zoomLevel > 5: BUD/STB use unified STB-like collision/density behavior; BUD keeps `structure-label-12`, STB keeps `structure-label-13`.
+7. BUD/STB labels are no longer forcibly hidden in floor view; they still obey density/collision/viewport rules.
+8. Floor selector ordering is centralized in `src/components/Rules/rendering/order/floorDisplayOrder.ts`.
+9. Floor selector order is top-to-bottom: 3F, 2F, 1F, G, B1F, B2F, B3F; unknown floors are placed last.
+10. The current browser session remembers the last selected floor for the active building and restores it when re-entering the same building's floor view.
+
+## RB_SLU_SF2 Low-Zoom Structure Dot Anchor Correction
+
+Low-zoom BUD/STB dot labels use `dotAnchorMode: "anchorRight"`.
+
+- The selected anchor / candidate point is the dot center.
+- The label text is rendered to the right of the dot.
+- The existing `structure-label-12` / `structure-label-13` text style is preserved.
+- Layout viewport and collision checks use the anchored-dot right-expanding rectangle.
+- Existing inline-dot labels remain unchanged unless `dotAnchorMode` is explicitly set to `"anchorRight"`.

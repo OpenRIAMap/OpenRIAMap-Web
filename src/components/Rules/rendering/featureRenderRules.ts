@@ -5,6 +5,10 @@ import type {
 } from "@/components/Rules/rendering/renderRules";
 import type { FeatureDisplayRuleDraft } from "@/components/Rules/rendering/display/displayTypes";
 import {
+  isPriorityStructureLabelFeature,
+  STRUCTURE_LABEL_PRIORITY,
+} from "@/components/Rules/priority/structureLabelPriority";
+import {
   DEFAULT_FLOOR_VIEW,
   fmtFloorLabel,
 } from "@/components/Rules/utils/ruleHelpers";
@@ -102,6 +106,52 @@ function getStationPointColorFromPlatforms(
   }
 
   return null;
+}
+
+type StructureZoomMode = "hidden" | "lowPoint" | "highPolygon";
+
+function getStructureZoomMode(ctx: { zoomLevel: number }): StructureZoomMode {
+  const z = Number((ctx as any)?.zoomLevel ?? 0);
+  if (z < 3) return "hidden";
+  if (z <= 5) return "lowPoint";
+  return "highPolygon";
+}
+
+function makeStructureLabelPlan(
+  r: FeatureRecord,
+  ctx: { zoomLevel: number },
+  options: { styleKey: string; minLevel: number },
+): any {
+  const mode = getStructureZoomMode(ctx);
+  if (mode === "hidden") return { enabled: false };
+
+  const priority = isPriorityStructureLabelFeature(r);
+  const lowZoom = mode === "lowPoint";
+  return {
+    enabled: true,
+    styleKey: options.styleKey,
+    minLevel: lowZoom ? 0 : options.minLevel,
+    placement: "center",
+    withDot: lowZoom,
+    dotAnchorMode: lowZoom ? "anchorRight" : "inline",
+    offsetY: 0,
+    textFrom: (rr: FeatureRecord) =>
+      String((rr.featureInfo as any)?.Name ?? "").trim(),
+    declutter: {
+      priority: lowZoom
+        ? priority
+          ? STRUCTURE_LABEL_PRIORITY.lowZoomPriority
+          : STRUCTURE_LABEL_PRIORITY.lowZoomNormal
+        : STRUCTURE_LABEL_PRIORITY.highZoom,
+      minSpacingPx: lowZoom ? 3 : 4,
+      candidates:
+        lowZoom && !priority ? ["C"] : ["C", "N", "S", "E", "W"],
+      allowHide: true,
+      allowAbbrev: true,
+      abbrev: (text: string) =>
+        text.length > 10 ? text.slice(0, 10) + "…" : text,
+    },
+  };
 }
 
 // ------------------------------
@@ -969,15 +1019,21 @@ export const FEATURE_RENDER_RULES: RenderRule[] = [
   // ------------------------------------------------------------------
 
   {
-    name: "车站建筑 STB：结构轮廓 + 轻量结构名 label（Name 非空，无点状 marker）",
+    name: "车站建筑 STB：zoom 3-5 点+label；zoom>5 结构轮廓 + label",
     match: { Class: "STB", Type: "Polygon" },
     zoom: [0, 99],
     display: DISPLAY_STATION_STRUCTURE,
     symbol: {
       pathStyle: (r, ctx) => {
-        // RB_SLU_5：STB 作为结构面显示，不再用“中心点+label”代表建筑。
-        // 低缩放仍隐藏轮廓，避免全图过密；进入结构显示级别后显示浅填充与细轮廓。
-        if (ctx.zoomLevel < 5) return { opacity: 0, fillOpacity: 0, weight: 0 };
+        const mode = getStructureZoomMode(ctx);
+        if (mode !== "highPolygon") {
+          return {
+            opacity: 0,
+            fillOpacity: 0,
+            weight: 0,
+            interactive: false,
+          };
+        }
 
         const base: L.PathOptions = {
           color: "#111827",
@@ -997,30 +1053,11 @@ export const FEATURE_RENDER_RULES: RenderRule[] = [
         }
         return base;
       },
-      label: {
-        enabled: true,
-        styleKey: "structure-label-13",
-        minLevel: 5,
-        placement: "center",
-        withDot: false,
-        // 字段解析接口：
-        // - 楼层页面（ctx.inFloorView=true）时，为避免遮挡楼层 label，BUD/STB 的 label 需要停止显示。
-        textFrom: (r, ctx) => {
-          if (ctx.inFloorView) return "";
-          // RB_SLU_A2：STB 结构面只要 Name 非空即进入 label request；
-          // 密度、碰撞、viewport 仍负责最终显示/隐藏。
-          return String((r.featureInfo as any)?.Name ?? "").trim();
-        },
-        declutter: {
-          // RB_SLU_11：实际 priority 由 display.collision 接管；这里保留同级兜底值，避免旧入口误导。
-          priority: 2600,
-          minSpacingPx: 4,
-          candidates: ["C", "N", "S", "E", "W"],
-          allowHide: true,
-          allowAbbrev: true,
-          abbrev: (s) => (s.length > 10 ? s.slice(0, 10) + "…" : s),
-        },
-      },
+      label: (r, ctx) =>
+        makeStructureLabelPlan(r, ctx, {
+          styleKey: "structure-label-13",
+          minLevel: 5,
+        }),
       labelClick: {
         enabled: true,
         mode: "normal",
@@ -1041,22 +1078,28 @@ export const FEATURE_RENDER_RULES: RenderRule[] = [
   // ------------------------------------------------------------------
 
   {
-    name: "建筑 BUD：结构轮廓 + 轻量结构名 label（无点状 marker）",
+    name: "建筑 BUD：zoom 3-5 点+label；zoom>5 结构轮廓 + label",
     match: { Class: "BUD", Type: "Polygon" },
     zoom: [0, 99],
     display: DISPLAY_BUILDING_STRUCTURE,
     symbol: {
       pathStyle: (r, ctx) => {
-        // RB_SLU_5：BUD 作为结构面显示，不再用点状 marker 代表建筑。
-        // 低缩放隐藏轮廓，进入结构显示级别后显示浅填充与细轮廓。
-        if (ctx.zoomLevel < 5) return { opacity: 0, fillOpacity: 0, weight: 0 };
+        const mode = getStructureZoomMode(ctx);
+        if (mode !== "highPolygon") {
+          return {
+            opacity: 0,
+            fillOpacity: 0,
+            weight: 0,
+            interactive: false,
+          };
+        }
 
         const base: L.PathOptions = {
           color: "#111827",
-          opacity: 0.24,
+          opacity: 0.28,
           weight: 1,
           fillColor: "#9ca3af",
-          fillOpacity: 0.07,
+          fillOpacity: 0.08,
         };
 
         if (
@@ -1068,28 +1111,11 @@ export const FEATURE_RENDER_RULES: RenderRule[] = [
         }
         return base;
       },
-      label: {
-        enabled: true,
-        styleKey: "structure-label-12",
-        minLevel: 6,
-        placement: "center",
-        withDot: false,
-        // 字段解析接口：
-        // - 楼层页面（ctx.inFloorView=true）时，为避免遮挡楼层 label，BUD/STB 的 label 需要停止显示。
-        textFrom: (r, ctx) => {
-          if (ctx.inFloorView) return "";
-          return String((r.featureInfo as any)?.Name ?? "").trim();
-        },
-        declutter: {
-          // RB_SLU_11：建筑为 soft label，实际 priority 由 display.collision 接管。
-          priority: 1100,
-          minSpacingPx: 3,
-          candidates: ["C", "N", "S", "E", "W"],
-          allowHide: true,
-          allowAbbrev: true,
-          abbrev: (s) => (s.length > 10 ? s.slice(0, 10) + "…" : s),
-        },
-      },
+      label: (r, ctx) =>
+        makeStructureLabelPlan(r, ctx, {
+          styleKey: "structure-label-12",
+          minLevel: 5,
+        }),
       labelClick: {
         enabled: true,
         mode: "normal",

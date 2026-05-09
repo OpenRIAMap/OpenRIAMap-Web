@@ -274,6 +274,9 @@ export type LabelRequest = {
   /** 是否带中心点（影响 bbox 宽度估计） */
   withDot?: boolean;
 
+  /** dot 与文字的锚定语义：anchorRight 表示 dot 中心严格落在候选点上，文字向右展开。 */
+  dotAnchorMode?: "inline" | "anchorRight";
+
   /** 规则层传入的避让配置 */
   declutter: LabelDeclutterConfig;
 
@@ -489,8 +492,13 @@ function getFontSizePx(font: string): number {
   return m ? Math.max(8, Number(m[1])) : 12;
 }
 
-function measureText(text: string, font: string, withDot: boolean): Measured {
-  const key = `${font}|${withDot ? 1 : 0}|${text}`;
+function measureText(
+  text: string,
+  font: string,
+  withDot: boolean,
+  dotAnchorMode?: "inline" | "anchorRight",
+): Measured {
+  const key = `${font}|${withDot ? 1 : 0}|${dotAnchorMode ?? "inline"}|${text}`;
   const hit = _measureCache.get(key);
   if (hit) return hit;
 
@@ -549,7 +557,17 @@ function computeLabelRect(
   size: Measured,
   placement: "center" | "near",
   offsetY: number,
+  dotAnchorMode?: "inline" | "anchorRight",
 ): Rect {
+  if (dotAnchorMode === "anchorRight") {
+    // dot-anchor-right：anchor 是 dot 中心，文字从 dot 右侧展开。
+    // 左侧预留 dot 半径 + 描边阴影，保证 viewport/collision 盒与视觉一致。
+    const dotVisualLeftPadPx = 6;
+    const x = anchor.x - dotVisualLeftPadPx;
+    const y = anchor.y - size.h / 2;
+    return { x, y, w: size.w + dotVisualLeftPadPx, h: size.h };
+  }
+
   if (placement === "center") {
     const x = anchor.x - size.w / 2;
     const y = anchor.y - size.h / 2;
@@ -881,6 +899,7 @@ function rectForCandidate(
     measured,
     baseReq.placement,
     Number(baseReq.offsetY ?? 0),
+    baseReq.dotAnchorMode,
   );
   return { rect, dx, dy };
 }
@@ -1087,7 +1106,7 @@ export function layoutLabelsOnMap(
     const decl = req.declutter ?? {};
     const font =
       req.font ?? "12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-    const measured = measureText(req.text, font, !!req.withDot);
+    const measured = measureText(req.text, font, !!req.withDot, req.dotAnchorMode);
 
     const anchorPx = map.latLngToContainerPoint(req.anchorLatLng);
     const candidates = normalizeCandidates(req, measured, {
@@ -1823,7 +1842,7 @@ export function layoutLabelsOnMap(
     const font =
       baseReq.font ??
       "12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-    const measured = measureText(text, font, !!baseReq.withDot);
+    const measured = measureText(text, font, !!baseReq.withDot, baseReq.dotAnchorMode);
     const polygonAuditEnabled = isPolygonAuditRequest(baseReq);
     const polygonLayoutCandidates: PolygonLayoutCandidateAudit[] = [];
 
@@ -2130,7 +2149,7 @@ export function layoutLabelsOnMap(
     const font =
       baseReq.font ??
       "12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-    const measured = measureText(text, font, !!baseReq.withDot);
+    const measured = measureText(text, font, !!baseReq.withDot, baseReq.dotAnchorMode);
     const candidates = normalizeCandidates({ ...baseReq, text }, measured, {
       ...params,
       viewportPaddingPx: item.viewportPaddingPx,

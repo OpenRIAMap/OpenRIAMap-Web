@@ -116,15 +116,17 @@ export function makeClickableLabelMarker(args: {
   text: string;
   placement: LabelPlacement;
   withDot?: boolean;
+  dotAnchorMode?: "inline" | "anchorRight";
   offsetY?: number;
   styleKey: LabelStyleKey;
   onClick: () => void;
 }): L.Marker {
-  const { latlng, text, placement, withDot, offsetY, styleKey, onClick } = args;
+  const { latlng, text, placement, withDot, dotAnchorMode, offsetY, styleKey, onClick } = args;
 
   const icon = makeLabelDivIcon(styleKey, text, {
     placement,
     withDot,
+    dotAnchorMode,
     offsetY,
     interactive: true,
   });

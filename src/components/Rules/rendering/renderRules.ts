@@ -63,6 +63,13 @@ export type LabelPlan = {
   /** 如果你已实现“中心点+label”，这里可保留 */
   withDot?: boolean;
 
+  /**
+   * 点 + label 的锚定语义。
+   * - inline：默认旧行为，dot 与文字作为一个整体 label 排版。
+   * - anchorRight：dot 中心严格锚定到候选点，文字从 dot 右侧展开。
+   */
+  dotAnchorMode?: 'inline' | 'anchorRight';
+
   /** 【新增】label 样式 key（例如 gm-outline） */
   styleKey?: LabelStyleKey;
 

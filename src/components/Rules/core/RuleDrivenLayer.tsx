@@ -25,6 +25,14 @@ import AppCard from "@/components/ui/AppCard";
 
 import { resolveFeatureCardComponent } from "@/components/Rules/cardrules/featureCardRegistry";
 import type { CardFeatureLinkTarget } from "@/components/Rules/cardrules/cardInteractions";
+import {
+  isPriorityStructureLabelFeature,
+  STRUCTURE_LABEL_PRIORITY,
+} from "@/components/Rules/priority/structureLabelPriority";
+import {
+  compareFloorDisplayOrder,
+  formatFloorDisplayLabel,
+} from "@/components/Rules/rendering/order/floorDisplayOrder";
 import { makeLabelDivIcon } from "@/components/Rules/rendering/labelStyles";
 import {
   createHighlightLayerForFeature,
@@ -1006,6 +1014,7 @@ function makeLabelMarker(
   withDot?: boolean,
   offsetY?: number,
   styleKey?: any, // string key; 类型由 labelStyles 维护
+  dotAnchorMode?: "inline" | "anchorRight",
 ) {
   const icon = makeLabelDivIcon(
     (styleKey ?? "bubble-dark") as any,
@@ -1013,6 +1022,7 @@ function makeLabelMarker(
     {
       placement,
       withDot: !!withDot,
+      dotAnchorMode,
       offsetY,
       interactive: false,
     },
@@ -1254,6 +1264,21 @@ export default function RuleDrivenLayer(props: Props) {
   const [activeBuildingFloorRefSet, setActiveBuildingFloorRefSet] =
     useState<Set<string> | null>(null);
   const [activeBuildingName, setActiveBuildingName] = useState<string>("");
+  const lastFloorSelectionRef = useRef<{
+    buildingUid: string;
+    floorValue: string;
+  } | null>(null);
+
+  const setActiveFloorIndexAndRemember = (idx: number) => {
+    setActiveFloorIndex(idx);
+    const floorValue = floorOptions[idx]?.value;
+    if (activeBuildingUid && floorValue) {
+      lastFloorSelectionRef.current = {
+        buildingUid: activeBuildingUid,
+        floorValue,
+      };
+    }
+  };
 
   // 让 React 能感知 Leaflet 的 zoom/move（否则 ctx/showFloorUI 可能停留在旧值）
   const [leafletZoomState, setLeafletZoomState] = useState<number>(() =>
@@ -1915,7 +1940,7 @@ export default function RuleDrivenLayer(props: Props) {
       const idx = Number(detail.index);
       if (!Number.isInteger(idx)) return;
       if (idx < 0 || idx >= floorOptions.length) return;
-      setActiveFloorIndex(idx);
+      setActiveFloorIndexAndRemember(idx);
     };
 
     window.addEventListener("ria:mobileFloorSelect", handler as EventListener);
@@ -1924,7 +1949,7 @@ export default function RuleDrivenLayer(props: Props) {
         "ria:mobileFloorSelect",
         handler as EventListener,
       );
-  }, [floorOptions.length]);
+  }, [floorOptions.length, activeBuildingUid, floorOptions]);
 
   useEffect(() => {
     window.dispatchEvent(
@@ -2155,26 +2180,28 @@ export default function RuleDrivenLayer(props: Props) {
       }
 
       const values = Array.from(selectorSet);
-      // 排序：数值优先；默认“上到下”显示（大到小）
-      values.sort((a, b) => {
-        const na = Number(a);
-        const nb = Number(b);
-        if (Number.isFinite(na) && Number.isFinite(nb)) return nb - na;
-        return String(b).localeCompare(String(a));
-      });
+      values.sort(compareFloorDisplayOrder);
 
-      const opts = values.map((v) => {
-        const n = Number(v);
-        const label = Number.isFinite(n)
-          ? n >= 0
-            ? `L${n}`
-            : `B${Math.abs(n)}`
-          : v;
-        return { value: v, label };
-      });
+      const opts = values.map((v) => ({
+        value: v,
+        label: formatFloorDisplayLabel(v),
+      }));
+
+      const remembered = lastFloorSelectionRef.current;
+      const rememberedIndex =
+        remembered?.buildingUid === newUid
+          ? opts.findIndex((opt) => opt.value === remembered.floorValue)
+          : -1;
+      const nextIndex = rememberedIndex >= 0 ? rememberedIndex : 0;
 
       setFloorOptions(opts);
-      setActiveFloorIndex(0);
+      setActiveFloorIndex(nextIndex);
+      if (newUid && opts[nextIndex]?.value) {
+        lastFloorSelectionRef.current = {
+          buildingUid: newUid,
+          floorValue: opts[nextIndex].value,
+        };
+      }
     };
 
     updateActiveBuilding();
@@ -2400,10 +2427,15 @@ export default function RuleDrivenLayer(props: Props) {
         if (isSelectedFeature) interactionReasons.push("selected");
         if (isSearchFocus) interactionReasons.push("searchResult");
 
-        const displayPlan = resolveFeatureDisplayPlan(r, rule, context, store, {
+        const baseDisplayPlan = resolveFeatureDisplayPlan(r, rule, context, store, {
           selected: isSelectedFeature,
           searchResult: isSearchFocus,
         });
+        const displayPlan = resolveStructureLabelDisplayPlanForContext(
+          r,
+          baseDisplayPlan,
+          context,
+        );
         if (!shouldRenderByDisplayPlan(displayPlan, context)) {
           updateLineAuditBlocked(
             auditRow,
@@ -3202,7 +3234,7 @@ export default function RuleDrivenLayer(props: Props) {
             : textPathMarker
               ? `textPath:${anchorCandidateId ?? anchorIndex}`
               : `simpleLine:${anchorCandidateId ?? anchorIndex}`;
-          const labelKey = `${p.text}|${req.placement}|${req.withDot ? 1 : 0}|${Number(req.offsetY ?? 0)}|${styleKeyCache}|${plan ? 1 : 0}|${renderModeKey}`;
+          const labelKey = `${p.text}|${req.placement}|${req.withDot ? 1 : 0}|${req.dotAnchorMode ?? "inline"}|${Number(req.offsetY ?? 0)}|${styleKeyCache}|${plan ? 1 : 0}|${renderModeKey}`;
 
           // RB_SLU_24: advanced line-text markers (glyphPath/textPath) are
           // viewport-container geometry. They must be rebuilt every refresh;
@@ -3228,6 +3260,7 @@ export default function RuleDrivenLayer(props: Props) {
                 text: p.text,
                 placement: req.placement,
                 withDot: !!req.withDot,
+                dotAnchorMode: req.dotAnchorMode,
                 offsetY: req.offsetY,
                 styleKey: styleKey as any,
                 onClick: () => {
@@ -3242,6 +3275,7 @@ export default function RuleDrivenLayer(props: Props) {
                 text: p.text,
                 placement: req.placement,
                 withDot: !!req.withDot,
+                dotAnchorMode: req.dotAnchorMode,
                 offsetY: req.offsetY,
                 styleKey: styleKey as any,
                 onClick: () => {
@@ -3258,6 +3292,7 @@ export default function RuleDrivenLayer(props: Props) {
                 !!req.withDot,
                 req.offsetY,
                 styleKey,
+                req.dotAnchorMode,
               );
             }
             b.labelKey = labelKey;
@@ -3474,7 +3509,7 @@ export default function RuleDrivenLayer(props: Props) {
                   <AppButton
                     key={opt.value}
                     type="button"
-                    onClick={() => setActiveFloorIndex(idx)}
+                    onClick={() => setActiveFloorIndexAndRemember(idx)}
                     className={`w-full text-left px-2 py-1 rounded text-xs border transition-colors ${
                       on
                         ? "bg-blue-50 text-blue-700 border-blue-200"
@@ -4011,6 +4046,89 @@ function resolveEffectiveDisplayAnchor(
   return undefined;
 }
 
+function getStructureZoomModeForPlan(ctx: RenderContext): "hidden" | "lowPoint" | "highPolygon" {
+  const z = Number((ctx as any)?.zoomLevel ?? 0);
+  if (z < 3) return "hidden";
+  if (z <= 5) return "lowPoint";
+  return "highPolygon";
+}
+
+function isStructureBuildingPolygon(r: FeatureRecord): boolean {
+  const cls = String(r.meta?.Class ?? r.featureInfo?.Class ?? "").trim();
+  return r.type === "Polygon" && (cls === "BUD" || cls === "STB");
+}
+
+function resolveStructureLabelDisplayPlanForContext(
+  r: FeatureRecord,
+  plan: FeatureDisplayPlan,
+  ctx: RenderContext,
+): FeatureDisplayPlan {
+  if (!isStructureBuildingPolygon(r)) return plan;
+
+  const mode = getStructureZoomModeForPlan(ctx);
+  const priorityFeature = isPriorityStructureLabelFeature(r);
+
+  if (mode === "lowPoint") {
+    return {
+      ...plan,
+      anchor: {
+        ...plan.anchor,
+        candidates: priorityFeature ? ["C", "N", "S", "E", "W"] : ["C"],
+      },
+      collision: {
+        ...plan.collision,
+        role: priorityFeature ? "important" : "optional",
+        priority: priorityFeature
+          ? STRUCTURE_LABEL_PRIORITY.lowZoomPriority
+          : STRUCTURE_LABEL_PRIORITY.lowZoomNormal,
+        group: "structureLabel",
+        allowHide: true,
+        paddingPx: priorityFeature ? 4 : 3,
+        hidePolicy: "abbreviateThenHide",
+      },
+      density: {
+        ...plan.density,
+        enabled: true,
+        gridSizePx: plan.density.gridSizePx ?? 104,
+        maxLabelsPerGrid: priorityFeature ? 3 : 2,
+        reduceOrder: ["abbreviateOptionalLabels", "hideOptionalLabels"],
+        preserveSelected: true,
+        preserveRequired: true,
+      },
+    };
+  }
+
+  if (mode === "highPolygon") {
+    return {
+      ...plan,
+      anchor: {
+        ...plan.anchor,
+        candidates: ["C", "N", "S", "E", "W"],
+      },
+      collision: {
+        ...plan.collision,
+        role: "important",
+        priority: STRUCTURE_LABEL_PRIORITY.highZoom,
+        group: "structureLabel",
+        allowHide: true,
+        paddingPx: 4,
+        hidePolicy: "abbreviateThenHide",
+      },
+      density: {
+        ...plan.density,
+        enabled: true,
+        gridSizePx: plan.density.gridSizePx ?? 104,
+        maxLabelsPerGrid: 3,
+        reduceOrder: ["abbreviateOptionalLabels", "hideOptionalLabels"],
+        preserveSelected: true,
+        preserveRequired: true,
+      },
+    };
+  }
+
+  return plan;
+}
+
 // ======================= LabelLayout：从单要素提取 LabelRequest =======================
 function buildLabelRequest(
   r: FeatureRecord,
@@ -4084,6 +4202,7 @@ function buildLabelRequest(
     text,
     placement: effectivePlacement,
     withDot: !!labelPlan.withDot,
+    dotAnchorMode: labelPlan.dotAnchorMode,
     offsetY: Number(labelPlan.offsetY ?? 0),
     declutter: labelPlan.declutter,
   };
@@ -4120,6 +4239,7 @@ function buildLabelLayer(
 
   const placement = labelPlan.placement ?? "center";
   const withDot = !!labelPlan.withDot;
+  const dotAnchorMode = labelPlan.dotAnchorMode as "inline" | "anchorRight" | undefined;
   const effectivePlacement =
     r.type === "Points" && placement === "center"
       ? (clickPlan as any)?.mode === "labelOnly"
@@ -4153,6 +4273,7 @@ function buildLabelLayer(
       text,
       placement: effectivePlacement,
       withDot,
+      dotAnchorMode,
       offsetY: labelPlan.offsetY,
       styleKey: (styleKey ?? "bubble-dark") as any,
       onClick: onDeletePickClick,
@@ -4165,6 +4286,7 @@ function buildLabelLayer(
       text,
       placement: effectivePlacement,
       withDot,
+      dotAnchorMode,
       offsetY: labelPlan.offsetY,
       styleKey: (styleKey ??
         (clickPlan as any).labelStyleKey ??
@@ -4180,5 +4302,6 @@ function buildLabelLayer(
     withDot,
     labelPlan.offsetY,
     styleKey,
+    dotAnchorMode,
   );
 }

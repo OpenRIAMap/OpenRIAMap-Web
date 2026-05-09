@@ -151,8 +151,8 @@ export const DISPLAY_PROFILES: Record<
   buildingStructure: {
     displayTier: "structure",
     visibility: {
-      geometryMinZoom: 5,
-      labelMinZoom: 6,
+      geometryMinZoom: 3,
+      labelMinZoom: 3,
     },
     symbol: {
       enabled: false,
@@ -171,18 +171,18 @@ export const DISPLAY_PROFILES: Record<
       requireInsideGeometry: true,
     },
     collision: {
-      role: "soft",
-      priority: 1100,
+      role: "important",
+      priority: 3600,
       group: "structureLabel",
       allowHide: true,
-      paddingPx: 3,
+      paddingPx: 4,
       hidePolicy: "abbreviateThenHide",
     },
     density: {
       enabled: true,
       gridSizePx: 104,
-      maxLabelsPerGrid: 2,
-      reduceOrder: ["hideSoftLabels", "geometryOnly"],
+      maxLabelsPerGrid: 3,
+      reduceOrder: ["abbreviateOptionalLabels", "hideOptionalLabels"],
       preserveSelected: true,
       preserveRequired: true,
     },
@@ -191,8 +191,8 @@ export const DISPLAY_PROFILES: Record<
   stationStructure: {
     displayTier: "structure",
     visibility: {
-      geometryMinZoom: 5,
-      labelMinZoom: 5,
+      geometryMinZoom: 3,
+      labelMinZoom: 3,
     },
     symbol: {
       enabled: false,

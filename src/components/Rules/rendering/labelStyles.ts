@@ -47,6 +47,7 @@ export type LabelPlacement = 'center' | 'near';
 export type LabelRenderOptions = {
   placement: LabelPlacement;
   withDot?: boolean;
+  dotAnchorMode?: 'inline' | 'anchorRight';
   offsetY?: number;
   /** 是否允许交互（用于“点击 label”模式） */
   interactive?: boolean;
@@ -70,6 +71,21 @@ function dotHtml(): string {
       border-radius:999px;
       background:#fff;
       margin-right:6px;
+      box-shadow:0 0 0 3px rgba(0,0,0,0.85);
+      flex:0 0 auto;
+    "></span>
+  `;
+}
+
+function anchoredDotHtml(): string {
+  return `
+    <span style="
+      display:inline-block;
+      width:6px;height:6px;
+      border-radius:999px;
+      background:#fff;
+      margin-left:-3px;
+      margin-right:8px;
       box-shadow:0 0 0 3px rgba(0,0,0,0.85);
       flex:0 0 auto;
     "></span>
@@ -127,11 +143,16 @@ export function renderLabelHtml(styleKey: LabelStyleKeyInput, text: string, opts
   const safe = writingMode === 'vertical' ? buildVerticalTokensHtml(rawText) : escapeHtml(rawText);
 
   const placement = opts.placement ?? 'center';
-  const baseTransform = placementTransform(placement);
-  const transform = writingMode === 'vertical' ? baseTransform : (rotateDeg ? `${baseTransform} rotate(${rotateDeg}deg)` : baseTransform);
+  const anchorRight = !!opts.withDot && opts.dotAnchorMode === 'anchorRight';
+  const baseTransform = anchorRight ? 'translate(0, -50%)' : placementTransform(placement);
+  const transform = anchorRight
+    ? baseTransform
+    : writingMode === 'vertical'
+      ? baseTransform
+      : (rotateDeg ? `${baseTransform} rotate(${rotateDeg}deg)` : baseTransform);
   const extraMarginTop = placementExtraMarginTopPx(placement, opts.offsetY);
 
-  const dot = opts.withDot ? dotHtml() : '';
+  const dot = opts.withDot ? (anchorRight ? anchoredDotHtml() : dotHtml()) : '';
   const pe = opts.interactive ? 'auto' : 'none';
   const cursor = opts.interactive ? 'pointer' : 'default';
 
