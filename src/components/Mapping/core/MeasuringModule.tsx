@@ -2626,9 +2626,16 @@ useEffect(() => {
   const handler = (ev: Event) => {
     const detail = (ev as CustomEvent<MinimalFeatureEditPackage>).detail;
     if (!detail) return;
-    applyMinimalFeatureEditPackage(detail);
-    if (!measuringActive) {
-      setMeasuringActive(true);
+    const requestId = String((detail as any)?.__riaImportRequestId ?? '').trim();
+    try {
+      applyMinimalFeatureEditPackage(detail);
+      if (!measuringActive) {
+        setMeasuringActive(true);
+      }
+    } finally {
+      if (requestId) {
+        window.dispatchEvent(new CustomEvent('ria:importFeatureEditPackageDone', { detail: { requestId } }));
+      }
     }
   };
   window.addEventListener('ria:importFeatureEditPackage', handler as EventListener);

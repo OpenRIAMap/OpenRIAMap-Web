@@ -10,6 +10,8 @@ import { buildInfoSectionsForFeature, pickFeatureDisplayName } from '@/component
 import { buildPictureUrlsForFeature } from '@/components/Rules/cardrules/pictureRules';
 import { buildMinimalFeatureEditPackage } from '@/components/Mapping/core/minimalFeatureEditPackage';
 import { stringifyFeatureJsonArray } from '@/components/Common/featureJsonSerializer';
+import FeatureSharePanel from '@/components/Rules/share/FeatureSharePanel';
+import { buildFeatureSharePayload, type FeatureSharePayload } from '@/lib/featureShareLink';
 import {
   isExternalLinkValue,
   isFeatureLinkValue,
@@ -19,7 +21,7 @@ import {
 } from '@/components/Rules/cardrules/cardInteractions';
 // 使用相对路径，避免不同构建环境下 @ 别名解析差异导致 TS2307。
 import { loadRailNewIndex, type RailNewIndex } from '@/components/Navigation/railNewIndex';
-import { X } from 'lucide-react';
+import { Navigation, Share2, X } from 'lucide-react';
 
 type Props = {
   open: boolean;
@@ -44,6 +46,7 @@ type Props = {
   /** 渲染模式：floating=桌面悬浮，embedded=嵌入容器（移动端底部抽屉） */
   variant?: 'floating' | 'embedded';
   onOpenJsonPanel?: (payload: { title: string; jsonText: string; filename: string }) => void;
+  onOpenSharePanel?: (payload: FeatureSharePayload) => void;
 };
 
 type CardRow = { label: string; value: any };
@@ -146,6 +149,7 @@ export default function FeatureInteractionCard(props: Props) {
     infoSectionsOverride,
     variant = 'floating',
     onOpenJsonPanel,
+    onOpenSharePanel,
   } = props;
   if (!open) return null;
 
@@ -300,10 +304,71 @@ export default function FeatureInteractionCard(props: Props) {
     return `${id}.json`;
   }, [feature]);
 
+  const [shareOpen, setShareOpen] = useState(false);
+  useEffect(() => setShareOpen(false), [feature]);
+
+  const sharePayload = useMemo(() => {
+    const fallbackWorldId = loadMapSettings()?.currentWorld ?? 'zth';
+    return buildFeatureSharePayload({ feature, title, fallbackWorldId });
+  }, [feature, title]);
+
+  const [importProgressOpen, setImportProgressOpen] = useState(false);
+  const [importProgressText, setImportProgressText] = useState('正在准备要素导入包');
+  const importProgressTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (importProgressTimerRef.current !== null) {
+        window.clearTimeout(importProgressTimerRef.current);
+      }
+    };
+  }, []);
+
+  const waitForImportDone = (requestId: string) => new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(fallbackTimer);
+      window.removeEventListener('ria:importFeatureEditPackageDone', doneHandler as EventListener);
+      resolve();
+    };
+    const doneHandler = (ev: Event) => {
+      const detail = (ev as CustomEvent<any>).detail ?? {};
+      if (!requestId || detail.requestId === requestId) finish();
+    };
+    const fallbackTimer = window.setTimeout(finish, 1200);
+    window.addEventListener('ria:importFeatureEditPackageDone', doneHandler as EventListener);
+  });
+
   const handleImportLayer = async () => {
-    const pkg = await buildMinimalFeatureEditPackage(feature);
-    if (!pkg) return;
-    window.dispatchEvent(new CustomEvent('ria:importFeatureEditPackage', { detail: pkg }));
+    const requestId = `feature-import:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+
+    if (importProgressTimerRef.current !== null) {
+      window.clearTimeout(importProgressTimerRef.current);
+    }
+    setImportProgressText('正在准备要素导入包');
+    setImportProgressOpen(false);
+    importProgressTimerRef.current = window.setTimeout(() => {
+      setImportProgressOpen(true);
+    }, 2000);
+
+    try {
+      const pkg = await buildMinimalFeatureEditPackage(feature);
+      if (!pkg) return;
+      setImportProgressText('正在写入图层管理');
+      window.dispatchEvent(new CustomEvent('ria:importFeatureEditPackage', {
+        detail: { ...pkg, __riaImportRequestId: requestId },
+      }));
+      await waitForImportDone(requestId);
+      setImportProgressText('正在刷新测绘图层');
+    } finally {
+      if (importProgressTimerRef.current !== null) {
+        window.clearTimeout(importProgressTimerRef.current);
+        importProgressTimerRef.current = null;
+      }
+      setImportProgressOpen(false);
+    }
   };
 
   const handleJsonOpen = () => {
@@ -318,13 +383,29 @@ export default function FeatureInteractionCard(props: Props) {
     setJsonOpen(true);
   };
 
+  const handleShareOpen = () => {
+    if (!sharePayload) return;
+    if (variant === 'embedded' && onOpenSharePanel) {
+      onOpenSharePanel(sharePayload);
+      return;
+    }
+    setShareOpen(true);
+  };
+
+  const handleNavigateOpen = () => {
+    if (!feature) return;
+    window.dispatchEvent(new CustomEvent('ria:featureCardNavigate', {
+      detail: { feature, title: title || '当前要素' },
+    }));
+  };
+
   const cardBody = (
     <AppCard
       className={`${cardClassName ?? 'w-[360px]'}`}
       onWheel={(e) => e.stopPropagation()}
     >
         <div className="flex items-center justify-between px-3 py-2 border-b border-black/10">
-          <div className="min-w-0 pr-2 text-sm font-semibold truncate" title={title} data-draggable-title>
+          <div className="min-w-0 flex-1 pr-2 text-sm font-semibold truncate" title={title} data-draggable-title>
             {title || '（未命名要素）'}
           </div>
           <div className="ml-2 flex shrink-0 items-center gap-1">
@@ -337,13 +418,34 @@ export default function FeatureInteractionCard(props: Props) {
               >
                 导入
               </AppButton>
-            ) : null}
+            ) : (
+              <AppButton
+                className="min-w-[46px] px-2 py-1 text-xs bg-transparent hover:bg-black/5"
+                onClick={handleJsonOpen}
+                type="button"
+                title="当前要素 JSON"
+              >
+                JSON
+              </AppButton>
+            )}
             <AppButton
-              className="min-w-[46px] px-2 py-1 text-xs bg-transparent hover:bg-black/5"
-              onClick={handleJsonOpen}
+              className="h-7 w-7 p-1.5 text-gray-500 hover:text-blue-600 hover:bg-black/5 rounded"
+              onClick={handleNavigateOpen}
               type="button"
+              aria-label="导航"
+              title="导航"
             >
-              JSON
+              <Navigation className="w-3.5 h-3.5" />
+            </AppButton>
+            <AppButton
+              className="h-7 w-7 p-1.5 text-gray-500 hover:text-blue-600 hover:bg-black/5 rounded disabled:opacity-50"
+              onClick={handleShareOpen}
+              type="button"
+              aria-label="分享"
+              title={sharePayload ? '分享' : '当前要素缺少 ID，无法分享'}
+              disabled={!sharePayload}
+            >
+              <Share2 className="w-3.5 h-3.5" />
             </AppButton>
             {variant === 'embedded' ? null : <div className="w-9 shrink-0" aria-hidden="true" />}
             {variant === 'embedded' ? null : (
@@ -682,6 +784,29 @@ export default function FeatureInteractionCard(props: Props) {
           stackGroupOrder={0}
         >
           {cardBody}
+        </DraggablePanel>
+      )}
+
+      {importProgressOpen && (
+        <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/20" onMouseDown={(e) => e.stopPropagation()}>
+          <AppCard className="w-[320px] p-4 shadow-2xl">
+            <div className="text-sm font-semibold text-gray-800">正在导入要素</div>
+            <div className="mt-2 text-xs text-gray-500">{importProgressText}</div>
+            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+              <div className="h-full w-1/2 animate-pulse rounded-full bg-blue-500" />
+            </div>
+          </AppCard>
+        </div>
+      )}
+
+      {shareOpen && sharePayload && (
+        <DraggablePanel
+          id="featureSharePanel"
+          defaultPosition={{ x: 400, y: 200 }}
+          stackGroup="feature-interaction"
+          stackGroupOrder={1}
+        >
+          <FeatureSharePanel payload={sharePayload} onClose={() => setShareOpen(false)} />
         </DraggablePanel>
       )}
 

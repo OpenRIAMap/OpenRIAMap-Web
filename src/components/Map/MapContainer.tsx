@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useRef, useState, useCallback } from 'react'
 import MobileBottomSheet from '@/components/Mobile/MobileBottomSheet';
 import MobileQuickDock from '@/components/Mobile/MobileQuickDock';
 import MobileFeatureJsonPanel from '@/components/Mobile/MobileFeatureJsonPanel';
+import MobileFeatureSharePanel from '@/components/Mobile/MobileFeatureSharePanel';
 import MobileFloorPanel from '@/components/Mobile/MobileFloorPanel';
 import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -15,7 +16,7 @@ import { LineHighlightLayer } from './LineHighlightLayer';
 import { WorldSwitcher } from './WorldSwitcher';
 import { SearchBar, type SearchResult } from '../Search/SearchBar';
 import { getMatchingRuleButtonIds } from '../Rules/ButtonRule/buttonRuleFilter';
-import { NavigationPanel } from '../Navigation/NavigationPanel';
+import { NavigationPanel, type NavigationInitialPoint } from '../Navigation/NavigationPanel';
 import { AttributeQueryPanel } from '../AttributeQuery/AttributeQueryPanel';
 import { PlayerDetailCard } from '../PlayerDetail/PlayerDetailCard';
 import { Toolbar, LayerControl, AboutCard } from '../Toolbar/Toolbar';
@@ -35,7 +36,7 @@ import { useFeatureModuleStore } from '@/store/featureModuleStore';
 
 import RuleDrivenLayer from '@/components/Rules/core/RuleDrivenLayer';
 import { resolveFeatureCardComponent } from '@/components/Rules/cardrules/featureCardRegistry';
-import type { FeatureRecord } from '@/components/Rules/rendering/renderRules';
+import { pickIdFieldValue, type FeatureRecord } from '@/components/Rules/rendering/renderRules';
 import RuleButtonPanel from '@/components/Rules/ButtonRule/RuleButtonPanel';
 import { useRuleButtonState } from '@/components/Rules/ButtonRule/ruleButtonState';
 
@@ -44,6 +45,9 @@ import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
 import ToolIconButton from '@/components/Toolbar/ToolIconButton';
 import { Globe2, PanelsTopLeft, Layers3, SlidersHorizontal, Plus, Minus, Pencil, Ruler } from 'lucide-react';
+import { buildBuildingNameIndex, getRuleCategoryLabelWithParent, getRuleDisplayName } from '@/components/Search/searchRuleTables';
+import { getRuleSearchPool } from '@/components/Rules/search/ruleSearchRegistry';
+import { parseFeatureShareTargetFromLocation, type FeatureSharePayload, type FeatureShareTarget } from '@/lib/featureShareLink';
 
 // ===== 导航“图上选取”：MapContainer 统一派发地图点击事件 =====
 type MapClickWorldPointEventDetail = {
@@ -52,7 +56,7 @@ type MapClickWorldPointEventDetail = {
 };
 
 
-type MobilePanelKey = null | 'navigation' | 'attributeQuery' | 'players' | 'about' | 'settings' | 'featureJson';
+type MobilePanelKey = null | 'navigation' | 'attributeQuery' | 'players' | 'about' | 'settings' | 'featureJson' | 'featureShare';
 type MobileQuickPanelKey = null | 'worlds' | 'toolbar' | 'ruleButtons' | 'modeTools';
 
 // 世界配置
@@ -75,6 +79,90 @@ const WORLDS = [
 const PLAYER_FEATURE_ENABLED = false;
 const LINES_FEATURE_ENABLED = false;
 
+function getRuleCenterCoord(r: FeatureRecord): Coordinate | null {
+  if (r?.p3) return { x: r.p3.x, y: r.p3.y ?? 64, z: r.p3.z };
+  const coords = Array.isArray(r?.coords3) ? r.coords3 : [];
+  if (!coords.length) return null;
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let minZ = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  let maxZ = Number.NEGATIVE_INFINITY;
+  for (const c of coords) {
+    minX = Math.min(minX, c.x);
+    minY = Math.min(minY, c.y ?? 64);
+    minZ = Math.min(minZ, c.z);
+    maxX = Math.max(maxX, c.x);
+    maxY = Math.max(maxY, c.y ?? 64);
+    maxZ = Math.max(maxZ, c.z);
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minZ) || !Number.isFinite(maxX) || !Number.isFinite(maxZ)) return null;
+  return { x: (minX + maxX) / 2, y: Number.isFinite(minY + maxY) ? (minY + maxY) / 2 : 64, z: (minZ + maxZ) / 2 };
+}
+
+function getRuleRepresentativeCoord(r: FeatureRecord): Coordinate | null {
+  if (r?.p3) return { x: r.p3.x, y: r.p3.y ?? 64, z: r.p3.z };
+  const coords = Array.isArray(r?.coords3) ? r.coords3 : [];
+  if (!coords.length) return null;
+
+  const bboxCenter = () => getRuleCenterCoord(r);
+  if (r.type === 'Polyline' && coords.length >= 2) {
+    let total = 0;
+    const segLens: number[] = [];
+    for (let i = 1; i < coords.length; i++) {
+      const dx = coords[i].x - coords[i - 1].x;
+      const dz = coords[i].z - coords[i - 1].z;
+      const len = Math.hypot(dx, dz);
+      segLens.push(len);
+      total += len;
+    }
+    if (total <= 0) return bboxCenter();
+    const half = total / 2;
+    let acc = 0;
+    for (let i = 1; i < coords.length; i++) {
+      const len = segLens[i - 1] ?? 0;
+      if (acc + len >= half && len > 0) {
+        const t = (half - acc) / len;
+        return {
+          x: coords[i - 1].x + (coords[i].x - coords[i - 1].x) * t,
+          y: coords[i - 1].y ?? 64,
+          z: coords[i - 1].z + (coords[i].z - coords[i - 1].z) * t,
+        };
+      }
+      acc += len;
+    }
+  }
+  return bboxCenter();
+}
+
+function getRuleShareId(r: FeatureRecord): string {
+  const cls = String(r?.meta?.Class ?? r?.featureInfo?.Class ?? '').trim();
+  const picked = pickIdFieldValue(r?.featureInfo, cls);
+  return String(r?.meta?.idValue ?? picked.idValue ?? r?.featureInfo?.ID ?? '').trim();
+}
+
+function findRuleByShareTarget(pool: FeatureRecord[], target: FeatureShareTarget): FeatureRecord | null {
+  const wanted = String(target.featureId ?? '').trim();
+  if (!wanted) return null;
+  return pool.find((r) => getRuleShareId(r) === wanted) ?? null;
+}
+
+function buildNavigationInitialPointFromFeature(feature: FeatureRecord, title: string): NavigationInitialPoint | null {
+  const coord = getRuleRepresentativeCoord(feature);
+  if (!coord) return null;
+  const display = getRuleDisplayName(feature);
+  const name = String(title || display.name || display.rawName || getRuleShareId(feature) || '当前要素').trim();
+  return {
+    id: getRuleShareId(feature),
+    name,
+    coord,
+    extra: '当前要素',
+    ruleRecord: feature,
+    nonce: Date.now(),
+  };
+}
+
 function MapContainer() {
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletMapRef = useRef<L.Map | null>(null);
@@ -82,10 +170,12 @@ function MapContainer() {
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const measuringModuleRef = useRef<MeasuringModuleHandle | null>(null);
   const [mapReady, setMapReady] = useState(false);
+  const initialShareTargetRef = useRef<FeatureShareTarget | null>(parseFeatureShareTargetFromLocation());
+  const shareTargetConsumedRef = useRef(false);
 
-  // 从 cookie 读取初始设置
+  // 从 cookie 读取初始设置；分享链接中的 world 优先，避免先进入 cookie 世界再切换。
   const savedSettings = loadMapSettings();
-  const [currentWorld, setCurrentWorld] = useState(savedSettings?.currentWorld ?? 'zth');
+  const [currentWorld, setCurrentWorld] = useState(initialShareTargetRef.current?.worldId ?? savedSettings?.currentWorld ?? 'zth');
   const [showRailway, setShowRailway] = useState(savedSettings?.showRailway ?? false);
   const [showLandmark, setShowLandmark] = useState(savedSettings?.showLandmark ?? false);
   const [showPlayers, setShowPlayers] = useState(
@@ -106,8 +196,10 @@ function MapContainer() {
   const [mobileSheetOffset, setMobileSheetOffset] = useState(0);
   const [selectedRuleFeature, setSelectedRuleFeature] = useState<FeatureRecord | null>(null);
   const [selectedRuleClassCode, setSelectedRuleClassCode] = useState<string | null>(null);
+  const [navigationInitialEndPoint, setNavigationInitialEndPoint] = useState<NavigationInitialPoint | null>(null);
 
   const [mobileFeatureJson, setMobileFeatureJson] = useState<{ title: string; jsonText: string; filename: string } | null>(null);
+  const [mobileFeatureShare, setMobileFeatureShare] = useState<FeatureSharePayload | null>(null);
   const [mobileFloorPanelState, setMobileFloorPanelState] = useState<{
     visible: boolean;
     buildingName: string;
@@ -318,6 +410,8 @@ useEffect(() => {
     setSelectedRuleFeature(null);
     setSelectedRuleClassCode(null);
     setMobileFeatureJson(null);
+    setMobileFeatureShare(null);
+    setNavigationInitialEndPoint(null);
     window.dispatchEvent(new CustomEvent('ria:ruleFeatureCardClose'));
   }, []);
 
@@ -332,6 +426,8 @@ useEffect(() => {
     setSelectedRuleFeature(null);
     setSelectedRuleClassCode(null);
     setMobileFeatureJson(null);
+    setMobileFeatureShare(null);
+    setNavigationInitialEndPoint(null);
     window.dispatchEvent(new CustomEvent('ria:ruleFeatureCardClose'));
     setMobileActivePanel((prev) => (prev === panel ? null : panel));
   }, []);
@@ -375,7 +471,7 @@ useEffect(() => {
           setMobileQuickPanel(null);
           setMobileSheetHidden(false);
           setMobileSheetCollapsed(false);
-          if (mobileActivePanel !== 'featureJson') setMobileActivePanel(null);
+          if (mobileActivePanel !== 'featureJson' && mobileActivePanel !== 'featureShare') setMobileActivePanel(null);
         }
         return nextFeature;
       });
@@ -403,6 +499,37 @@ useEffect(() => {
 
   const handleMobileFloorSelect = useCallback((index: number) => {
     window.dispatchEvent(new CustomEvent('ria:mobileFloorSelect', { detail: { index } }));
+  }, []);
+
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent<any>).detail ?? {};
+      const feature = detail.feature as FeatureRecord | null | undefined;
+      if (!feature) return;
+
+      const point = buildNavigationInitialPointFromFeature(feature, String(detail.title ?? ''));
+      setNavigationInitialEndPoint(point);
+
+      const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches;
+      if (isMobile) {
+        suppressRuleFeatureCardOpenRef.current = true;
+        setMobileQuickPanel(null);
+        setMobileFeatureJson(null);
+        setMobileFeatureShare(null);
+        setSelectedRuleFeature(null);
+        setSelectedRuleClassCode(null);
+        setMobileActivePanel('navigation');
+        setMobileSheetHidden(false);
+        setMobileSheetCollapsed(false);
+        window.dispatchEvent(new CustomEvent('ria:ruleFeatureCardClose'));
+        return;
+      }
+
+      setShowNavigation(true);
+    };
+
+    window.addEventListener('ria:featureCardNavigate', handler as EventListener);
+    return () => window.removeEventListener('ria:featureCardNavigate', handler as EventListener);
   }, []);
 
   // 关闭"铁路图层"时，同时隐藏线路高亮与详情卡片，避免看起来"图层控制不生效"
@@ -636,6 +763,51 @@ if (PLAYER_FEATURE_ENABLED) {
     }
   }, [activeRuleButtonIds, toggleRuleButton]);
 
+  useEffect(() => {
+    const target = initialShareTargetRef.current;
+    if (!target || shareTargetConsumedRef.current) return;
+    if (!mapReady || !dataLoaded || currentWorld !== target.worldId) return;
+
+    let cancelled = false;
+    let timer: number | null = null;
+    let attempts = 0;
+
+    const tryOpenSharedFeature = () => {
+      if (cancelled || shareTargetConsumedRef.current) return;
+      attempts += 1;
+
+      const pool = getRuleSearchPool(target.worldId);
+      const record = findRuleByShareTarget(pool, target);
+      if (record) {
+        const buildingNameIndex = buildBuildingNameIndex(pool);
+        const display = getRuleDisplayName(record);
+        const result: SearchResult = {
+          type: 'rule',
+          name: display.name || display.rawName || target.featureId,
+          coord: getRuleCenterCoord(record),
+          extra: getRuleCategoryLabelWithParent(record, buildingNameIndex),
+          ruleRecord: record,
+        };
+        shareTargetConsumedRef.current = true;
+        handleSearchSelect(result);
+        return;
+      }
+
+      if (attempts < 80) {
+        timer = window.setTimeout(tryOpenSharedFeature, 250);
+      } else {
+        shareTargetConsumedRef.current = true;
+        console.warn('[share-link] 未找到分享链接对应的要素：', target);
+      }
+    };
+
+    timer = window.setTimeout(tryOpenSharedFeature, 0);
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [currentWorld, dataLoaded, handleSearchSelect, mapReady]);
+
   // 线路选中处理 - 高亮线路并调整视图
   const handleLineSelect = useCallback((line: ParsedLine) => {
     if (!showRailway) setShowRailway(true);
@@ -831,7 +1003,7 @@ if (mapStyle === 'sketch') {
     if (!mapRef.current || leafletMapRef.current) return;
 
     // 从 cookie 读取初始世界设置
-    const savedWorld = loadMapSettings()?.currentWorld ?? 'zth';
+    const savedWorld = initialShareTargetRef.current?.worldId ?? loadMapSettings()?.currentWorld ?? 'zth';
 
     // 创建 Dynmap CRS
     const crs = createDynmapCRS(ZTH_FLAT_CONFIG);
@@ -1010,7 +1182,9 @@ map.on('mousemove', handleMouseMove);
                     ? '设置'
                     : mobileActivePanel === 'featureJson'
                       ? 'JSON 详情'
-                      : '';
+                      : mobileActivePanel === 'featureShare'
+                        ? '分享要素'
+                        : '';
 
   const shouldShowMobileSheet = Boolean(highlightedLine || selectedPoint || selectedPlayer || selectedRuleFeature || mobileActivePanel);
 
@@ -1079,6 +1253,10 @@ map.on('mousemove', handleMouseMove);
       ) : null;
     }
 
+    if (mobileActivePanel === 'featureShare') {
+      return mobileFeatureShare ? <MobileFeatureSharePanel payload={mobileFeatureShare} /> : null;
+    }
+
     if (selectedRuleFeature) {
       const Card = resolveFeatureCardComponent(selectedRuleClassCode);
       return (
@@ -1092,7 +1270,19 @@ map.on('mousemove', handleMouseMove);
           onOpenJsonPanel={(payload) => {
             suppressRuleFeatureCardOpenRef.current = true;
             setMobileFeatureJson(payload);
+            setMobileFeatureShare(null);
             setMobileActivePanel('featureJson');
+            setMobileSheetHidden(false);
+            setMobileSheetCollapsed(false);
+            setSelectedRuleFeature(null);
+            setSelectedRuleClassCode(null);
+            window.dispatchEvent(new CustomEvent('ria:ruleFeatureCardClose'));
+          }}
+          onOpenSharePanel={(payload) => {
+            suppressRuleFeatureCardOpenRef.current = true;
+            setMobileFeatureShare(payload);
+            setMobileFeatureJson(null);
+            setMobileActivePanel('featureShare');
             setMobileSheetHidden(false);
             setMobileSheetCollapsed(false);
             setSelectedRuleFeature(null);
@@ -1118,6 +1308,7 @@ map.on('mousemove', handleMouseMove);
             worldId={currentWorld}
             onRouteFound={handleRouteFound}
             onClose={closeMobileSheet}
+            initialEndPoint={navigationInitialEndPoint}
             onPointClick={(coord) => {
               const map = leafletMapRef.current;
               const proj = projectionRef.current;
@@ -1241,7 +1432,7 @@ case 'players':
         />
 
         <Toolbar
-          onNavigationClick={() => { setShowNavigation(true); }}
+          onNavigationClick={() => { setNavigationInitialEndPoint(null); setShowNavigation(true); }}
           onAttributeQueryClick={() => { setShowAttributeQuery(true); }}
           onLinesClick={handleOpenLegacyLinesPage}
           onPlayersClick={() => { setShowPlayersPage(true); }}
@@ -1424,7 +1615,8 @@ case 'players':
             players={PLAYER_FEATURE_ENABLED ? players : []}
             worldId={currentWorld}
             onRouteFound={handleRouteFound}
-            onClose={() => setShowNavigation(false)}
+            onClose={() => { setShowNavigation(false); setNavigationInitialEndPoint(null); }}
+            initialEndPoint={navigationInitialEndPoint}
             onPointClick={(coord) => {
               const map = leafletMapRef.current;
               const proj = projectionRef.current;

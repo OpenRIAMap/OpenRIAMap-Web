@@ -5,6 +5,7 @@ import TRPFeatureInteractionCard from './TRPFeatureInteractionCard';
 
 import type { FeatureRecord } from '@/components/Rules/rendering/renderRules';
 import type { CardFeatureLinkTarget, ResolveFeatureById } from './cardInteractions';
+import type { FeatureSharePayload } from '@/lib/featureShareLink';
 
 export type FeatureCardCommonProps = {
   open: boolean;
@@ -15,6 +16,7 @@ export type FeatureCardCommonProps = {
   onTryTriggerLabelClickById?: (id: string, linkTarget?: CardFeatureLinkTarget) => void;
   variant?: 'floating' | 'embedded';
   onOpenJsonPanel?: (payload: { title: string; jsonText: string; filename: string }) => void;
+  onOpenSharePanel?: (payload: FeatureSharePayload) => void;
 };
 
 export const FEATURE_CARD_REGISTRY: Record<string, ComponentType<FeatureCardCommonProps>> = {

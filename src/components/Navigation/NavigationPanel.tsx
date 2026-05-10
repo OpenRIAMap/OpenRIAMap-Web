@@ -210,6 +210,15 @@ function makeCoordLabel(p: { x: number; z: number }) {
 // types
 // ---------------------------
 
+export type NavigationInitialPoint = {
+  id?: string;
+  name: string;
+  coord: Coordinate;
+  extra?: string;
+  ruleRecord?: FeatureRecord;
+  nonce?: number;
+};
+
 interface NavigationPanelProps {
   stations: ParsedStation[];
   lines: ParsedLine[];
@@ -219,6 +228,7 @@ interface NavigationPanelProps {
   onRouteFound?: (route: RouteHighlightData | Array<{ coord: Coordinate }>) => void;
   onClose: () => void;
   onPointClick?: (coord: Coordinate) => void;
+  initialEndPoint?: NavigationInitialPoint | null;
 }
 
 interface SearchItem {
@@ -806,6 +816,7 @@ export function NavigationPanel({
   onRouteFound,
   onClose,
   onPointClick,
+  initialEndPoint,
 }: NavigationPanelProps) {
   const [startPoint, setStartPoint] = useState<SearchItem | null>(null);
   const [endPoint, setEndPoint] = useState<SearchItem | null>(null);
@@ -818,6 +829,29 @@ export function NavigationPanel({
   const [resultTeleportNew, setResultTeleportNew] = useState<NavTeleportNewIntegratedPlan | null>(null);
   const [resultRoad, setResultRoad] = useState<NavRoadPlan | null>(null);
   const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    if (!initialEndPoint?.coord) return;
+    const coord: Coordinate = {
+      x: initialEndPoint.coord.x,
+      y: initialEndPoint.coord.y ?? 64,
+      z: initialEndPoint.coord.z,
+    };
+    const item: SearchItem = {
+      type: initialEndPoint.ruleRecord ? 'rule' : 'coord',
+      name: initialEndPoint.name || makeCoordLabel(coord),
+      coord,
+      extra: initialEndPoint.extra ?? (initialEndPoint.ruleRecord ? '规则要素' : '坐标'),
+      searchKey: `${initialEndPoint.id ?? ''} ${initialEndPoint.name ?? ''} ${coord.x} ${coord.z}`.trim(),
+      ruleRecord: initialEndPoint.ruleRecord,
+    };
+    setEndPoint(item);
+    setMapPickTarget(null);
+    setResultLegacy(null);
+    setResultRailNew(null);
+    setResultTeleportNew(null);
+    setResultRoad(null);
+  }, [initialEndPoint]);
   const legacyModuleState = useFeatureModuleStore((s) => s.modules.legacy);
   const featureDialogState = useFeatureModuleStore((s) => s.dialog);
   const requestFeatureModuleActivation = useFeatureModuleStore((s) => s.requestModuleActivation);
