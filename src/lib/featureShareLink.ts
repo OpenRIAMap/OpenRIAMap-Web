@@ -44,14 +44,14 @@ function makeUrlFromLocation(worldId: string, featureId: string, loc?: Location)
   const encodedId = encodeURIComponent(featureId);
 
   if (loc) {
-    return `${loc.origin}/${encodedWorld}/${encodedId}`;
+    return `${loc.origin}/#/${encodedWorld}/${encodedId}`;
   }
 
   if (typeof window !== 'undefined' && window.location) {
-    return `${window.location.origin}/${encodedWorld}/${encodedId}`;
+    return `${window.location.origin}/#/${encodedWorld}/${encodedId}`;
   }
 
-  return `/${encodedWorld}/${encodedId}`;
+  return `/#/${encodedWorld}/${encodedId}`;
 }
 
 export function buildFeatureShareUrl(args: {
