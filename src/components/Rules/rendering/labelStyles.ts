@@ -350,17 +350,19 @@ export function renderLabelHtml(styleKey: LabelStyleKeyInput, text: string, opts
       : parseSizeSuffix(String(styleKeyStr), 'structure-label-');
 
   if (structureSize !== null) {
-    const o = Math.max(1, Math.round(structureSize / 8));
+    // 与 gm 系列一致：使用稳定的 8 方向 text-shadow 描边，避免粗偏移 + 暗投影在地图缩放时产生毛刺。
+    const strokeW = roundTo(structureSize * GM_STROKE_RATIO, 0.05);
+    const o = Math.max(1, Math.round(strokeW * 2));
+    const stroke = '#ffffff';
     const shadow = [
-      `${o}px 0 0 rgba(255,255,255,0.95)`,
-      `-${o}px 0 0 rgba(255,255,255,0.95)`,
-      `0 ${o}px 0 rgba(255,255,255,0.95)`,
-      `0 -${o}px 0 rgba(255,255,255,0.95)`,
-      `${o}px ${o}px 0 rgba(255,255,255,0.85)`,
-      `${o}px -${o}px 0 rgba(255,255,255,0.85)`,
-      `-${o}px ${o}px 0 rgba(255,255,255,0.85)`,
-      `-${o}px -${o}px 0 rgba(255,255,255,0.85)`,
-      `0 1px 2px rgba(17,24,39,0.28)`,
+      `${o}px 0 0 ${stroke}`,
+      `-${o}px 0 0 ${stroke}`,
+      `0 ${o}px 0 ${stroke}`,
+      `0 -${o}px 0 ${stroke}`,
+      `${o}px ${o}px 0 ${stroke}`,
+      `${o}px -${o}px 0 ${stroke}`,
+      `-${o}px ${o}px 0 ${stroke}`,
+      `-${o}px -${o}px 0 ${stroke}`,
     ].join(',');
 
     return `
@@ -377,7 +379,7 @@ export function renderLabelHtml(styleKey: LabelStyleKeyInput, text: string, opts
       ">
         ${dot}
         <span style="
-          color:#374151;
+          color:#111827;
           font-weight:650;
           font-size:${structureSize}px;
           line-height:1.05;

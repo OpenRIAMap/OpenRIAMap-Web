@@ -29,7 +29,7 @@ export type RuleButtonDef = {
   id: string;
   label: string;
   /** ToolIconButton 的 tone */
-  tone: 'blue' | 'green' | 'cyan' | 'purple' | 'gray';
+  tone: 'blue' | 'green' | 'cyan' | 'purple' | 'gray' | 'orange' | 'slate';
   icon: React.ReactNode;
   criteria: RuleButtonCriteria;
 
@@ -54,7 +54,7 @@ export const RULE_BUTTON_DEFS: RuleButtonDef[] = [
   {
     id: 'road',
     label: '道路',
-    tone: 'gray',
+    tone: 'orange',
     icon: <Route className="w-5 h-5" />,
     criteria: { Class: ['ROD'] },
   },
@@ -77,7 +77,7 @@ export const RULE_BUTTON_DEFS: RuleButtonDef[] = [
   {
     id: 'planning',
     label: '规划',
-    tone: 'gray',
+    tone: 'slate',
     icon: <Map className="w-5 h-5" />,
     criteria: { Kind: ['ADM'], SKind: ['PLP'] },
   },

@@ -779,7 +779,7 @@ export default function FeatureInteractionCard(props: Props) {
       {variant === 'embedded' ? cardBody : (
         <DraggablePanel
           id="featureInteractionCard"
-          defaultPosition={{ x: 16, y: 180 }}
+          defaultPosition={{ x: 16, y: 240 }}
           stackGroup="feature-interaction"
           stackGroupOrder={0}
         >

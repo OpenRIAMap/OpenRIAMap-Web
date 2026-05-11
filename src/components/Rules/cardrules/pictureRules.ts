@@ -43,6 +43,32 @@ export type FeaturePictureEntry = {
   relativePath?: string;
 };
 
+const TEMP_MOUNTED_PICTURES_BY_WORLD = new Map<string, Record<string, FeaturePictureEntry[]>>();
+
+export function setTempMountedPictureEntries(worldId: string, picturesById: Record<string, FeaturePictureEntry[]>) {
+  const key = resolveWorldDirName(String(worldId || 'zth'));
+  TEMP_MOUNTED_PICTURES_BY_WORLD.set(key, picturesById ?? {});
+}
+
+function resolveTempMountedPictureEntriesForFeature(feature?: FeatureRecord | null): FeaturePictureEntry[] {
+  const fi: any = feature?.featureInfo ?? {};
+  const world = resolveWorldDirName(String(fi.World ?? feature?.meta?.World ?? 'zth'));
+  const id = String(fi.ID ?? feature?.meta?.idValue ?? '').trim();
+  if (!id) return [];
+  const mapping = TEMP_MOUNTED_PICTURES_BY_WORLD.get(world);
+  const entries = mapping?.[id];
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .map((x) => ({
+      source: x.source === 'pub' || x.source === 'dat' ? x.source : 'dat',
+      url: String(x.url ?? '').trim(),
+      filename: x.filename,
+      relativePath: x.relativePath,
+    }))
+    .filter((x) => Boolean(x.url));
+}
+
+
 export const PICTURE_DIR_RULES: PictureDirRule[] = [
   { name: 'NGF-LAD-ISD（岛屿）', match: { Kind: 'NGF', SKind: 'LAD', SKind2: 'ISD' }, dir: 'NGF/LAD/ISD' },
   { name: 'NGF-LAD-PNS（半岛）', match: { Kind: 'NGF', SKind: 'LAD', SKind2: 'PNS' }, dir: 'NGF/LAD/PNS' },
@@ -162,6 +188,9 @@ async function buildRepositoryPictureUrlsForFeature(feature?: FeatureRecord | nu
  * 探测并返回当前要素可用的图片 URL 列表。
  */
 export async function buildPictureUrlsForFeature(feature?: FeatureRecord | null, opts?: { maxImages?: number }): Promise<string[]> {
+  const tempEntries = resolveTempMountedPictureEntriesForFeature(feature);
+  if (tempEntries.length > 0) return tempEntries.map((x) => x.url);
+
   const world = String((feature?.featureInfo as any)?.World ?? '').trim();
   const worldDir = resolveWorldDirName(world || 'zth');
   const ds = RULE_DATA_SOURCES[worldDir];
@@ -175,6 +204,9 @@ export async function buildPictureUrlsForFeature(feature?: FeatureRecord | null,
 
 
 export async function resolvePictureEntriesForFeature(feature?: FeatureRecord | null, opts?: { maxImages?: number }): Promise<FeaturePictureEntry[]> {
+  const tempEntries = resolveTempMountedPictureEntriesForFeature(feature);
+  if (tempEntries.length > 0) return tempEntries;
+
   const world = String((feature?.featureInfo as any)?.World ?? '').trim();
   const worldDir = resolveWorldDirName(world || 'zth');
   const ds = RULE_DATA_SOURCES[worldDir];

@@ -233,6 +233,9 @@ export default function FloorUnitWorkflow(props: WorkflowComponentProps) {
       },
       getId: (fi: any) => String(fi.ID ?? fi.PgonID ?? fi.pgonID ?? '').trim(),
       getName: (fi: any) => String(fi.Name ?? fi.PgonName ?? fi.pgonName ?? '').trim(),
+      searchFields: ['ID', 'Name'],
+      displayFields: ['Name'],
+      returnFields: ['ID'],
       formatOption: (name, id) => `${name}(${id})`,
     }),
     []
@@ -248,17 +251,31 @@ export default function FloorUnitWorkflow(props: WorkflowComponentProps) {
         const cls = String(fi.Class ?? fi.class ?? '').trim();
         return cls === 'BUD' || cls === 'STB';
       },
-      getId: (fi: any) => {
-        const cls = String(fi.Class ?? fi.class ?? '').trim();
-        if (cls === 'BUD') return String(fi.BuildingID ?? fi.buildingID ?? fi.buildingId ?? '').trim();
-        // STB uses staBuildingID
-        return String(fi.staBuildingID ?? fi.staBuildingId ?? fi.STBuilding ?? '').trim();
-      },
-      getName: (fi: any) => {
-        const cls = String(fi.Class ?? fi.class ?? '').trim();
-        if (cls === 'BUD') return String(fi.BuildingName ?? fi.buildingName ?? fi.Name ?? fi.name ?? '').trim();
-        return String(fi.Name ?? fi.Name ?? fi.Name ?? fi.Name ?? fi.name ?? '').trim();
-      },
+      getId: (fi: any) => String(
+        fi.ID ??
+        fi.BuildingID ??
+        fi.StationID ??
+        fi.StructureID ??
+        fi.buildingID ??
+        fi.buildingId ??
+        fi.stationID ??
+        fi.stationId ??
+        fi.id ??
+        ''
+      ).trim(),
+      getName: (fi: any) => String(
+        fi.Name ??
+        fi.BuildingName ??
+        fi.StationName ??
+        fi.StructureName ??
+        fi.buildingName ??
+        fi.stationName ??
+        fi.name ??
+        ''
+      ).trim(),
+      searchFields: ['ID', 'Name'],
+      displayFields: ['Name'],
+      returnFields: ['ID'],
       formatOption: (name, id) => `${name}(${id})`,
     }),
     []
@@ -330,7 +347,8 @@ export default function FloorUnitWorkflow(props: WorkflowComponentProps) {
       const pts = bridgeRef.current.getTempPoints?.() ?? [];
       const coords = (Array.isArray(pts) ? pts : []) as any;
 
-      const floorId = `${worldPrefix}${classCode}${selected.kind}${selected.skind}_${abbrNormalized}`;
+      const catAbbrNormalized = normalizeAbbr(info.catAbbr);
+      const floorId = `${worldPrefix}${classCode}${catAbbrNormalized ? `_${catAbbrNormalized}` : ''}_${abbrNormalized}`;
 
       // extensions：先写入 link.wiki，再拼接用户自定义条目
       const extList: ExtensionItem[] = [];

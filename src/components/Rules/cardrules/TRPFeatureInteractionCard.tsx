@@ -55,7 +55,13 @@ export default function TRPFeatureInteractionCard(props: FeatureCardCommonProps)
       {...props}
       // TRP：特殊解析模块插入到“图片幕”和“主信息”之间
       midSection={
-        feature ? <TRPTradeSection feature={feature} onTryTriggerLabelClickById={props.onTryTriggerLabelClickById} /> : null
+        feature ? (
+          <TRPTradeSection
+            feature={feature}
+            resolveFeatureById={props.resolveFeatureById}
+            onTryTriggerLabelClickById={props.onTryTriggerLabelClickById}
+          />
+        ) : null
       }
       // 略微加宽，便于交易表与信息展示
       cardClassName="w-[420px]"

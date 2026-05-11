@@ -494,6 +494,7 @@ type TempRuleSource = {
   label?: string;
   enabled: boolean;
   items: any[];
+  picturesById?: Record<string, Array<{ source?: 'pub' | 'dat'; url?: string; filename?: string; relativePath?: string }>>;
 };
 
 // ======== “临时挂载(全局)”只读模式（模块化开关，便于后续移除） ========
@@ -2020,6 +2021,33 @@ const removeAllTempMountedLayersForWorld = (layerIds: number[]) => {
   setTempMountUiVersion((v) => v + 1);
 };
 
+
+const buildTempRulePicturesByIdForLayer = (layer: LayerType): TempRuleSource['picturesById'] | undefined => {
+  const id = String(getLayerPrimaryIdValue(layer) ?? '').trim();
+  if (!id) return undefined;
+  const src = relayPackageDraft.picturesById[id] ?? [];
+  const active = src
+    .filter((pic) => !pic.deleted)
+    .map((pic, idx) => ({ pic, idx }))
+    .sort((a, b) => {
+      const ao = Number(a.pic.order ?? a.idx + 1);
+      const bo = Number(b.pic.order ?? b.idx + 1);
+      return ao - bo || a.idx - b.idx;
+    })
+    .map(({ pic }) => {
+      const source = pic.source === 'pub' || pic.source === 'dat' ? pic.source : 'dat';
+      const url = String(pic.previewUrl ?? pic.relativePath ?? '').trim();
+      return {
+        source,
+        url,
+        filename: String(pic.originalName ?? '').trim() || undefined,
+        relativePath: pic.relativePath,
+      };
+    })
+    .filter((pic) => Boolean(pic.url || pic.relativePath));
+  return active.length > 0 ? { [id]: active } : undefined;
+};
+
 const mountAllLayersToTempSources = (layerList: LayerType[]) => {
   const all = readTempRuleSources();
   const prev = Array.isArray(all?.[currentWorldId]) ? (all[currentWorldId] as any[]) : [];
@@ -2038,12 +2066,14 @@ const mountAllLayersToTempSources = (layerList: LayerType[]) => {
       items = [];
     }
     if (!items.length) continue;
+    const picturesById = buildTempRulePicturesByIdForLayer(layer);
     nextEntries.push({
       uid: getLayerTempUid(layer.id),
       worldId: currentWorldId,
       label: getLayerDisplayTitle(layer),
       enabled: Boolean(layer.visible),
       items,
+      ...(picturesById ? { picturesById } : {}),
     });
   }
 
@@ -2080,6 +2110,8 @@ const layerMgrTopXRef = useRef<HTMLDivElement | null>(null);
 const layerMgrBodyRef = useRef<HTMLDivElement | null>(null);
 const layerMgrSpacerRef = useRef<HTMLDivElement | null>(null);
 const layerMgrSyncLockRef = useRef(false);
+const layerMgrCardRef = useRef<HTMLDivElement | null>(null);
+const [layerMgrListMaxHeight, setLayerMgrListMaxHeight] = useState(280);
 
 useEffect(() => {
   const top = layerMgrTopXRef.current;
@@ -2117,7 +2149,59 @@ useEffect(() => {
     ro.disconnect();
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [layers.length, tempMountAllActive, tempMountUiVersion, measuringActive]);
+}, [layers.length, tempMountAllActive, tempMountUiVersion, measuringActive, layerMgrListMaxHeight]);
+
+useEffect(() => {
+  if (!measuringActive) return;
+
+  let frame = 0;
+  const updateListMaxHeight = () => {
+    if (frame) window.cancelAnimationFrame(frame);
+    frame = window.requestAnimationFrame(() => {
+      frame = 0;
+      const card = layerMgrCardRef.current;
+      const body = layerMgrBodyRef.current;
+      if (!card || !body) return;
+
+      const panelMaxHeight = Math.floor(window.innerHeight * 0.7);
+      const cardTop = card.getBoundingClientRect().top;
+      const bodyTop = body.getBoundingClientRect().top;
+      const fixedHeight = Math.max(0, bodyTop - cardTop);
+      const next = Math.max(120, panelMaxHeight - fixedHeight - 12);
+      setLayerMgrListMaxHeight((prev) =>
+        Math.abs(prev - next) > 1 ? next : prev,
+      );
+    });
+  };
+
+  updateListMaxHeight();
+  window.addEventListener('resize', updateListMaxHeight);
+
+  const observer = typeof ResizeObserver !== 'undefined'
+    ? new ResizeObserver(updateListMaxHeight)
+    : null;
+  if (observer) {
+    if (layerMgrCardRef.current) observer.observe(layerMgrCardRef.current);
+    if (layerMgrTopXRef.current) observer.observe(layerMgrTopXRef.current);
+  }
+
+  return () => {
+    window.removeEventListener('resize', updateListMaxHeight);
+    observer?.disconnect();
+    if (frame) window.cancelAnimationFrame(frame);
+  };
+}, [
+  measuringActive,
+  layers.length,
+  tempMountAllActive,
+  tempMountUiVersion,
+  relayPackageDraft.deleteMarks.length,
+  relayPackageDraft.meta.draftStatus,
+  relayPackageDraft.meta.operator,
+  relayPackageDraft.meta.note,
+  relayPackageDraft.meta.packageVersion,
+  relayPackageDraft.meta.updatedAt,
+]);
 
  
 const handleUndo = () => {
@@ -3743,6 +3827,10 @@ const workflowBridge: WorkflowBridge = {
     return (layers ?? []).map((l: any) => l?.jsonInfo).filter(Boolean) as any;
   },
 
+  getDeleteMarkedFeatureIds: () => {
+    return (relayPackageDraft.deleteMarks ?? []).map((x) => String(x?.ID ?? '').trim()).filter(Boolean);
+  },
+
   exitWorkflowToSelector: () => stopWorkflowToSelector(),
 };
 
@@ -3956,7 +4044,8 @@ const workflowBridge: WorkflowBridge = {
   };
 
   const layerPanelCard = (
-    <AppCard className="w-96 h-[70vh] max-h-[70vh] overflow-hidden border flex flex-col">
+    <AppCard className="w-96 overflow-hidden border" style={{ maxHeight: '70vh' }}>
+      <div ref={layerMgrCardRef}>
       {/* 标题栏（拖拽区域：前 48px） */}
       <div className="flex items-center justify-between px-4 py-3 border-b">
         <h3 className="font-bold text-gray-800">图层</h3>
@@ -4145,8 +4234,12 @@ const workflowBridge: WorkflowBridge = {
             </div>
 
             {/* 列表：纵向滚动 + 横向滚动（与顶部同步） */}
-            <div className="flex-1 min-h-0 overflow-hidden px-3 pb-3">
-              <div ref={layerMgrBodyRef} className="h-full min-h-0 overflow-y-auto overflow-x-auto">
+            <div className="px-3 pb-3">
+              <div
+                ref={layerMgrBodyRef}
+                className="overflow-y-auto overflow-x-auto"
+                style={{ maxHeight: layerMgrListMaxHeight }}
+              >
                 <div className="min-w-max">
                 {visibleList.map((l) => {
                   const entry = getTempMountedEntryByLayer(l.id);
@@ -4244,6 +4337,7 @@ const workflowBridge: WorkflowBridge = {
           </>
         );
       })()}
+      </div>
     </AppCard>
   );
 
@@ -5055,7 +5149,7 @@ onChange={(e) => {
          ========================= */}
       {importPanelOpen && (
         <div className="hidden sm:block">
-          <DraggablePanel id="measuring-import" defaultPosition={{ x: 16, y: 520 }} zIndex={1800}>
+          <DraggablePanel id="measuring-import" defaultPosition={{ x: 420, y: 240 }} zIndex={1800}>
             <AppCard className="w-96 overflow-hidden border">
               <div className="flex items-center justify-between px-4 py-3 border-b">
                 <h3 className="font-bold text-gray-800">导入矢量数据</h3>

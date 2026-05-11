@@ -1041,6 +1041,7 @@ export const FEATURE_RENDER_RULES: RenderRule[] = [
           weight: 1,
           fillColor: "#9ca3af",
           fillOpacity: 0.08,
+          interactive: false,
         };
 
         // 楼层视角：激活建筑变淡，避免压住室内楼层。
@@ -1064,7 +1065,6 @@ export const FEATURE_RENDER_RULES: RenderRule[] = [
         labelStyleKey: "structure-label-13",
         highlightStyleKey: "dash",
         openCard: true,
-        geom: { path: true },
       },
     },
   },
@@ -1100,6 +1100,7 @@ export const FEATURE_RENDER_RULES: RenderRule[] = [
           weight: 1,
           fillColor: "#9ca3af",
           fillOpacity: 0.08,
+          interactive: false,
         };
 
         if (
@@ -1122,7 +1123,6 @@ export const FEATURE_RENDER_RULES: RenderRule[] = [
         labelStyleKey: "structure-label-12",
         highlightStyleKey: "dash",
         openCard: true,
-        geom: { path: true },
       },
     },
   },

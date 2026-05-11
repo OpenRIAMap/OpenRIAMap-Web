@@ -2,12 +2,15 @@ import React from 'react';
 import { useMemo, useRef, type WheelEvent } from 'react';
 
 import type { FeatureRecord } from '@/components/Rules/rendering/renderRules';
-import type { CardFeatureLinkTarget } from './cardInteractions';
+import type { CardFeatureLinkTarget, ResolveFeatureById } from './cardInteractions';
 // 仅作为 TRP 专用展示模块，不依赖 FIELD_RULES。
 import { WORKFLOW_FEATURE_CATALOG } from '@/components/Common/featureFormats';
+import { pickFeatureDisplayName } from './fieldRules';
 
 type Props = {
   feature: FeatureRecord;
+  /** 可选：用于解析内链目标显示文本。 */
+  resolveFeatureById?: ResolveFeatureById;
   /** 可选：用于“所属地理单元”等内链接跳转 */
   onTryTriggerLabelClickById?: (id: string, linkTarget?: CardFeatureLinkTarget) => void;
 };
@@ -104,13 +107,23 @@ function TrpItemLine({ item }: { item: TradeItem }) {
   );
 }
 
-export default function TRPTradeSection({ feature, onTryTriggerLabelClickById }: Props) {
+export default function TRPTradeSection({ feature, resolveFeatureById, onTryTriggerLabelClickById }: Props) {
   const fi: any = feature?.featureInfo ?? {};
 
   const typeLabel = useMemo(() => buildTrpTypeLabel(fi), [fi]);
   const interaction = String(fi?.Interaction ?? fi?.interaction ?? '').trim();
   const situation = String(fi?.Situation ?? fi?.situation ?? '').trim();
   const landId = String(fi?.tags?.Land ?? fi?.tags?.land ?? '').trim();
+  const landLinkTarget: CardFeatureLinkTarget = useMemo(
+    () => ({ classCode: 'ISG', kind: 'NGF', matchField: 'ID', displayField: 'Name', fallbackDisplay: 'raw' }),
+    [],
+  );
+  const landDisplay = useMemo(() => {
+    if (!landId) return '';
+    const target = resolveFeatureById?.(landId, landLinkTarget);
+    const displayFromTarget = String((target?.featureInfo as any)?.Name ?? '').trim();
+    return displayFromTarget || pickFeatureDisplayName(target) || landId;
+  }, [landId, landLinkTarget, resolveFeatureById]);
   const wiki = String(fi?.extensions?.link?.wiki ?? fi?.extensions?.Link?.wiki ?? '').trim();
   const briefRaw = String(fi?.extensions?.character?.brief ?? fi?.extensions?.Character?.brief ?? '').trim();
   const brief = briefRaw
@@ -162,13 +175,13 @@ export default function TRPTradeSection({ feature, onTryTriggerLabelClickById }:
                 onClick={(e) => {
                   e.stopPropagation();
                   try {
-                    onTryTriggerLabelClickById?.(landId, { classCode: 'ISG', kind: 'NGF', matchField: 'ID', displayField: 'Name', fallbackDisplay: 'raw' });
+                    onTryTriggerLabelClickById?.(landId, landLinkTarget);
                   } catch {
                     // 静默失败
                   }
                 }}
               >
-                {landId}
+                {landDisplay || landId}
               </span>
             </div>
           </div>

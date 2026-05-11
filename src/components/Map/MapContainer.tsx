@@ -1582,7 +1582,7 @@ case 'players':
         <div className="hidden sm:block">
         <DraggablePanel
           id="about"
-          defaultPosition={{ x: 16, y: 180 }}
+          defaultPosition={{ x: 16, y: 240 }}
         >
           <AboutCard onClose={() => setShowAbout(false)} />
         </DraggablePanel>
@@ -1594,7 +1594,7 @@ case 'players':
         <div className="hidden sm:block">
         <DraggablePanel
           id="settings"
-          defaultPosition={{ x: 16, y: 180 }}
+          defaultPosition={{ x: 16, y: 240 }}
         >
           <SettingsPanel onClose={() => setShowSettings(false)} />
         </DraggablePanel>
@@ -1606,7 +1606,7 @@ case 'players':
         <div className="hidden sm:block">
         <DraggablePanel
           id="navigation"
-          defaultPosition={{ x: 16, y: 180 }}
+          defaultPosition={{ x: 16, y: 240 }}
         >
           <NavigationPanel
             stations={stations}
@@ -1634,7 +1634,7 @@ case 'players':
         <div className="hidden sm:block">
         <DraggablePanel
           id="attributeQuery"
-          defaultPosition={{ x: 16, y: 180 }}
+          defaultPosition={{ x: 16, y: 240 }}
         >
           <AttributeQueryPanel
             worldId={currentWorld}
@@ -1652,7 +1652,7 @@ case 'players':
         <div className="hidden sm:block">
         <DraggablePanel
           id="players"
-          defaultPosition={{ x: 16, y: 180 }}
+          defaultPosition={{ x: 16, y: 240 }}
         >
           <PlayersList
             worldId={currentWorld}

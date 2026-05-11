@@ -95,6 +95,9 @@ export type WorkflowBridge = {
    */
   getCommittedLayerJsonInfos?: () => Array<{ subType: FeatureKey; featureInfo: any }>;
 
+  /** 读取当前标准包删除标记目标 ID；工作流搜索框会将这些要素从静态/图层管理搜索结果中排除。 */
+  getDeleteMarkedFeatureIds?: () => string[];
+
   /** 退出到“工作流选择页”（由 MeasuringModule 侧实现） */
   exitWorkflowToSelector: () => void;
 };

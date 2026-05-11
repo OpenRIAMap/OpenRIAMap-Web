@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import AppButton from '@/components/ui/AppButton';
 
-type Tone = 'blue' | 'green' | 'cyan' | 'purple' | 'gray';
+type Tone = 'blue' | 'green' | 'cyan' | 'purple' | 'gray' | 'orange' | 'slate';
 
 const TONE_ACTIVE_CLASS: Record<Tone, string> = {
   blue: 'bg-blue-100 text-blue-600',
@@ -9,6 +9,8 @@ const TONE_ACTIVE_CLASS: Record<Tone, string> = {
   cyan: 'bg-cyan-100 text-cyan-600',
   purple: 'bg-purple-100 text-purple-600',
   gray: 'bg-gray-100 text-gray-700',
+  orange: 'bg-orange-100 text-orange-700',
+  slate: 'bg-slate-300 text-slate-800',
 };
 
 type ToolIconButtonProps = {

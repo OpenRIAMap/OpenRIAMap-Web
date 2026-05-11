@@ -22,6 +22,7 @@ import {
 } from "@/components/Rules/rendering/labelLayout";
 import AppButton from "@/components/ui/AppButton";
 import AppCard from "@/components/ui/AppCard";
+import SmallDraggablePanel from "@/components/DraggablePanel/SmallDraggablePanel";
 
 import { resolveFeatureCardComponent } from "@/components/Rules/cardrules/featureCardRegistry";
 import type { CardFeatureLinkTarget } from "@/components/Rules/cardrules/cardInteractions";
@@ -77,6 +78,7 @@ import {
   type PolygonLabelAuditRow,
   type PolygonLabelAuditSnapshot,
 } from "@/components/Rules/debug/polygonLabelAudit";
+import { setTempMountedPictureEntries, type FeaturePictureEntry } from "@/components/Rules/cardrules/pictureRules";
 import {
   viewportWorldRectXZFromBounds,
   resolveLabelAnchorForFeature,
@@ -1384,6 +1386,7 @@ export default function RuleDrivenLayer(props: Props) {
     label?: string;
     enabled: boolean;
     items: any[];
+    picturesById?: Record<string, FeaturePictureEntry[]>;
   };
 
   function readTempSources(worldId: string): TempRuleSource[] {
@@ -1395,13 +1398,32 @@ export default function RuleDrivenLayer(props: Props) {
       if (!Array.isArray(list)) return [];
       return list
         .filter((x) => x && typeof x === "object")
-        .map((x) => ({
-          uid: String((x as any).uid ?? ""),
-          worldId: String((x as any).worldId ?? worldId),
-          label: (x as any).label ? String((x as any).label) : undefined,
-          enabled: Boolean((x as any).enabled),
-          items: Array.isArray((x as any).items) ? (x as any).items : [],
-        }))
+        .map((x) => {
+          const rawPictures = (x as any).picturesById;
+          const picturesById: Record<string, FeaturePictureEntry[]> = {};
+          if (rawPictures && typeof rawPictures === "object") {
+            for (const [id, list] of Object.entries(rawPictures as Record<string, any>)) {
+              if (!Array.isArray(list)) continue;
+              const entries = list
+                .map((pic: any) => ({
+                  source: pic?.source === "pub" || pic?.source === "dat" ? pic.source : "dat",
+                  url: String(pic?.url ?? "").trim(),
+                  filename: pic?.filename ? String(pic.filename) : undefined,
+                  relativePath: pic?.relativePath ? String(pic.relativePath) : undefined,
+                }))
+                .filter((pic: FeaturePictureEntry) => Boolean(pic.url));
+              if (entries.length > 0) picturesById[String(id)] = entries;
+            }
+          }
+          return {
+            uid: String((x as any).uid ?? ""),
+            worldId: String((x as any).worldId ?? worldId),
+            label: (x as any).label ? String((x as any).label) : undefined,
+            enabled: Boolean((x as any).enabled),
+            items: Array.isArray((x as any).items) ? (x as any).items : [],
+            picturesById,
+          };
+        })
         .filter((x) => x.uid && x.worldId === worldId);
     } catch {
       return [];
@@ -1533,6 +1555,14 @@ export default function RuleDrivenLayer(props: Props) {
         enabledTemps.length > 0
           ? readTempDeleteIds(worldId)
           : new Set<string>();
+      const tempPicturesById: Record<string, FeaturePictureEntry[]> = {};
+      for (const temp of enabledTemps) {
+        const mapping = temp.picturesById ?? {};
+        for (const [id, entries] of Object.entries(mapping)) {
+          if (Array.isArray(entries) && entries.length > 0) tempPicturesById[id] = entries;
+        }
+      }
+      setTempMountedPictureEntries(worldId, tempPicturesById);
       const excludeIds = new Set<string>([...overrideIds, ...deleteIds]);
 
       // (A) 当前 world 的 Rule 数据集（由 ruleDataStore 负责版本校验与缓存）
@@ -3479,49 +3509,44 @@ export default function RuleDrivenLayer(props: Props) {
     <>
       {showFloorUI && (
         <div className="hidden sm:block">
-          <AppCard
-            style={{
-              position: "fixed",
-              top: 80,
-              right: 16,
-              zIndex: 2147483647,
-              pointerEvents: "auto",
-            }}
-            className="bg-white/90 border border-gray-200 p-2 w-28"
-            onMouseDown={(e) => e.stopPropagation()}
-            onDoubleClick={(e) => e.stopPropagation()}
-            onWheel={(e) => e.stopPropagation()}
+          <SmallDraggablePanel
+            id="desktop-floor-view-selector"
+            title="拖动楼层视角面板"
+            defaultPosition={{ x: Math.max(16, window.innerWidth - 152), y: 160 }}
+            zIndex={2147483647}
+            dragHandleSelector="[data-small-drag-handle]"
           >
-            <div className="text-xs font-semibold text-gray-800 mb-1">
-              楼层视角
-            </div>
-            <div
-              className="text-[11px] text-gray-600 mb-2 truncate"
-              title={activeBuildingName}
-            >
-              {activeBuildingName || "（未命名建筑）"}
-            </div>
+            <AppCard className="bg-white/90 border border-gray-200 p-2 w-28">
+              <div data-small-drag-handle className="select-none">
+                <div className="text-xs font-semibold text-gray-800 mb-1">
+                  楼层视角
+                </div>
+                <div className="text-[11px] text-gray-600 mb-2 truncate">
+                  {activeBuildingName || "（未命名建筑）"}
+                </div>
+              </div>
 
-            <div className="flex flex-col gap-1 max-h-[60vh] overflow-auto">
-              {floorOptions.map((opt, idx) => {
-                const on = idx === activeFloorIndex;
-                return (
-                  <AppButton
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setActiveFloorIndexAndRemember(idx)}
-                    className={`w-full text-left px-2 py-1 rounded text-xs border transition-colors ${
-                      on
-                        ? "bg-blue-50 text-blue-700 border-blue-200"
-                        : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-                    }`}
-                  >
-                    {opt.label}
-                  </AppButton>
-                );
-              })}
-            </div>
-          </AppCard>
+              <div data-no-drag className="flex flex-col gap-1 max-h-[60vh] overflow-auto">
+                {floorOptions.map((opt, idx) => {
+                  const on = idx === activeFloorIndex;
+                  return (
+                    <AppButton
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setActiveFloorIndexAndRemember(idx)}
+                      className={`w-full text-left px-2 py-1 rounded text-xs border transition-colors ${
+                        on
+                          ? "bg-blue-50 text-blue-700 border-blue-200"
+                          : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      {opt.label}
+                    </AppButton>
+                  );
+                })}
+              </div>
+            </AppCard>
+          </SmallDraggablePanel>
         </div>
       )}
       <div className="hidden sm:block">
