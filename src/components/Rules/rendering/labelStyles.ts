@@ -164,6 +164,8 @@ export function renderLabelHtml(styleKey: LabelStyleKeyInput, text: string, opts
     return Math.round(v / s) * s;
   };
 
+  const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
+
   const parseSizeSuffix = (key: string, prefix: string): number | null => {
     if (!key.startsWith(prefix)) return null;
     const s = key.slice(prefix.length);
@@ -343,27 +345,31 @@ export function renderLabelHtml(styleKey: LabelStyleKeyInput, text: string, opts
     `;
   }
 
-  // structure-label(-xx)：建筑/站房结构名。无底色、轻描边，避免建筑区被黑色气泡铺满。
+  // structure-label(-xx)：建筑/站房结构名。无底色、黑字 + 白色 halo。
+  // 采用“双层文字”结构：底层只负责白色 halo，上层只负责黑色主体，避免小字号下白边吞掉黑字。
   const structureSize =
     String(styleKeyStr) === 'structure-label'
       ? 12
       : parseSizeSuffix(String(styleKeyStr), 'structure-label-');
 
   if (structureSize !== null) {
-    // 与 gm 系列一致：使用稳定的 8 方向 text-shadow 描边，避免粗偏移 + 暗投影在地图缩放时产生毛刺。
-    const strokeW = roundTo(structureSize * GM_STROKE_RATIO, 0.05);
-    const o = Math.max(1, Math.round(strokeW * 2));
-    const stroke = '#ffffff';
-    const shadow = [
-      `${o}px 0 0 ${stroke}`,
-      `-${o}px 0 0 ${stroke}`,
-      `0 ${o}px 0 ${stroke}`,
-      `0 -${o}px 0 ${stroke}`,
-      `${o}px ${o}px 0 ${stroke}`,
-      `${o}px -${o}px 0 ${stroke}`,
-      `-${o}px ${o}px 0 ${stroke}`,
-      `-${o}px -${o}px 0 ${stroke}`,
-    ].join(',');
+    const fontWeight = 700;
+    const haloOffset = roundTo(clamp(structureSize * 0.105, 1.05, 1.7), 0.05);
+    const haloBlur = roundTo(clamp(structureSize * 0.055, 0.55, 1.05), 0.05);
+    const halo = '#ffffff';
+    const diagonalOffset = roundTo(haloOffset * 0.72, 0.05);
+
+    const haloShadow = [
+      `0 0 ${haloBlur}px #ffffff`,
+      `${haloOffset}px 0 0 #ffffff`,
+      `-${haloOffset}px 0 0 #ffffff`,
+      `0 ${haloOffset}px 0 #ffffff`,
+      `0 -${haloOffset}px 0 #ffffff`,
+      `${diagonalOffset}px ${diagonalOffset}px 0 #ffffff`,
+      `-${diagonalOffset}px ${diagonalOffset}px 0 #ffffff`,
+      `${diagonalOffset}px -${diagonalOffset}px 0 #ffffff`,
+      `-${diagonalOffset}px -${diagonalOffset}px 0 #ffffff`,
+    ].join(', ');
 
     return `
       <div style="
@@ -379,15 +385,33 @@ export function renderLabelHtml(styleKey: LabelStyleKeyInput, text: string, opts
       ">
         ${dot}
         <span style="
-          color:#111827;
-          font-weight:650;
+          position:relative;
+          display:inline-block;
+          color:#0f172a;
+          font-weight:${fontWeight};
           font-size:${structureSize}px;
           line-height:1.05;
           letter-spacing:0.01em;
-          text-shadow:${shadow};
           -webkit-font-smoothing:antialiased;
           text-rendering:geometricPrecision;
-        ">${safe}</span>
+        ">
+          <span aria-hidden="true" style="
+            position:absolute;
+            inset:0;
+            display:inline-block;
+            color:${halo};
+            text-shadow:${haloShadow};
+            pointer-events:none;
+            user-select:none;
+          ">${safe}</span>
+          <span style="
+            position:relative;
+            display:inline-block;
+            color:#0f172a;
+            pointer-events:none;
+            user-select:none;
+          ">${safe}</span>
+        </span>
       </div>
     `;
   }
