@@ -28,7 +28,7 @@
       ]
     },
     {
-      "source": "/(.*\\.(js|css|woff|woff2|png|jpg|jpeg|webp|svg|ico))",
+      "source": "/favicon.ico",
       "headers": [
         {
           "key": "Cache-Control",
