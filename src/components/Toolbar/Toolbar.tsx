@@ -10,8 +10,7 @@ import ToolIconButton from '@/components/Toolbar/ToolIconButton';
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
 
-// TEMP: 临时隐藏玩家相关入口
-const PLAYER_FEATURE_ENABLED = false;
+const PLAYER_FEATURE_ENABLED = true;
 const LINES_FEATURE_ENABLED = false;
 
 interface ToolbarProps {

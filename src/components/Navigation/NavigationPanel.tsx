@@ -1142,14 +1142,18 @@ useEffect(() => {
       items.push({ type: 'landmark', name: shownName, extra: '旧+地标', searchKey: sk, coord: landmark.coord });
     }
 
-    // 玩家
+    // 玩家：可用玩家名搜索，但选中后输入框显示坐标，路线计算固定使用选中瞬间坐标。
     for (const player of players) {
+      if (!Number.isFinite(player.x) || !Number.isFinite(player.y) || !Number.isFinite(player.z)) continue;
+      const coord: Coordinate = { x: player.x, y: player.y, z: player.z };
+      const playerName = String(player.name ?? '').trim();
+      const account = String(player.account ?? '').trim();
       items.push({
         type: 'player',
-        name: player.name,
-        extra: '玩家',
-        searchKey: player.name,
-        coord: { x: player.x, y: player.y, z: player.z },
+        name: makeCoordLabel({ x: coord.x, z: coord.z }),
+        extra: playerName ? `玩家：${playerName}` : '玩家',
+        searchKey: `${playerName} ${account} ${formatGridNumber(coord.x)} ${formatGridNumber(coord.z)} ${coord.x} ${coord.y} ${coord.z}`,
+        coord,
       });
     }
 

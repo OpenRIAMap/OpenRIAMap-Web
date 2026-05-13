@@ -11,13 +11,13 @@ import { DynmapProjection } from '@/lib/DynmapProjection';
 
 /**
  * 获取玩家头像 URL (从 Dynmap)
- * 格式: https://satellite.ria.red/map/_{worldId}/tiles/faces/{size}x{size}/{playerName}.png
+ * 格式: /api/dynmap/_{worldId}/tiles/faces/{size}x{size}/{playerName}.png
  * 支持的尺寸: 16x16, 32x32
  */
 function getPlayerAvatarUrl(playerName: string, size: number = 32, worldId: string = 'zth'): string {
-  // Dynmap 只支持 16x16 和 32x32，选择最接近的
+  // Dynmap 只支持 16x16 和 32x32，选择最接近的；默认走 Vercel same-origin 代理。
   const tileSize = size <= 16 ? 16 : 32;
-  return `https://satellite.ria.red/map/_${worldId}/tiles/faces/${tileSize}x${tileSize}/${encodeURIComponent(playerName)}.png`;
+  return `/api/dynmap/_${worldId}/tiles/faces/${tileSize}x${tileSize}/${encodeURIComponent(playerName)}.png`;
 }
 
 /**
@@ -50,6 +50,7 @@ interface PlayerLayerProps {
   projection: DynmapProjection;
   worldId: string;
   visible?: boolean;
+  players?: Player[];
   onPlayerClick?: (player: Player) => void;
 }
 
@@ -58,17 +59,21 @@ export function PlayerLayer({
   projection,
   worldId,
   visible = true,
+  players,
   onPlayerClick,
 }: PlayerLayerProps) {
-  const [players, setPlayers] = useState<Player[]>([]);
+  const [internalPlayers, setInternalPlayers] = useState<Player[]>([]);
   const lastErrorRef = useRef<string | null>(null);
   const layerGroupRef = useRef<L.LayerGroup | null>(null);
   const intervalRef = useRef<number | null>(null);
+  const controlledPlayers = Array.isArray(players);
+  const renderPlayers = controlledPlayers ? players : internalPlayers;
 
-  // 加载玩家数据
+  // 加载玩家数据：仅在未由 MapContainer 传入 players 时启用，保留组件独立使用兼容性。
   const loadPlayers = useCallback(async () => {
+    if (controlledPlayers) return;
     const result = await fetchPlayersDetailed(worldId);
-    setPlayers(result.players);
+    setInternalPlayers(result.players);
     if (result.error) {
       if (lastErrorRef.current !== result.error) {
         console.warn('[PlayerLayer] 玩家信息读取失败：', result.error);
@@ -77,10 +82,12 @@ export function PlayerLayer({
       return;
     }
     lastErrorRef.current = null;
-  }, [worldId]);
+  }, [controlledPlayers, worldId]);
 
   // 初始加载和定时刷新
   useEffect(() => {
+    if (controlledPlayers) return;
+
     // 立即加载一次
     loadPlayers();
 
@@ -95,12 +102,12 @@ export function PlayerLayer({
         intervalRef.current = null;
       }
     };
-  }, [loadPlayers]);
+  }, [controlledPlayers, loadPlayers]);
 
   // 世界切换时清空玩家列表
   useEffect(() => {
-    setPlayers([]);
-  }, [worldId]);
+    if (!controlledPlayers) setInternalPlayers([]);
+  }, [controlledPlayers, worldId]);
 
   // 创建图层组（仅一次）
   useEffect(() => {
@@ -122,10 +129,10 @@ export function PlayerLayer({
     if (!group) return;
 
     group.clearLayers();
-    if (players.length === 0) return;
+    if (renderPlayers.length === 0) return;
 
     // 渲染每个玩家
-    for (const player of players) {
+    for (const player of renderPlayers) {
       if (
         !Number.isFinite(player.x) ||
         !Number.isFinite(player.y) ||
@@ -165,7 +172,7 @@ export function PlayerLayer({
 
       group.addLayer(marker);
     }
-  }, [players, projection, onPlayerClick, worldId]);
+  }, [renderPlayers, projection, onPlayerClick, worldId]);
 
   // 控制图层可见性
   useEffect(() => {

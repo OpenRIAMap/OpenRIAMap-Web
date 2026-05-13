@@ -47,7 +47,7 @@ import ToolIconButton from '@/components/Toolbar/ToolIconButton';
 import { Globe2, PanelsTopLeft, Layers3, SlidersHorizontal, Plus, Minus, Pencil, Ruler } from 'lucide-react';
 import { buildBuildingNameIndex, getRuleCategoryLabelWithParent, getRuleDisplayName } from '@/components/Search/searchRuleTables';
 import { getRuleSearchPool } from '@/components/Rules/search/ruleSearchRegistry';
-import { parseFeatureShareTargetFromLocation, type FeatureSharePayload, type FeatureShareTarget } from '@/lib/featureShareLink';
+import { consumeFeatureShareTargetFromLocation, type FeatureShareParseResult, type FeatureSharePayload, type FeatureShareTarget } from '@/lib/featureShareLink';
 
 // ===== 导航“图上选取”：MapContainer 统一派发地图点击事件 =====
 type MapClickWorldPointEventDetail = {
@@ -58,6 +58,37 @@ type MapClickWorldPointEventDetail = {
 
 type MobilePanelKey = null | 'navigation' | 'attributeQuery' | 'players' | 'about' | 'settings' | 'featureJson' | 'featureShare';
 type MobileQuickPanelKey = null | 'worlds' | 'toolbar' | 'ruleButtons' | 'modeTools';
+
+type ShareLookupState = {
+  target: FeatureShareTarget;
+  phase: 'waiting-pool' | 'searching';
+  attempt: number;
+  maxAttempts: number;
+};
+
+const SHARE_LOOKUP_RETRY_MS = 250;
+const SHARE_LOOKUP_WAIT_POOL_ATTEMPTS = 12;
+const SHARE_LOOKUP_SEARCH_ATTEMPTS = 8;
+
+function createShareLookupState(
+  target: FeatureShareTarget,
+  phase: ShareLookupState['phase'] = 'waiting-pool',
+  attempt = 0,
+  maxAttempts = SHARE_LOOKUP_WAIT_POOL_ATTEMPTS,
+): ShareLookupState {
+  return { target, phase, attempt, maxAttempts };
+}
+
+function getShareLookupText(state: ShareLookupState): string {
+  return state.phase === 'waiting-pool'
+    ? '正在准备分享要素索引...'
+    : '正在查找分享要素...';
+}
+
+function getShareLookupProgress(state: ShareLookupState): number {
+  if (state.maxAttempts <= 0) return 8;
+  return Math.min(100, Math.max(8, Math.round((state.attempt / state.maxAttempts) * 100)));
+}
 
 // 世界配置
 const LazyMeasuringModule = lazy(() => import('@/components/Mapping/core/MeasuringModule'));
@@ -76,7 +107,7 @@ const WORLDS = [
   { id: 'laputa', name: '拉普塔', center: { x: 272, y: 64, z: 104 } }
 ];
 
-const PLAYER_FEATURE_ENABLED = false;
+const PLAYER_FEATURE_ENABLED = true;
 const LINES_FEATURE_ENABLED = false;
 
 function getRuleCenterCoord(r: FeatureRecord): Coordinate | null {
@@ -163,6 +194,17 @@ function buildNavigationInitialPointFromFeature(feature: FeatureRecord, title: s
   };
 }
 
+function buildNavigationInitialPointFromPlayer(player: Player): NavigationInitialPoint {
+  const coord: Coordinate = { x: player.x, y: player.y ?? 64, z: player.z };
+  return {
+    id: player.account || player.name,
+    name: `X:${formatGridNumber(coord.x)}  Z:${formatGridNumber(coord.z)}`,
+    coord,
+    extra: `玩家：${player.name}`,
+    nonce: Date.now(),
+  };
+}
+
 function MapContainer() {
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletMapRef = useRef<L.Map | null>(null);
@@ -170,12 +212,44 @@ function MapContainer() {
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const measuringModuleRef = useRef<MeasuringModuleHandle | null>(null);
   const [mapReady, setMapReady] = useState(false);
-  const initialShareTargetRef = useRef<FeatureShareTarget | null>(parseFeatureShareTargetFromLocation());
+  const initialShareParseRef = useRef(consumeFeatureShareTargetFromLocation());
+  const initialShareTargetRef = useRef<FeatureShareTarget | null>(
+    initialShareParseRef.current.kind === 'valid' ? initialShareParseRef.current.target : null
+  );
   const shareTargetConsumedRef = useRef(false);
+  const [shareTargetRevision, setShareTargetRevision] = useState(0);
+  const [shareLinkMessage, setShareLinkMessage] = useState<string | null>(
+    initialShareParseRef.current.kind === 'invalid' ? '无效世界或要素ID' : null
+  );
+  const [shareLookupState, setShareLookupState] = useState<ShareLookupState | null>(
+    initialShareParseRef.current.kind === 'valid'
+      ? createShareLookupState(initialShareParseRef.current.target)
+      : null
+  );
 
   // 从 cookie 读取初始设置；分享链接中的 world 优先，避免先进入 cookie 世界再切换。
   const savedSettings = loadMapSettings();
   const [currentWorld, setCurrentWorld] = useState(initialShareTargetRef.current?.worldId ?? savedSettings?.currentWorld ?? 'zth');
+
+  const applyShareParseResult = useCallback((result: FeatureShareParseResult) => {
+    if (result.kind === 'none') return;
+
+    if (result.kind === 'invalid') {
+      initialShareTargetRef.current = null;
+      shareTargetConsumedRef.current = true;
+      setShareLookupState(null);
+      setShareLinkMessage('无效世界或要素ID');
+      return;
+    }
+
+    initialShareTargetRef.current = result.target;
+    shareTargetConsumedRef.current = false;
+    setShareLinkMessage(null);
+    setShareLookupState(createShareLookupState(result.target));
+    setCurrentWorld(result.target.worldId);
+    setShareTargetRevision((revision) => revision + 1);
+  }, []);
+
   const [showRailway, setShowRailway] = useState(savedSettings?.showRailway ?? false);
   const [showLandmark, setShowLandmark] = useState(savedSettings?.showLandmark ?? false);
   const [showPlayers, setShowPlayers] = useState(
@@ -292,6 +366,20 @@ useEffect(() => {
   setShowLinesPage(false);
   setPendingLegacyAction((prev) => (prev === 'lines-page' ? null : prev));
 }, []);
+
+useEffect(() => {
+  const handleRuntimeShareUrl = () => {
+    applyShareParseResult(consumeFeatureShareTargetFromLocation());
+  };
+
+  window.addEventListener('hashchange', handleRuntimeShareUrl);
+  window.addEventListener('popstate', handleRuntimeShareUrl);
+
+  return () => {
+    window.removeEventListener('hashchange', handleRuntimeShareUrl);
+    window.removeEventListener('popstate', handleRuntimeShareUrl);
+  };
+}, [applyShareParseResult]);
 
 useEffect(() => {
   const handler = (ev: Event) => {
@@ -647,22 +735,39 @@ if (mapStyle === 'sketch') {
       setLandmarks(worldData.landmarks);
     }
 
-// 玩家功能临时关闭：切世界时不再请求玩家接口
-if (PLAYER_FEATURE_ENABLED) {
-  fetchPlayersDetailed(currentWorld).then((result) => {
-    setPlayers(result.players);
-    if (result.error) console.warn('[MapContainer] 玩家信息读取失败：', result.error);
-  });
-} else {
-  setPlayers([]);
-  setSelectedPlayer(null);
-}
+// 玩家数据由独立轮询 effect 统一维护，避免 PlayerLayer / MapContainer 重复请求。
 
     // 清除之前的路径
     setRouteHighlight(null);
     setHighlightedLine(null);
 
   }, [currentWorld, dataLoaded, getWorldData]);
+
+  useEffect(() => {
+    if (!PLAYER_FEATURE_ENABLED || !mapReady) return;
+
+    let cancelled = false;
+    let intervalId: number | null = null;
+
+    const loadPlayers = async () => {
+      const result = await fetchPlayersDetailed(currentWorld);
+      if (cancelled) return;
+      setPlayers(result.players);
+      if (result.error) console.warn('[MapContainer] 玩家信息读取失败：', result.error);
+    };
+
+    setPlayers([]);
+    setSelectedPlayer(null);
+    void loadPlayers();
+    intervalId = window.setInterval(() => {
+      void loadPlayers();
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      if (intervalId !== null) window.clearInterval(intervalId);
+    };
+  }, [currentWorld, mapReady]);
 
   // Rule 数据：按当前 world 单独加载，使用版本校验缓存。
   useEffect(() => {
@@ -685,6 +790,30 @@ if (PLAYER_FEATURE_ENABLED) {
 
     // 防止上一轮 setView/fitBounds 的动画仍在进行导致本次 fitBounds 偶发不生效
     map.stop();
+
+    if (result.type === 'player') {
+      lastSearchTokenRef.current = result.type ? `${result.type}:` : null;
+      lastSearchAtRef.current = Date.now();
+      if (!result.coord) return;
+
+      const player = result.playerData
+        ? { ...result.playerData, x: result.coord.x, y: result.coord.y, z: result.coord.z }
+        : null;
+      if (player) {
+        setMobileQuickPanel(null);
+        setMobileSheetHidden(false);
+        setMobileSheetCollapsed(false);
+        setSelectedPlayer(player);
+        setSelectedPoint(null);
+        setHighlightedLine(null);
+        setSelectedRuleFeature(null);
+        setSelectedRuleClassCode(null);
+      }
+
+      const latLng = proj.locationToLatLng(result.coord.x, result.coord.y, result.coord.z);
+      map.setView(latLng, 5);
+      return;
+    }
 
     // 旧数据（站点/地标/线路）保持原行为：中心到点位 & zoom=5
     if (result.type !== 'rule') {
@@ -770,13 +899,52 @@ if (PLAYER_FEATURE_ENABLED) {
 
     let cancelled = false;
     let timer: number | null = null;
-    let attempts = 0;
+    let waitingPoolAttempts = 0;
+    let searchAttempts = 0;
+
+    const finishAsInvalid = () => {
+      if (cancelled || shareTargetConsumedRef.current) return;
+      shareTargetConsumedRef.current = true;
+      initialShareTargetRef.current = null;
+      setShareLookupState(null);
+      setShareLinkMessage('无效世界或要素ID');
+      console.warn('[share-link] 未找到分享链接对应的要素：', target);
+    };
+
+    const scheduleNextTry = () => {
+      timer = window.setTimeout(tryOpenSharedFeature, SHARE_LOOKUP_RETRY_MS);
+    };
 
     const tryOpenSharedFeature = () => {
       if (cancelled || shareTargetConsumedRef.current) return;
-      attempts += 1;
 
       const pool = getRuleSearchPool(target.worldId);
+      if (pool.length === 0) {
+        waitingPoolAttempts += 1;
+        setShareLookupState(createShareLookupState(
+          target,
+          'waiting-pool',
+          waitingPoolAttempts,
+          SHARE_LOOKUP_WAIT_POOL_ATTEMPTS,
+        ));
+
+        if (waitingPoolAttempts < SHARE_LOOKUP_WAIT_POOL_ATTEMPTS) {
+          scheduleNextTry();
+          return;
+        }
+
+        finishAsInvalid();
+        return;
+      }
+
+      searchAttempts += 1;
+      setShareLookupState(createShareLookupState(
+        target,
+        'searching',
+        searchAttempts,
+        SHARE_LOOKUP_SEARCH_ATTEMPTS,
+      ));
+
       const record = findRuleByShareTarget(pool, target);
       if (record) {
         const buildingNameIndex = buildBuildingNameIndex(pool);
@@ -789,16 +957,18 @@ if (PLAYER_FEATURE_ENABLED) {
           ruleRecord: record,
         };
         shareTargetConsumedRef.current = true;
+        initialShareTargetRef.current = null;
+        setShareLookupState(null);
         handleSearchSelect(result);
         return;
       }
 
-      if (attempts < 80) {
-        timer = window.setTimeout(tryOpenSharedFeature, 250);
-      } else {
-        shareTargetConsumedRef.current = true;
-        console.warn('[share-link] 未找到分享链接对应的要素：', target);
+      if (searchAttempts < SHARE_LOOKUP_SEARCH_ATTEMPTS) {
+        scheduleNextTry();
+        return;
       }
+
+      finishAsInvalid();
     };
 
     timer = window.setTimeout(tryOpenSharedFeature, 0);
@@ -806,7 +976,7 @@ if (PLAYER_FEATURE_ENABLED) {
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [currentWorld, dataLoaded, handleSearchSelect, mapReady]);
+  }, [currentWorld, dataLoaded, handleSearchSelect, mapReady, shareTargetRevision]);
 
   // 线路选中处理 - 高亮线路并调整视图
   const handleLineSelect = useCallback((line: ParsedLine) => {
@@ -1338,7 +1508,8 @@ case 'players':
         closeMobileSheet();
         handlePlayerClick(player);
       }}
-      onNavigateToPlayer={() => {
+      onNavigateToPlayer={(player) => {
+        setNavigationInitialEndPoint(buildNavigationInitialPointFromPlayer(player));
         setMobileActivePanel('navigation');
         setMobileSheetHidden(false);
         setMobileSheetCollapsed(false);
@@ -1357,6 +1528,42 @@ case 'players':
     >
       {/* 地图容器 */}
       <div ref={mapRef} className="w-full h-full" />
+
+      {shareLookupState && (
+        <div className="absolute top-4 left-1/2 z-[2400] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2">
+          <AppCard className="bg-white/95 border border-blue-100 shadow-xl">
+            <div className="px-4 py-3 text-sm text-gray-800">
+              <div className="font-semibold text-blue-700">正在打开分享链接</div>
+              <div className="mt-1 text-xs text-gray-600">{getShareLookupText(shareLookupState)}</div>
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-gray-200">
+                <div
+                  className="h-full rounded-full bg-blue-500 transition-all duration-200"
+                  style={{ width: `${getShareLookupProgress(shareLookupState)}%` }}
+                />
+              </div>
+            </div>
+          </AppCard>
+        </div>
+      )}
+
+      {shareLinkMessage && (
+        <div className="absolute top-4 left-1/2 z-[2500] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2">
+          <AppCard className="bg-white/95 border border-amber-200 shadow-xl">
+            <div className="px-4 py-3 text-sm text-gray-800">
+              <div className="font-semibold text-amber-700">分享链接无法打开</div>
+              <div className="mt-1">{shareLinkMessage}</div>
+              <div className="mt-3 flex justify-end">
+                <AppButton
+                  onClick={() => setShareLinkMessage(null)}
+                  className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-600"
+                >
+                  知道了
+                </AppButton>
+              </div>
+            </div>
+          </AppCard>
+        </div>
+      )}
 
       {/* 规则驱动图层（总开关控制，worldId 切换自动重载） */}
       {mapReady && leafletMapRef.current && projectionRef.current && (
@@ -1405,6 +1612,7 @@ case 'players':
     projection={projectionRef.current}
     worldId={currentWorld}
     visible={showPlayers}
+    players={players}
     onPlayerClick={handlePlayerClick}
   />
 )}
@@ -1426,6 +1634,7 @@ case 'players':
           stations={searchStations}
           landmarks={searchLandmarks}
           lines={searchLines}
+          players={PLAYER_FEATURE_ENABLED ? players : []}
           worldId={currentWorld}
           onSelect={handleSearchSelect}
           onLineSelect={handleLineSelect}
@@ -1460,6 +1669,7 @@ case 'players':
           stations={searchStations}
           landmarks={searchLandmarks}
           lines={searchLines}
+          players={PLAYER_FEATURE_ENABLED ? players : []}
           worldId={currentWorld}
           onSelect={handleSearchSelect}
           onLineSelect={handleLineSelect}
@@ -1660,7 +1870,8 @@ case 'players':
             onPlayerSelect={(player) => {
               handlePlayerClick(player);
             }}
-            onNavigateToPlayer={() => {
+            onNavigateToPlayer={(player) => {
+              setNavigationInitialEndPoint(buildNavigationInitialPointFromPlayer(player));
               setShowNavigation(true);
             }}
           />

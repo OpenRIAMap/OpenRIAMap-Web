@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { HelpCircle, Search as SearchIcon } from 'lucide-react';
-import type { ParsedStation, ParsedLine } from '@/types';
+import type { ParsedStation, ParsedLine, Player } from '@/types';
 import type { ParsedLandmark } from '@/components/Legacy/data/landmarkParser';
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
@@ -24,11 +24,12 @@ import {
 // NOTE: blacklist & priority tables are now shared in searchRuleTables.ts
 
 export interface SearchResult {
-  type: 'station' | 'landmark' | 'line' | 'rule';
+  type: 'station' | 'landmark' | 'line' | 'rule' | 'player';
   name: string;
   coord: { x: number; y: number; z: number } | null;
   extra?: string;  // 额外信息，如线路或等级
   lineData?: ParsedLine;  // 线路数据（当 type 为 line 时）
+  playerData?: Player;  // 玩家数据（当 type 为 player 时）
 
   // rule 专用
   ruleRecord?: FeatureRecord;
@@ -38,6 +39,7 @@ interface SearchBarProps {
   stations: ParsedStation[];
   landmarks: ParsedLandmark[];
   lines: ParsedLine[];
+  players?: Player[];
   worldId: string;
   onSelect: (result: SearchResult) => void;
   onLineSelect?: (line: ParsedLine) => void;  // 线路选中回调
@@ -120,7 +122,7 @@ function getRuleCenterCoord(r: FeatureRecord): { x: number; y: number; z: number
   };
 }
 
-export function SearchBar({ stations, landmarks, lines, worldId, onSelect, onLineSelect, mobile = false, variant, onAboutClick }: SearchBarProps) {
+export function SearchBar({ stations, landmarks, lines, players = [], worldId, onSelect, onLineSelect, mobile = false, variant, onAboutClick }: SearchBarProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -380,6 +382,24 @@ export function SearchBar({ stations, landmarks, lines, worldId, onSelect, onLin
       }
     }
 
+    // 搜索在线玩家：结果坐标固定为生成结果时的玩家位置，避免后续移动影响已选位置。
+    for (const player of players) {
+      if (!Number.isFinite(player.x) || !Number.isFinite(player.y) || !Number.isFinite(player.z)) continue;
+      const name = String(player.name ?? '').trim();
+      const account = String(player.account ?? '').trim();
+      const hay = `${name} ${account} ${Math.round(player.x)} ${Math.round(player.y)} ${Math.round(player.z)} ${player.x} ${player.y} ${player.z}`.toLowerCase();
+      if (!hay.includes(searchQuery)) continue;
+
+      const coord = { x: player.x, y: player.y, z: player.z };
+      matchedResults.push({
+        type: 'player',
+        name,
+        coord,
+        extra: account ? `玩家：${account}` : '玩家',
+        playerData: { ...player, ...coord },
+      });
+    }
+
     // 搜索 Rules（当前世界预加载池；包含临时挂载启用数据；不包含“被更新挂载替换而暂时停用”的记录）
     // - 这里只做模糊检索（name/id）；点击后由 MapContainer 负责聚焦/缩放 & 发事件给 RuleDrivenLayer 打开信息卡。
     const rulePool = getRuleSearchPool(worldId);
@@ -430,7 +450,7 @@ export function SearchBar({ stations, landmarks, lines, worldId, onSelect, onLin
 
     // 限制结果数量
     setResults(finalResults.slice(0, 35));
-  }, [query, stations, landmarks, lines, worldId]);
+  }, [query, stations, landmarks, lines, players, worldId]);
 
   // 点击外部关闭
   useEffect(() => {
@@ -511,7 +531,7 @@ export function SearchBar({ stations, landmarks, lines, worldId, onSelect, onLin
             setIsOpen(true);
           }}
           onFocus={() => setIsOpen(true)}
-          placeholder="搜索线路、站点、地标或规则要素..."
+          placeholder="搜索线路、站点、地标、玩家或规则要素..."
           className={inputClassName}
         />
       </AppCard>
