@@ -35,6 +35,7 @@ import type { ParsedLandmark } from '@/components/Legacy/data/landmarkParser';
 import type { MultiModePathResult } from '@/components/Legacy/data/pathfinding';
 import { loadLegacyModuleBundle, type LegacyModuleBundle } from '@/entrypoints/legacyEntry';
 import { useFeatureModuleStore } from '@/store/featureModuleStore';
+import { ensureLegacyDataLoaded } from '@/lib/legacyDataLoader';
 
 import { computeRailPlanFromCoords, type NavRailNewIntegratedPlan, type TransferType } from './Navigation_RailNewIntegrated';
 import { listRailNewStaBuildingsForSearch, type RailNewStaBuildingSearchItem } from './Navigation_RailNewIntegrated';
@@ -999,13 +1000,27 @@ useEffect(() => {
 
   useEffect(() => {
     if (!pendingLegacyMode || !legacyModuleLoaded || !legacyBundle) return;
-    setTravelMode(pendingLegacyMode);
-    closeAndResetPick();
-    setResultLegacy(null);
-    setResultRailNew(null);
-    setResultTeleportNew(null);
-    setResultRoad(null);
-    setPendingLegacyMode(null);
+    let cancelled = false;
+    ensureLegacyDataLoaded()
+      .then(() => {
+        if (cancelled) return;
+        setTravelMode(pendingLegacyMode);
+        closeAndResetPick();
+        setResultLegacy(null);
+        setResultRailNew(null);
+        setResultTeleportNew(null);
+        setResultRoad(null);
+        setPendingLegacyMode(null);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.warn('[navigation] 旧导航数据加载失败：', error);
+          setPendingLegacyMode(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [pendingLegacyMode, legacyModuleLoaded, legacyBundle]);
 
   useEffect(() => {
@@ -1018,12 +1033,16 @@ useEffect(() => {
 
   const requestLegacyModeActivation = useCallback((mode: 'rail' | 'teleport') => {
     if (legacyModuleLoaded) {
-      setTravelMode(mode);
-      closeAndResetPick();
-      setResultLegacy(null);
-      setResultRailNew(null);
-      setResultTeleportNew(null);
-      setResultRoad(null);
+      void ensureLegacyDataLoaded()
+        .then(() => {
+          setTravelMode(mode);
+          closeAndResetPick();
+          setResultLegacy(null);
+          setResultRailNew(null);
+          setResultTeleportNew(null);
+          setResultRoad(null);
+        })
+        .catch((error) => console.warn('[navigation] 旧导航数据加载失败：', error));
       return;
     }
     setPendingLegacyMode(mode);
@@ -1353,9 +1372,12 @@ if (travelMode === 'road') {
       // legacy pathfinding
       // ---------------------------
 
-      if (!legacyModuleLoaded && (travelMode === 'walk' || travelMode === 'auto' || travelMode === 'rail' || travelMode === 'teleport')) {
-        requestFeatureModuleActivation('legacy');
-        return;
+      if (travelMode === 'walk' || travelMode === 'auto' || travelMode === 'rail' || travelMode === 'teleport') {
+        if (!legacyModuleLoaded) {
+          requestFeatureModuleActivation('legacy');
+          return;
+        }
+        await ensureLegacyDataLoaded();
       }
 
       const legacy = legacyBundle ?? await loadLegacyModuleBundle();

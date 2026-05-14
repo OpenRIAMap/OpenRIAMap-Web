@@ -7,16 +7,26 @@ export type FeatureShareTarget = {
   featureId: string;
 };
 
+export type PlayerShareTarget = {
+  worldId: string;
+  playerId: string;
+};
+
 export type FeatureSharePayload = FeatureShareTarget & {
   title: string;
   url: string;
   featureName: string;
 };
 
-export type FeatureShareParseResult =
+export type ShareParseResult =
   | { kind: 'none' }
-  | { kind: 'valid'; target: FeatureShareTarget }
-  | { kind: 'invalid'; message: string };
+  | { kind: 'feature'; target: FeatureShareTarget }
+  | { kind: 'player'; target: PlayerShareTarget }
+  | { kind: 'invalid-feature'; message: string }
+  | { kind: 'invalid-player'; message: string };
+
+// 兼容旧导入名；EDO_5 后这个结果可以代表要素分享或玩家分享。
+export type FeatureShareParseResult = ShareParseResult;
 
 function cleanWorldId(value: unknown): string {
   const worldId = String(value ?? '').trim().toLowerCase();
@@ -25,6 +35,14 @@ function cleanWorldId(value: unknown): string {
 
 function cleanFeatureId(value: unknown): string {
   return String(value ?? '').trim();
+}
+
+function cleanPlayerId(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+export function normalizePlayerShareId(value: unknown): string {
+  return cleanPlayerId(value).toLowerCase();
 }
 
 export function pickFeatureShareId(feature?: FeatureRecord | null): string {
@@ -44,7 +62,7 @@ export function pickFeatureNameField(feature?: FeatureRecord | null): string {
   return String(feature?.featureInfo?.Name ?? '').trim();
 }
 
-function makeUrlFromLocation(worldId: string, featureId: string, loc?: Location): string {
+function makeFeatureUrlFromLocation(worldId: string, featureId: string, loc?: Location): string {
   const encodedWorld = encodeURIComponent(worldId);
   const encodedId = encodeURIComponent(featureId);
 
@@ -59,6 +77,21 @@ function makeUrlFromLocation(worldId: string, featureId: string, loc?: Location)
   return `/#/${encodedWorld}/${encodedId}`;
 }
 
+function makePlayerUrlFromLocation(worldId: string, playerId: string, loc?: Location): string {
+  const encodedWorld = encodeURIComponent(worldId);
+  const encodedId = encodeURIComponent(playerId);
+
+  if (loc) {
+    return `${loc.origin}/#/player/${encodedWorld}/${encodedId}`;
+  }
+
+  if (typeof window !== 'undefined' && window.location) {
+    return `${window.location.origin}/#/player/${encodedWorld}/${encodedId}`;
+  }
+
+  return `/#/player/${encodedWorld}/${encodedId}`;
+}
+
 export function buildFeatureShareUrl(args: {
   worldId: string;
   featureId: string;
@@ -66,7 +99,13 @@ export function buildFeatureShareUrl(args: {
 }): string {
   const worldId = cleanWorldId(args.worldId) || 'zth';
   const featureId = cleanFeatureId(args.featureId);
-  return makeUrlFromLocation(worldId, featureId, args.location);
+  return makeFeatureUrlFromLocation(worldId, featureId, args.location);
+}
+
+export function createPlayerShareLink(worldId: string, playerId: string, loc?: Location): string {
+  const safeWorld = cleanWorldId(worldId) || 'zth';
+  const safePlayerId = cleanPlayerId(playerId);
+  return makePlayerUrlFromLocation(safeWorld, safePlayerId, loc);
 }
 
 export function buildFeatureSharePayload(args: {
@@ -88,12 +127,11 @@ export function buildFeatureSharePayload(args: {
   };
 }
 
-
 const PENDING_SHARE_RESULT_KEY = '__riaFeatureSharePendingResult';
 const SHARE_PENDING_DEV_TTL_MS = 1500;
 
 type SharePendingWindow = Window & {
-  [PENDING_SHARE_RESULT_KEY]?: FeatureShareParseResult;
+  [PENDING_SHARE_RESULT_KEY]?: ShareParseResult;
 };
 
 function getPendingShareWindow(): SharePendingWindow | null {
@@ -101,18 +139,21 @@ function getPendingShareWindow(): SharePendingWindow | null {
   return window as SharePendingWindow;
 }
 
-function isValidPendingShareResult(value: unknown): value is FeatureShareParseResult {
+function isValidPendingShareResult(value: unknown): value is ShareParseResult {
   if (!value || typeof value !== 'object') return false;
-  const result = value as FeatureShareParseResult;
+  const result = value as ShareParseResult;
   if (result.kind === 'none') return true;
-  if (result.kind === 'invalid') return typeof result.message === 'string';
-  if (result.kind === 'valid') {
+  if (result.kind === 'invalid-feature' || result.kind === 'invalid-player') return typeof result.message === 'string';
+  if (result.kind === 'feature') {
     return Boolean(cleanWorldId(result.target?.worldId) && cleanFeatureId(result.target?.featureId));
+  }
+  if (result.kind === 'player') {
+    return Boolean(cleanWorldId(result.target?.worldId) && cleanPlayerId(result.target?.playerId));
   }
   return false;
 }
 
-function keepShareResultForDevStrictMode(result: FeatureShareParseResult) {
+function keepShareResultForDevStrictMode(result: ShareParseResult) {
   const pendingWindow = getPendingShareWindow();
   if (!pendingWindow || result.kind === 'none') return;
 
@@ -126,7 +167,7 @@ function keepShareResultForDevStrictMode(result: FeatureShareParseResult) {
   }, SHARE_PENDING_DEV_TTL_MS);
 }
 
-function takePendingShareResultForDevStrictMode(): FeatureShareParseResult | null {
+function takePendingShareResultForDevStrictMode(): ShareParseResult | null {
   const pendingWindow = getPendingShareWindow();
   if (!pendingWindow) return null;
 
@@ -137,7 +178,7 @@ function takePendingShareResultForDevStrictMode(): FeatureShareParseResult | nul
   return isValidPendingShareResult(pending) ? pending : null;
 }
 
-function parseSegmentsToShareTarget(segments: string[], treatAsShareUrl: boolean): FeatureShareParseResult {
+function parseSegmentsToFeatureTarget(segments: string[], treatAsShareUrl: boolean): ShareParseResult {
   if (segments.length === 0) return { kind: 'none' };
 
   const first = decodeURIComponent(segments[0] ?? '');
@@ -147,16 +188,24 @@ function parseSegmentsToShareTarget(segments: string[], treatAsShareUrl: boolean
   if (!worldId && !treatAsShareUrl) return { kind: 'none' };
 
   if (!worldId || segments.length < 2) {
-    return { kind: 'invalid', message: '无效世界或要素ID' };
+    return { kind: 'invalid-feature', message: '无效世界或要素ID' };
   }
 
   const featureId = cleanFeatureId(decodeURIComponent(segments.slice(1).join('/')));
-  if (!featureId) return { kind: 'invalid', message: '无效世界或要素ID' };
+  if (!featureId) return { kind: 'invalid-feature', message: '无效世界或要素ID' };
 
-  return { kind: 'valid', target: { worldId, featureId } };
+  return { kind: 'feature', target: { worldId, featureId } };
 }
 
-function parseSharePathLike(value: string, treatAsShareUrl: boolean): FeatureShareParseResult {
+function parseSegmentsToPlayerTarget(segments: string[]): ShareParseResult {
+  if (segments.length < 3) return { kind: 'invalid-player', message: '无效世界或玩家ID' };
+  const worldId = cleanWorldId(decodeURIComponent(segments[1] ?? ''));
+  const playerId = cleanPlayerId(decodeURIComponent(segments.slice(2).join('/')));
+  if (!worldId || !playerId) return { kind: 'invalid-player', message: '无效世界或玩家ID' };
+  return { kind: 'player', target: { worldId, playerId } };
+}
+
+function parseSharePathLike(value: string, treatAsShareUrl: boolean): ShareParseResult {
   const trimmed = String(value ?? '').trim();
   if (!trimmed) return { kind: 'none' };
 
@@ -164,14 +213,18 @@ function parseSharePathLike(value: string, treatAsShareUrl: boolean): FeatureSha
   const withoutQuery = withoutHash.split('?')[0] ?? '';
   const segments = withoutQuery.split('/').filter(Boolean);
 
-  if (segments[0] === 'share') {
-    return parseSegmentsToShareTarget(segments.slice(1), true);
+  if (segments[0] === 'player') {
+    return parseSegmentsToPlayerTarget(segments);
   }
 
-  return parseSegmentsToShareTarget(segments, treatAsShareUrl);
+  if (segments[0] === 'share') {
+    return parseSegmentsToFeatureTarget(segments.slice(1), true);
+  }
+
+  return parseSegmentsToFeatureTarget(segments, treatAsShareUrl);
 }
 
-function parseShareTargetFromLocation(loc?: Location): FeatureShareParseResult {
+function parseShareTargetFromLocation(loc?: Location): ShareParseResult {
   const source = loc ?? (typeof window !== 'undefined' ? window.location : undefined);
   if (!source) return { kind: 'none' };
 
@@ -179,6 +232,9 @@ function parseShareTargetFromLocation(loc?: Location): FeatureShareParseResult {
   if (fromHash.kind !== 'none') return fromHash;
 
   const params = new URLSearchParams(source.search ?? '');
+  if (params.has('playerShare')) {
+    return parseSharePathLike(`player/${params.get('playerShare') ?? ''}`, true);
+  }
   if (params.has('share')) {
     return parseSharePathLike(params.get('share') ?? '', true);
   }
@@ -191,10 +247,10 @@ function parseShareTargetFromLocation(loc?: Location): FeatureShareParseResult {
 
 export function parseFeatureShareTargetFromLocation(loc?: Location): FeatureShareTarget | null {
   const result = parseShareTargetFromLocation(loc);
-  return result.kind === 'valid' ? result.target : null;
+  return result.kind === 'feature' ? result.target : null;
 }
 
-export function consumeFeatureShareTargetFromLocation(loc?: Location): FeatureShareParseResult {
+export function consumeFeatureShareTargetFromLocation(loc?: Location): ShareParseResult {
   const source = loc ?? (typeof window !== 'undefined' ? window.location : undefined);
   const result = parseShareTargetFromLocation(source);
 

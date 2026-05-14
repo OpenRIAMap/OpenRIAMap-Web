@@ -16,6 +16,8 @@ interface DraggablePanelProps {
   stackGroup?: string;
   stackGroupOrder?: number;
   constrainExpandedToViewport?: boolean;
+  windowControlTone?: 'default' | 'light';
+  minimizedTitleNode?: React.ReactNode;
 }
 
 const HEADER_HEIGHT = 48;
@@ -117,6 +119,8 @@ export function DraggablePanel({
   stackGroup,
   stackGroupOrder = 0,
   constrainExpandedToViewport = false,
+  windowControlTone = 'default',
+  minimizedTitleNode,
 }: DraggablePanelProps) {
   const [position, setPosition] = useState(defaultPosition);
   const [isDragging, setIsDragging] = useState(false);
@@ -309,6 +313,11 @@ export function DraggablePanel({
   // 桌面端窗口统一进入全局层级栈；zIndex 仅保留兼容旧调用，不再作为跨窗口层级屏障。
   const effectiveZIndex = GLOBAL_WINDOW_Z_BASE + stackOrder * 100 + stackGroupOrder;
 
+  const expandedControlButtonClass = windowControlTone === 'light'
+    ? 'flex h-7 w-7 items-center justify-center rounded text-white/85 transition hover:bg-white/15 hover:text-white'
+    : 'flex h-7 w-7 items-center justify-center rounded text-gray-400 transition hover:bg-gray-100 hover:text-gray-600';
+  const minimizedControlButtonClass = 'flex h-7 w-7 items-center justify-center rounded text-gray-400 transition hover:bg-gray-100 hover:text-gray-600';
+
   const panelNode = (
     <div
       ref={panelRef}
@@ -341,13 +350,13 @@ export function DraggablePanel({
             style={{ minWidth: MINIMIZED_MIN_WIDTH }}
           >
             <div className="min-w-0 px-4 py-3 text-sm font-semibold text-gray-800 truncate" title={panelTitle}>
-              {panelTitle}
+              {minimizedTitleNode ?? panelTitle}
             </div>
             <div className="ml-auto flex items-center gap-2 pr-3">
               <button
                 type="button"
                 onClick={handleToggleMinimize}
-                className="flex h-7 w-7 items-center justify-center rounded text-gray-400 transition hover:bg-gray-100 hover:text-gray-600"
+                className={minimizedControlButtonClass}
                 aria-label="展开面板"
                 title="展开面板"
               >
@@ -357,7 +366,7 @@ export function DraggablePanel({
                 <button
                   type="button"
                   onClick={handleRequestClose}
-                  className="flex h-7 w-7 items-center justify-center rounded text-gray-400 transition hover:bg-gray-100 hover:text-gray-600"
+                  className={minimizedControlButtonClass}
                   aria-label="关闭"
                   title="关闭"
                 >
@@ -371,7 +380,7 @@ export function DraggablePanel({
             <button
               type="button"
               onClick={handleToggleMinimize}
-              className="absolute flex items-center justify-center rounded text-gray-400 transition hover:bg-gray-100 hover:text-gray-600"
+              className={`absolute ${expandedControlButtonClass}`}
               aria-label="最小化面板"
               title="最小化面板"
               style={{
@@ -387,7 +396,7 @@ export function DraggablePanel({
               <button
                 type="button"
                 onClick={handleRequestClose}
-                className="absolute flex items-center justify-center rounded text-gray-400 transition hover:bg-gray-100 hover:text-gray-600"
+                className={`absolute ${expandedControlButtonClass}`}
                 aria-label="关闭"
                 title="关闭"
                 style={{

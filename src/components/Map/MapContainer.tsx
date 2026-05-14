@@ -24,8 +24,8 @@ import { PlayersList } from '../Players/PlayersList';
 import { LoadingOverlay } from '../Loading/LoadingOverlay';
 import { DraggablePanel } from '../DraggablePanel/DraggablePanel';
 import { SettingsPanel } from '../Settings/SettingsPanel';
-import { useLoadingStore } from '@/store/loadingStore';
 import { useDataStore } from '@/store/dataStore';
+import { ensureLegacyDataLoaded } from '@/lib/legacyDataLoader';
 import { useRuleDataStore } from '@/store/ruleDataStore';
 import { fetchPlayersDetailed } from '@/lib/playerApi';
 import { loadMapSettings, saveMapSettings, MapStyle } from '@/lib/cookies';
@@ -44,10 +44,10 @@ import { formatGridNumber, snapWorldPointByMode } from '@/components/Mapping/too
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
 import ToolIconButton from '@/components/Toolbar/ToolIconButton';
-import { Globe2, PanelsTopLeft, Layers3, SlidersHorizontal, Plus, Minus, Pencil, Ruler } from 'lucide-react';
+import { Globe2, PanelsTopLeft, Layers3, SlidersHorizontal, Plus, Minus, Pencil, Ruler, User } from 'lucide-react';
 import { buildBuildingNameIndex, getRuleCategoryLabelWithParent, getRuleDisplayName } from '@/components/Search/searchRuleTables';
 import { getRuleSearchPool } from '@/components/Rules/search/ruleSearchRegistry';
-import { consumeFeatureShareTargetFromLocation, type FeatureShareParseResult, type FeatureSharePayload, type FeatureShareTarget } from '@/lib/featureShareLink';
+import { consumeFeatureShareTargetFromLocation, normalizePlayerShareId, type FeatureSharePayload, type FeatureShareTarget, type PlayerShareTarget, type ShareParseResult } from '@/lib/featureShareLink';
 
 // ===== 导航“图上选取”：MapContainer 统一派发地图点击事件 =====
 type MapClickWorldPointEventDetail = {
@@ -59,9 +59,13 @@ type MapClickWorldPointEventDetail = {
 type MobilePanelKey = null | 'navigation' | 'attributeQuery' | 'players' | 'about' | 'settings' | 'featureJson' | 'featureShare';
 type MobileQuickPanelKey = null | 'worlds' | 'toolbar' | 'ruleButtons' | 'modeTools';
 
+type PendingShareTarget =
+  | { type: 'feature'; target: FeatureShareTarget }
+  | { type: 'player'; target: PlayerShareTarget };
+
 type ShareLookupState = {
-  target: FeatureShareTarget;
-  phase: 'waiting-pool' | 'searching';
+  pending: PendingShareTarget;
+  phase: 'waiting-pool' | 'searching-feature' | 'waiting-player-list' | 'searching-player';
   attempt: number;
   maxAttempts: number;
 };
@@ -69,20 +73,30 @@ type ShareLookupState = {
 const SHARE_LOOKUP_RETRY_MS = 250;
 const SHARE_LOOKUP_WAIT_POOL_ATTEMPTS = 12;
 const SHARE_LOOKUP_SEARCH_ATTEMPTS = 8;
+const PLAYER_SHARE_LOOKUP_ATTEMPTS = 16;
 
 function createShareLookupState(
-  target: FeatureShareTarget,
-  phase: ShareLookupState['phase'] = 'waiting-pool',
+  pending: PendingShareTarget,
+  phase: ShareLookupState['phase'] = pending.type === 'player' ? 'waiting-player-list' : 'waiting-pool',
   attempt = 0,
-  maxAttempts = SHARE_LOOKUP_WAIT_POOL_ATTEMPTS,
+  maxAttempts = pending.type === 'player' ? PLAYER_SHARE_LOOKUP_ATTEMPTS : SHARE_LOOKUP_WAIT_POOL_ATTEMPTS,
 ): ShareLookupState {
-  return { target, phase, attempt, maxAttempts };
+  return { pending, phase, attempt, maxAttempts };
 }
 
 function getShareLookupText(state: ShareLookupState): string {
-  return state.phase === 'waiting-pool'
-    ? '正在准备分享要素索引...'
-    : '正在查找分享要素...';
+  switch (state.phase) {
+    case 'waiting-pool':
+      return '正在准备分享目标索引...';
+    case 'searching-feature':
+      return '正在查找分享目标...';
+    case 'waiting-player-list':
+      return '正在同步玩家状态...';
+    case 'searching-player':
+      return '正在查找在线玩家...';
+    default:
+      return '正在打开分享链接...';
+  }
 }
 
 function getShareLookupProgress(state: ShareLookupState): number {
@@ -213,45 +227,62 @@ function MapContainer() {
   const measuringModuleRef = useRef<MeasuringModuleHandle | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const initialShareParseRef = useRef(consumeFeatureShareTargetFromLocation());
-  const initialShareTargetRef = useRef<FeatureShareTarget | null>(
-    initialShareParseRef.current.kind === 'valid' ? initialShareParseRef.current.target : null
+  const initialPendingShareRef = useRef<PendingShareTarget | null>(
+    initialShareParseRef.current.kind === 'feature'
+      ? { type: 'feature', target: initialShareParseRef.current.target }
+      : initialShareParseRef.current.kind === 'player'
+        ? { type: 'player', target: initialShareParseRef.current.target }
+        : null
   );
   const shareTargetConsumedRef = useRef(false);
   const [shareTargetRevision, setShareTargetRevision] = useState(0);
   const [shareLinkMessage, setShareLinkMessage] = useState<string | null>(
-    initialShareParseRef.current.kind === 'invalid' ? '无效世界或要素ID' : null
+    initialShareParseRef.current.kind === 'invalid-player'
+      ? '无效世界或玩家ID'
+      : initialShareParseRef.current.kind === 'invalid-feature'
+        ? '无效世界或要素ID'
+        : null
   );
   const [shareLookupState, setShareLookupState] = useState<ShareLookupState | null>(
-    initialShareParseRef.current.kind === 'valid'
-      ? createShareLookupState(initialShareParseRef.current.target)
-      : null
+    initialPendingShareRef.current ? createShareLookupState(initialPendingShareRef.current) : null
   );
 
   // 从 cookie 读取初始设置；分享链接中的 world 优先，避免先进入 cookie 世界再切换。
   const savedSettings = loadMapSettings();
-  const [currentWorld, setCurrentWorld] = useState(initialShareTargetRef.current?.worldId ?? savedSettings?.currentWorld ?? 'zth');
+  const [currentWorld, setCurrentWorld] = useState(initialPendingShareRef.current?.target.worldId ?? savedSettings?.currentWorld ?? 'zth');
 
-  const applyShareParseResult = useCallback((result: FeatureShareParseResult) => {
+  const applyShareParseResult = useCallback((result: ShareParseResult) => {
     if (result.kind === 'none') return;
 
-    if (result.kind === 'invalid') {
-      initialShareTargetRef.current = null;
+    if (result.kind === 'invalid-player') {
+      initialPendingShareRef.current = null;
+      shareTargetConsumedRef.current = true;
+      setShareLookupState(null);
+      setShareLinkMessage('无效世界或玩家ID');
+      return;
+    }
+
+    if (result.kind === 'invalid-feature') {
+      initialPendingShareRef.current = null;
       shareTargetConsumedRef.current = true;
       setShareLookupState(null);
       setShareLinkMessage('无效世界或要素ID');
       return;
     }
 
-    initialShareTargetRef.current = result.target;
+    const pending: PendingShareTarget = result.kind === 'player'
+      ? { type: 'player', target: result.target }
+      : { type: 'feature', target: result.target };
+    initialPendingShareRef.current = pending;
     shareTargetConsumedRef.current = false;
     setShareLinkMessage(null);
-    setShareLookupState(createShareLookupState(result.target));
-    setCurrentWorld(result.target.worldId);
+    setShareLookupState(createShareLookupState(pending));
+    setCurrentWorld(pending.target.worldId);
     setShareTargetRevision((revision) => revision + 1);
   }, []);
 
-  const [showRailway, setShowRailway] = useState(savedSettings?.showRailway ?? false);
-  const [showLandmark, setShowLandmark] = useState(savedSettings?.showLandmark ?? false);
+  const [showRailway, setShowRailway] = useState(false);
+  const [showLandmark, setShowLandmark] = useState(false);
   const [showPlayers, setShowPlayers] = useState(
     PLAYER_FEATURE_ENABLED && (savedSettings?.showPlayers ?? true)
   );
@@ -419,15 +450,24 @@ useEffect(() => {
     setPendingMeasureModuleOpen(null);
   }, [pendingMeasureModuleOpen, featureDialogState.isOpen, measuringModuleLoaded, measuringModuleState.status]);
 
+  const activateLegacyAction = useCallback(async (action: 'railway-on' | 'landmark-on' | 'lines-page') => {
+    if (action === 'lines-page' && !LINES_FEATURE_ENABLED) return;
+    try {
+      await ensureLegacyDataLoaded();
+      if (action === 'railway-on') setShowRailway(true);
+      else if (action === 'landmark-on') setShowLandmark(true);
+      else if (action === 'lines-page' && LINES_FEATURE_ENABLED) setShowLinesPage(true);
+    } catch (error) {
+      console.warn('[legacy] 旧数据源加载失败：', error);
+    } finally {
+      setPendingLegacyAction(null);
+    }
+  }, []);
+
   useEffect(() => {
     if (!pendingLegacyAction || !legacyModuleLoaded) return;
-    if (pendingLegacyAction === 'railway-on') setShowRailway(true);
-    else if (pendingLegacyAction === 'landmark-on') setShowLandmark(true);
-    else if (pendingLegacyAction === 'lines-page') {
-      if (LINES_FEATURE_ENABLED) setShowLinesPage(true);
-    }
-    setPendingLegacyAction(null);
-  }, [pendingLegacyAction, legacyModuleLoaded]);
+    void activateLegacyAction(pendingLegacyAction);
+  }, [activateLegacyAction, pendingLegacyAction, legacyModuleLoaded]);
 
   useEffect(() => {
     if (!pendingLegacyAction) return;
@@ -440,14 +480,12 @@ useEffect(() => {
   const requestLegacyFeature = useCallback((action: 'railway-on' | 'landmark-on' | 'lines-page') => {
     if (action === 'lines-page' && !LINES_FEATURE_ENABLED) return;
     if (legacyModuleLoaded) {
-      if (action === 'railway-on') setShowRailway(true);
-      else if (action === 'landmark-on') setShowLandmark(true);
-      else if (action === 'lines-page' && LINES_FEATURE_ENABLED) setShowLinesPage(true);
+      void activateLegacyAction(action);
       return;
     }
     setPendingLegacyAction(action);
     requestFeatureModuleActivation('legacy');
-  }, [legacyModuleLoaded, requestFeatureModuleActivation]);
+  }, [activateLegacyAction, legacyModuleLoaded, requestFeatureModuleActivation]);
 
   const handleToggleLegacyRailway = useCallback(() => {
     if (showRailway) {
@@ -685,44 +723,8 @@ if (mapStyle === 'sketch') {
     });
   }, [currentWorld, showRailway, showLandmark, showPlayers, dimBackground, mapStyle]);
 
-  // 加载状态管理
-  const { startLoading, updateStage, finishLoadingByFlow } = useLoadingStore();
-  const { loadAllData, getWorldData, isLoaded: dataLoaded } = useDataStore();
-
-  // 首次加载：预加载所有世界数据
-  useEffect(() => {
-    if (dataLoaded) return;
-
-    const legacyInitFlowId = `legacy-init:${Date.now()}`;
-
-    startLoading([
-      { name: 'bureaus', label: '铁路局配置' },
-      { name: 'zth-railway', label: '零洲铁路数据' },
-      { name: 'zth-rmp', label: '零洲 RMP 数据' },
-      { name: 'zth-landmark', label: '零洲地标数据' },
-      { name: 'houtu-railway', label: '后土洲铁路数据' },
-      { name: 'houtu-rmp', label: '后土洲 RMP 数据' },
-      { name: 'houtu-landmark', label: '后土洲地标数据' },
-      { name: 'naraku-railway', label: '奈落洲铁路数据' },
-      { name: 'naraku-landmark', label: '奈落洲地标数据' },
-      { name: 'eden-railway', label: '伊甸铁路数据' },
-      { name: 'eden-landmark', label: '伊甸地标数据' },
-      { name: 'laputa-railway', label: '拉普塔铁路数据' },
-      { name: 'laputa-landmark', label: '拉普塔地标数据' },
-    ], { flowId: legacyInitFlowId });
-
-    loadAllData((stage, status) => {
-      const latest = useLoadingStore.getState();
-      if (!latest.isLoading || latest.activeFlowId !== legacyInitFlowId || latest.activeRuleWorldId) return;
-      updateStage(stage, status);
-    }).then(() => {
-      setTimeout(() => {
-        const latest = useLoadingStore.getState();
-        if (!latest.isLoading || latest.activeFlowId !== legacyInitFlowId || latest.activeRuleWorldId) return;
-        finishLoadingByFlow(legacyInitFlowId);
-      }, 500);
-    });
-  }, [dataLoaded, loadAllData, startLoading, updateStage, finishLoadingByFlow]);
+  // Legacy 旧数据源改为按需加载；默认进入页面不再预加载旧 railway / landmark。
+  const { getWorldData, isLoaded: dataLoaded } = useDataStore();
 
   // 切换世界时从缓存加载数据
   useEffect(() => {
@@ -769,13 +771,21 @@ if (mapStyle === 'sketch') {
     };
   }, [currentWorld, mapReady]);
 
+  useEffect(() => {
+    setSelectedPlayer((prev) => {
+      if (!prev) return prev;
+      const latest = players.find((p) => (prev.account && p.account === prev.account) || p.name === prev.name);
+      return latest ?? prev;
+    });
+  }, [players]);
+
   // Rule 数据：按当前 world 单独加载，使用版本校验缓存。
   useEffect(() => {
-    if (!dataLoaded) return;
+    if (!mapReady) return;
     void ensureRuleWorldLoaded(currentWorld).catch((err) => {
       console.warn('[MapContainer] ensureRuleWorldLoaded failed:', err);
     });
-  }, [currentWorld, dataLoaded, ensureRuleWorldLoaded]);
+  }, [currentWorld, ensureRuleWorldLoaded, mapReady]);
 
   // 搜索结果选中处理
   // 说明：过去仅用 uid 去重会在“先选 STB/其它要素，再选规则要素”时产生偶发短路。
@@ -893,54 +903,67 @@ if (mapStyle === 'sketch') {
   }, [activeRuleButtonIds, toggleRuleButton]);
 
   useEffect(() => {
-    const target = initialShareTargetRef.current;
-    if (!target || shareTargetConsumedRef.current) return;
-    if (!mapReady || !dataLoaded || currentWorld !== target.worldId) return;
+    const pending = initialPendingShareRef.current;
+    if (!pending || shareTargetConsumedRef.current) return;
+    if (!mapReady || currentWorld !== pending.target.worldId) return;
 
     let cancelled = false;
     let timer: number | null = null;
-    let waitingPoolAttempts = 0;
+    let waitingAttempts = 0;
     let searchAttempts = 0;
 
-    const finishAsInvalid = () => {
-      if (cancelled || shareTargetConsumedRef.current) return;
-      shareTargetConsumedRef.current = true;
-      initialShareTargetRef.current = null;
-      setShareLookupState(null);
-      setShareLinkMessage('无效世界或要素ID');
-      console.warn('[share-link] 未找到分享链接对应的要素：', target);
+    const clearTimer = () => {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
     };
 
-    const scheduleNextTry = () => {
-      timer = window.setTimeout(tryOpenSharedFeature, SHARE_LOOKUP_RETRY_MS);
+    const finishShare = () => {
+      shareTargetConsumedRef.current = true;
+      initialPendingShareRef.current = null;
+      setShareLookupState(null);
+      clearTimer();
+    };
+
+    const finishAsInvalid = (message: string) => {
+      if (cancelled || shareTargetConsumedRef.current) return;
+      finishShare();
+      setShareLinkMessage(message);
+      console.warn('[share-link] 未找到分享链接对应的目标：', pending);
+    };
+
+    const scheduleNextTry = (fn: () => void) => {
+      timer = window.setTimeout(fn, SHARE_LOOKUP_RETRY_MS);
     };
 
     const tryOpenSharedFeature = () => {
-      if (cancelled || shareTargetConsumedRef.current) return;
+      if (cancelled || shareTargetConsumedRef.current || pending.type !== 'feature') return;
+      const target = pending.target;
 
       const pool = getRuleSearchPool(target.worldId);
       if (pool.length === 0) {
-        waitingPoolAttempts += 1;
+        waitingAttempts += 1;
         setShareLookupState(createShareLookupState(
-          target,
+          pending,
           'waiting-pool',
-          waitingPoolAttempts,
+          waitingAttempts,
           SHARE_LOOKUP_WAIT_POOL_ATTEMPTS,
         ));
 
-        if (waitingPoolAttempts < SHARE_LOOKUP_WAIT_POOL_ATTEMPTS) {
-          scheduleNextTry();
+        if (waitingAttempts < SHARE_LOOKUP_WAIT_POOL_ATTEMPTS) {
+          scheduleNextTry(tryOpenSharedFeature);
           return;
         }
 
-        finishAsInvalid();
+        finishAsInvalid('无效世界或要素ID');
         return;
       }
 
       searchAttempts += 1;
       setShareLookupState(createShareLookupState(
-        target,
-        'searching',
+        pending,
+        'searching-feature',
         searchAttempts,
         SHARE_LOOKUP_SEARCH_ATTEMPTS,
       ));
@@ -956,27 +979,79 @@ if (mapStyle === 'sketch') {
           extra: getRuleCategoryLabelWithParent(record, buildingNameIndex),
           ruleRecord: record,
         };
-        shareTargetConsumedRef.current = true;
-        initialShareTargetRef.current = null;
-        setShareLookupState(null);
+        finishShare();
         handleSearchSelect(result);
         return;
       }
 
       if (searchAttempts < SHARE_LOOKUP_SEARCH_ATTEMPTS) {
-        scheduleNextTry();
+        scheduleNextTry(tryOpenSharedFeature);
         return;
       }
 
-      finishAsInvalid();
+      finishAsInvalid('无效世界或要素ID');
     };
 
-    timer = window.setTimeout(tryOpenSharedFeature, 0);
+    const tryOpenSharedPlayer = () => {
+      if (cancelled || shareTargetConsumedRef.current || pending.type !== 'player') return;
+      const target = pending.target;
+      const wanted = normalizePlayerShareId(target.playerId);
+
+      searchAttempts += 1;
+      setShareLookupState(createShareLookupState(
+        pending,
+        players.length ? 'searching-player' : 'waiting-player-list',
+        searchAttempts,
+        PLAYER_SHARE_LOOKUP_ATTEMPTS,
+      ));
+
+      const player = players.find((p) => {
+        const account = normalizePlayerShareId(p.account);
+        const name = normalizePlayerShareId(p.name);
+        return account === wanted || name === wanted;
+      }) ?? null;
+
+      if (player) {
+        finishShare();
+        setShareLinkMessage(null);
+        setMobileQuickPanel(null);
+        setMobileSheetHidden(false);
+        setMobileSheetCollapsed(false);
+        setSelectedPlayer(player);
+        setSelectedPoint(null);
+        setHighlightedLine(null);
+        setSelectedRuleFeature(null);
+        setSelectedRuleClassCode(null);
+
+        const map = leafletMapRef.current;
+        const proj = projectionRef.current;
+        if (map && proj) {
+          map.stop();
+          const latLng = proj.locationToLatLng(player.x, player.y, player.z);
+          map.setView(latLng, 5, { animate: true });
+        }
+        return;
+      }
+
+      if (searchAttempts < PLAYER_SHARE_LOOKUP_ATTEMPTS) {
+        scheduleNextTry(tryOpenSharedPlayer);
+        return;
+      }
+
+      finishAsInvalid('无效世界或玩家ID');
+    };
+
+    timer = window.setTimeout(
+      pending.type === 'player' ? tryOpenSharedPlayer : tryOpenSharedFeature,
+      0,
+    );
+
     return () => {
       cancelled = true;
-      if (timer !== null) window.clearTimeout(timer);
+      clearTimer();
     };
-  }, [currentWorld, dataLoaded, handleSearchSelect, mapReady, shareTargetRevision]);
+  }, [currentWorld, handleSearchSelect, mapReady, players, shareTargetRevision]);
+
 
   // 线路选中处理 - 高亮线路并调整视图
   const handleLineSelect = useCallback((line: ParsedLine) => {
@@ -1173,7 +1248,7 @@ if (mapStyle === 'sketch') {
     if (!mapRef.current || leafletMapRef.current) return;
 
     // 从 cookie 读取初始世界设置
-    const savedWorld = initialShareTargetRef.current?.worldId ?? loadMapSettings()?.currentWorld ?? 'zth';
+    const savedWorld = initialPendingShareRef.current?.target.worldId ?? loadMapSettings()?.currentWorld ?? 'zth';
 
     // 创建 Dynmap CRS
     const crs = createDynmapCRS(ZTH_FLAT_CONFIG);
@@ -1399,16 +1474,17 @@ map.on('mousemove', handleMouseMove);
     }
 
     if (selectedPlayer) {
-      const playerCoord: Coordinate = { x: selectedPlayer.x, y: selectedPlayer.y, z: selectedPlayer.z };
-      const { nearbyStations, nearbyLandmarks } = getNearbyPoints(playerCoord);
       return (
         <PlayerDetailCard
           player={selectedPlayer}
-          nearbyStations={nearbyStations}
-          nearbyLandmarks={nearbyLandmarks}
+          worldId={currentWorld}
           onClose={() => setSelectedPlayer(null)}
-          onStationClick={handleStationClick}
-          onLandmarkClick={handleLandmarkClick}
+          onNavigate={(player) => {
+            setNavigationInitialEndPoint(buildNavigationInitialPointFromPlayer(player));
+            setMobileActivePanel('navigation');
+            setMobileSheetHidden(false);
+            setMobileSheetCollapsed(false);
+          }}
         />
       );
     }
@@ -1533,7 +1609,7 @@ case 'players':
         <div className="absolute top-4 left-1/2 z-[2400] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2">
           <AppCard className="bg-white/95 border border-blue-100 shadow-xl">
             <div className="px-4 py-3 text-sm text-gray-800">
-              <div className="font-semibold text-blue-700">正在打开分享链接</div>
+              <div className="font-semibold text-blue-700">{shareLookupState.pending.type === 'player' ? '正在打开玩家分享链接' : '正在打开分享链接'}</div>
               <div className="mt-1 text-xs text-gray-600">{getShareLookupText(shareLookupState)}</div>
               <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-gray-200">
                 <div
@@ -1933,27 +2009,32 @@ case 'players':
       })()}
 
       {/* 玩家详情卡片 */}
-      {selectedPlayer && (() => {
-        const playerCoord: Coordinate = { x: selectedPlayer.x, y: selectedPlayer.y, z: selectedPlayer.z };
-        const { nearbyStations, nearbyLandmarks } = getNearbyPoints(playerCoord);
-        return (
-          <div className="hidden sm:block">
-          <DraggablePanel
-            id="playerDetail"
-            defaultPosition={{ x: 340, y: 16 }}
-              >
-            <PlayerDetailCard
-              player={selectedPlayer}
-              nearbyStations={nearbyStations}
-              nearbyLandmarks={nearbyLandmarks}
-              onClose={() => setSelectedPlayer(null)}
-              onStationClick={handleStationClick}
-              onLandmarkClick={handleLandmarkClick}
-            />
-          </DraggablePanel>
-          </div>
-        );
-      })()}
+      {selectedPlayer && (
+        <div className="hidden sm:block">
+        <DraggablePanel
+          id="playerDetail"
+          defaultPosition={{ x: 340, y: 16 }}
+          windowControlTone="light"
+          minimizedTitleNode={(
+            <span className="flex min-w-0 items-center gap-2">
+              <User className="h-4 w-4 flex-none text-cyan-600" />
+              <span className="truncate">{selectedPlayer.name}</span>
+            </span>
+          )}
+        >
+          <PlayerDetailCard
+            player={selectedPlayer}
+            worldId={currentWorld}
+            desktopWindowMode
+            onClose={() => setSelectedPlayer(null)}
+            onNavigate={(player) => {
+              setNavigationInitialEndPoint(buildNavigationInitialPointFromPlayer(player));
+              setShowNavigation(true);
+            }}
+          />
+        </DraggablePanel>
+        </div>
+      )}
 
       {/* 桌面端：右上角图层控制 */}
       <div className="hidden sm:block absolute top-4 right-4 z-[1000]">
