@@ -24,6 +24,12 @@ import {
 } from '@/components/Rules/data/worldRuleCache';
 import AppButton from '@/components/ui/AppButton';
 import AppCard from '@/components/ui/AppCard';
+import {
+  getCurrentSourceLinkModeId,
+  getDefaultSourceLinkModeId,
+  getSourceLinkModeDefs,
+  setCurrentSourceLinkMode,
+} from '@/components/Rules/data/sourceLinkModes';
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -70,10 +76,36 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   });
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
+  const sourceLinkModeDefs = getSourceLinkModeDefs();
+  const [sourceLinkModeDraft, setSourceLinkModeDraft] = useState(() => getCurrentSourceLinkModeId());
+  const [sourceLinkModeApplied, setSourceLinkModeApplied] = useState(() => getCurrentSourceLinkModeId());
+  const [sourceLinkModeStatus, setSourceLinkModeStatus] = useState<string>('');
 
   const anyRefreshBusy = isRefreshingRules || isRefreshingLegacy || isSyncingRules;
   const rulesRefreshBlocked = anyRefreshBusy || (isLoading && !!activeRuleWorldId);
   const legacyRefreshBlocked = anyRefreshBusy || (isLoading && !!activeRuleWorldId) || (isLoading && activeFlowId === 'legacy-refresh');
+
+  useEffect(() => {
+    const current = getCurrentSourceLinkModeId();
+    setSourceLinkModeDraft(current);
+    setSourceLinkModeApplied(current);
+  }, []);
+
+  useEffect(() => {
+    if (!sourceLinkModeStatus) return;
+    const timer = window.setTimeout(() => setSourceLinkModeStatus(''), 1800);
+    return () => window.clearTimeout(timer);
+  }, [sourceLinkModeStatus]);
+
+  const handleApplySourceLinkMode = () => {
+    const next = setCurrentSourceLinkMode(sourceLinkModeDraft);
+    const nextId = next.id;
+    const changed = nextId !== sourceLinkModeApplied;
+    setSourceLinkModeDraft(nextId);
+    setSourceLinkModeApplied(nextId);
+    setSourceLinkModeStatus(changed ? '已应用，后续新数据获取将使用该模式' : '当前已是该模式');
+  };
+
 
   const buildRuleWorldRow = (worldId: string, remoteVersion: string, remoteOk: boolean): RuleWorldRow => {
     const meta = readRuleWorldMeta(worldId);
@@ -391,6 +423,38 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                 })}
               </div>
             )}
+          </div>
+
+          <div className="rounded-lg border border-gray-200 bg-white px-3 py-3 space-y-2">
+            <div className="text-xs font-semibold text-gray-700">源数据仓库链接模式</div>
+            <div className="flex items-center gap-2">
+              <select
+                className="min-w-0 flex-1 rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-800"
+                value={sourceLinkModeDraft}
+                onChange={(e) => setSourceLinkModeDraft(e.target.value)}
+                onMouseDownCapture={(e) => e.stopPropagation()}
+                onPointerDownCapture={(e) => e.stopPropagation()}
+                onTouchStartCapture={(e) => e.stopPropagation()}
+              >
+                {sourceLinkModeDefs.map((mode) => (
+                  <option key={mode.id} value={mode.id}>
+                    {mode.label}{mode.id === getDefaultSourceLinkModeId() ? '（默认）' : ''}
+                  </option>
+                ))}
+              </select>
+              <AppButton
+                onClick={handleApplySourceLinkMode}
+                className="shrink-0 rounded bg-blue-500 px-3 py-1.5 text-sm text-white transition-colors hover:bg-blue-600"
+              >
+                应用
+              </AppButton>
+            </div>
+            <div className="text-[11px] leading-relaxed text-gray-500">
+              当前已应用：{sourceLinkModeDefs.find((mode) => mode.id === sourceLinkModeApplied)?.label ?? sourceLinkModeApplied}。切换后不会清除已有缓存，后续新数据获取、刷新数据、换世界与图片路径会使用所选模式。
+            </div>
+            {sourceLinkModeStatus ? (
+              <div className="text-[11px] text-green-600">{sourceLinkModeStatus}</div>
+            ) : null}
           </div>
 
           <div className="flex gap-2">

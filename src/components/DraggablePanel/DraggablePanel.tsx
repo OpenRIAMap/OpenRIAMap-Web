@@ -18,6 +18,7 @@ interface DraggablePanelProps {
   constrainExpandedToViewport?: boolean;
   windowControlTone?: 'default' | 'light';
   minimizedTitleNode?: React.ReactNode;
+  expandedControlLayout?: 'default' | 'playerCardGrid';
 }
 
 const HEADER_HEIGHT = 48;
@@ -121,6 +122,7 @@ export function DraggablePanel({
   constrainExpandedToViewport = false,
   windowControlTone = 'default',
   minimizedTitleNode,
+  expandedControlLayout = 'default',
 }: DraggablePanelProps) {
   const [position, setPosition] = useState(defaultPosition);
   const [isDragging, setIsDragging] = useState(false);
@@ -317,6 +319,7 @@ export function DraggablePanel({
     ? 'flex h-7 w-7 items-center justify-center rounded text-white/85 transition hover:bg-white/15 hover:text-white'
     : 'flex h-7 w-7 items-center justify-center rounded text-gray-400 transition hover:bg-gray-100 hover:text-gray-600';
   const minimizedControlButtonClass = 'flex h-7 w-7 items-center justify-center rounded text-gray-400 transition hover:bg-gray-100 hover:text-gray-600';
+  const expandedControlTop = expandedControlLayout === 'playerCardGrid' ? 10 : 10;
 
   const panelNode = (
     <div
@@ -384,7 +387,7 @@ export function DraggablePanel({
               aria-label="最小化面板"
               title="最小化面板"
               style={{
-                top: 10,
+                top: expandedControlTop,
                 right: WINDOW_SIDE_PADDING + WINDOW_BUTTON_SIZE + WINDOW_BUTTON_GAP,
                 width: WINDOW_BUTTON_SIZE,
                 height: WINDOW_BUTTON_SIZE,
@@ -400,7 +403,7 @@ export function DraggablePanel({
                 aria-label="关闭"
                 title="关闭"
                 style={{
-                  top: 10,
+                  top: expandedControlTop,
                   right: WINDOW_SIDE_PADDING,
                   width: WINDOW_BUTTON_SIZE,
                   height: WINDOW_BUTTON_SIZE,

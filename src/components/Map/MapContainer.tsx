@@ -1481,6 +1481,7 @@ map.on('mousemove', handleMouseMove);
           onClose={() => setSelectedPlayer(null)}
           onNavigate={(player) => {
             setNavigationInitialEndPoint(buildNavigationInitialPointFromPlayer(player));
+            setSelectedPlayer(null);
             setMobileActivePanel('navigation');
             setMobileSheetHidden(false);
             setMobileSheetCollapsed(false);
@@ -2015,6 +2016,7 @@ case 'players':
           id="playerDetail"
           defaultPosition={{ x: 340, y: 16 }}
           windowControlTone="light"
+          expandedControlLayout="playerCardGrid"
           minimizedTitleNode={(
             <span className="flex min-w-0 items-center gap-2">
               <User className="h-4 w-4 flex-none text-cyan-600" />

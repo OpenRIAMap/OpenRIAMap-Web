@@ -200,7 +200,7 @@ export const DISPLAY_PROFILES: Record<
     label: {
       enabled: true,
       source: "Name",
-      styleKey: "structure-label-13",
+      styleKey: "structure-label-12",
       abbreviation: { enabled: true, maxChars: 12, suffix: "…" },
     },
     anchor: {

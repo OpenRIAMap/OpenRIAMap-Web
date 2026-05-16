@@ -1,12 +1,13 @@
 import { fetchLocal, fetchWithMirror, type ProgressCallback } from '@/lib/fetchWithMirror';
+import { parseRawCompatibleUrl } from './sourceLinkModes';
 import { resolveCategoryIndexUrl, resolveChunkUrl } from './sourceResolver';
 
-function isRawGithubLike(url: string): boolean {
-  return /^https:\/\/raw\.githubusercontent\.com\//i.test(url);
+function isRawCompatibleUrl(url: string): boolean {
+  return !!parseRawCompatibleUrl(url);
 }
 
 export async function fetchJsonViaConfiguredSource<T>(url: string, stageName: string, onProgress?: ProgressCallback): Promise<T> {
-  if (isRawGithubLike(url)) return fetchWithMirror<T>(url, stageName, onProgress);
+  if (isRawCompatibleUrl(url)) return fetchWithMirror<T>(url, stageName, onProgress);
   return fetchLocal<T>(url, stageName, onProgress);
 }
 

@@ -503,7 +503,7 @@ const DISPLAY_STATION_STRUCTURE: FeatureDisplayRuleDraft = {
   label: {
     enabled: true,
     source: "Name",
-    styleKey: "structure-label-13",
+    styleKey: "structure-label-12",
     abbreviation: { enabled: true, maxChars: 12, suffix: "…" },
   },
   anchor: {
@@ -1056,13 +1056,13 @@ export const FEATURE_RENDER_RULES: RenderRule[] = [
       },
       label: (r, ctx) =>
         makeStructureLabelPlan(r, ctx, {
-          styleKey: "structure-label-13",
+          styleKey: "structure-label-12",
           minLevel: 5,
         }),
       labelClick: {
         enabled: true,
         mode: "normal",
-        labelStyleKey: "structure-label-13",
+        labelStyleKey: "structure-label-12",
         highlightStyleKey: "dash",
         openCard: true,
       },

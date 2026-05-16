@@ -27,6 +27,7 @@ import SmallDraggablePanel from "@/components/DraggablePanel/SmallDraggablePanel
 import { resolveFeatureCardComponent } from "@/components/Rules/cardrules/featureCardRegistry";
 import type { CardFeatureLinkTarget } from "@/components/Rules/cardrules/cardInteractions";
 import {
+  getStructureAreaPriorityBonus,
   isPriorityStructureLabelFeature,
   STRUCTURE_LABEL_PRIORITY,
 } from "@/components/Rules/priority/structureLabelPriority";
@@ -1936,10 +1937,11 @@ export default function RuleDrivenLayer(props: Props) {
     setSelectedFeature(null);
   }, [worldId]);
 
+  const hasMultipleFloorOptions = floorOptions.length > 1;
   const mobileFloorVisible =
     ctx.inFloorView &&
     !!activeBuildingUid &&
-    floorOptions.length > 0 &&
+    hasMultipleFloorOptions &&
     visible;
 
   useEffect(() => {
@@ -4092,6 +4094,7 @@ function resolveStructureLabelDisplayPlanForContext(
 
   const mode = getStructureZoomModeForPlan(ctx);
   const priorityFeature = isPriorityStructureLabelFeature(r);
+  const areaPriorityBonus = priorityFeature ? 0 : getStructureAreaPriorityBonus(r);
 
   if (mode === "lowPoint") {
     return {
@@ -4105,7 +4108,7 @@ function resolveStructureLabelDisplayPlanForContext(
         role: priorityFeature ? "important" : "optional",
         priority: priorityFeature
           ? STRUCTURE_LABEL_PRIORITY.lowZoomPriority
-          : STRUCTURE_LABEL_PRIORITY.lowZoomNormal,
+          : STRUCTURE_LABEL_PRIORITY.lowZoomNormal + areaPriorityBonus,
         group: "structureLabel",
         allowHide: true,
         paddingPx: priorityFeature ? 4 : 3,
@@ -4133,7 +4136,7 @@ function resolveStructureLabelDisplayPlanForContext(
       collision: {
         ...plan.collision,
         role: "important",
-        priority: STRUCTURE_LABEL_PRIORITY.highZoom,
+        priority: STRUCTURE_LABEL_PRIORITY.highZoom + areaPriorityBonus,
         group: "structureLabel",
         allowHide: true,
         paddingPx: 4,

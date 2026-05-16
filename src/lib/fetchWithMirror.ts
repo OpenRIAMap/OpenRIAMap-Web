@@ -3,45 +3,43 @@
  * 自动尝试多个镜像源，任意一个成功即返回
  */
 
-// GitHub 原始地址和镜像地址配置
-const GITHUB_RAW_MIRRORS = [
-  'https://raw.githubusercontent.com',
-  'https://raw.kkgithub.com',
-  'https://fastly.jsdelivr.net/gh',
-];
+import {
+  buildRawCompatibleUrlFromParts,
+  getCurrentSourceLinkMode,
+  parseRawCompatibleUrl,
+  RAW_GITHUB_BASE_URL,
+  type RawCompatibleUrlParts,
+} from '@/components/Rules/data/sourceLinkModes';
 
-/**
- * 将 GitHub raw URL 转换为各镜像源格式
- *
- * 原始格式: https://raw.githubusercontent.com/{owner}/{repo}/main/{path}
- * kkgithub: https://raw.kkgithub.com/{owner}/{repo}/main/{path}
- * jsdelivr: https://fastly.jsdelivr.net/gh/{owner}/{repo}@main/{path}
- */
-function convertToMirrorUrl(originalUrl: string, mirror: string): string {
-  // 解析原始 URL
-  const match = originalUrl.match(
-    /^https:\/\/raw\.githubusercontent\.com\/([^/]+)\/([^/]+)\/([^/]+)\/(.+)$/
-  );
+// GitHub 原始地址和镜像地址配置。第一优先级会动态插入当前“源数据仓库链接模式”。
+const RAW_KKGITHUB_BASE_URL = 'https://raw.kkgithub.com';
+const JSDELIVR_GH_BASE_URL = 'https://fastly.jsdelivr.net/gh';
 
-  if (!match) {
-    return originalUrl;
-  }
+function unique<T>(items: T[]): T[] {
+  return Array.from(new Set(items));
+}
 
-  const [, owner, repo, branch, path] = match;
+function buildJsDelivrUrl(parts: RawCompatibleUrlParts): string {
+  return `${JSDELIVR_GH_BASE_URL}/${parts.owner}/${parts.repo}@${parts.branch}/${parts.path}`;
+}
 
-  if (mirror === 'https://raw.githubusercontent.com') {
-    return originalUrl;
-  }
+function buildMirrorCandidates(parts: RawCompatibleUrlParts): Array<{ label: string; url: string }> {
+  const currentMode = getCurrentSourceLinkMode();
+  const bases = unique([
+    currentMode.rawCompatibleBaseUrl,
+    RAW_GITHUB_BASE_URL,
+    RAW_KKGITHUB_BASE_URL,
+  ]);
 
-  if (mirror === 'https://raw.kkgithub.com') {
-    return `https://raw.kkgithub.com/${owner}/${repo}/${branch}/${path}`;
-  }
+  const rawCompatibleUrls = bases.map((base) => ({
+    label: base,
+    url: buildRawCompatibleUrlFromParts(base, parts),
+  }));
 
-  if (mirror === 'https://fastly.jsdelivr.net/gh') {
-    return `https://fastly.jsdelivr.net/gh/${owner}/${repo}@${branch}/${path}`;
-  }
-
-  return originalUrl;
+  return [
+    ...rawCompatibleUrls,
+    { label: JSDELIVR_GH_BASE_URL, url: buildJsDelivrUrl(parts) },
+  ];
 }
 
 // 加载进度回调类型
@@ -54,10 +52,8 @@ export interface LoadingProgress {
 export type ProgressCallback = (progress: LoadingProgress) => void;
 
 /**
- * 从多个镜像源获取数据，任意一个成功即返回
- * @param url GitHub raw 原始 URL
- * @param stageName 加载阶段名称（用于进度显示）
- * @param onProgress 进度回调
+ * 从多个镜像源获取数据，任意一个成功即返回。
+ * url 需要是 GitHub Raw 兼容路径：{base}/{owner}/{repo}/{branch}/{path}
  */
 export async function fetchWithMirror<T>(
   url: string,
@@ -66,14 +62,13 @@ export async function fetchWithMirror<T>(
 ): Promise<T> {
   onProgress?.({ stage: stageName, status: 'loading' });
 
+  const parts = parseRawCompatibleUrl(url);
+  const candidates = parts ? buildMirrorCandidates(parts) : [{ label: url, url }];
   let lastError: Error | null = null;
 
-  for (const mirror of GITHUB_RAW_MIRRORS) {
-    const mirrorUrl = convertToMirrorUrl(url, mirror);
-
+  for (const candidate of candidates) {
     try {
-      const response = await fetch(mirrorUrl, {
-        // 设置超时
+      const response = await fetch(candidate.url, {
         signal: AbortSignal.timeout(10000),
       });
 
@@ -86,12 +81,10 @@ export async function fetchWithMirror<T>(
       return data as T;
     } catch (error) {
       lastError = error as Error;
-      console.warn(`Mirror ${mirror} failed for ${stageName}:`, error);
-      // 继续尝试下一个镜像
+      console.warn(`Mirror ${candidate.label} failed for ${stageName}:`, error);
     }
   }
 
-  // 所有镜像都失败
   onProgress?.({
     stage: stageName,
     status: 'error',

@@ -112,6 +112,22 @@ function normalizeAbbr(raw: string) {
     .replace(/[^A-Za-z0-9_-]/g, '');
 }
 
+
+function normalizeRoadClassification(kindRaw: string, skindRaw: string, skind2Raw: string) {
+  const kind = String(kindRaw ?? '').trim() || 'NOM';
+  const skind = String(skindRaw ?? '').trim();
+  const skind2 = String(skind2Raw ?? '').trim();
+  return {
+    kind,
+    skind: skind && skind !== kind ? skind : '',
+    skind2,
+  };
+}
+
+function makeRoadTypeOptionValue(kind: string, skind: string) {
+  return `${String(kind ?? '').trim() || 'NOM'}::${String(skind ?? '').trim()}`;
+}
+
 type TopNavProps = {
   title: string;
   showPrev?: boolean;
@@ -383,9 +399,10 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
       }
 
       // ---- ID 组合规则（新）：World + ROD + (可选 _所属分类代号) + _ + abbr ----
-      const kind = String(info.kind ?? '').trim();
-      const skind = String(info.skind ?? '').trim();
-      const skind2 = String(info.skind2 ?? '').trim();
+      const normalizedClass = normalizeRoadClassification(info.kind, info.skind, info.skind2);
+      const kind = normalizedClass.kind;
+      const skind = normalizedClass.skind;
+      const skind2 = normalizedClass.skind2;
       const cat = normalizeAbbr(info.catAbbr ?? '');
       try {
         localStorage.setItem('ria_rod_cat_abbr_last_v1', cat);
@@ -532,18 +549,19 @@ export default function RoadWorkflow(props: WorkflowComponentProps) {
             <div className="text-xs opacity-80">{wfRegistry.getWorkflowClassificationLabel(WF_KEY)}</div>
             <select
               className="w-full border p-1 rounded text-sm"
-              value={`${info.kind}/${info.skind}`}
+              value={makeRoadTypeOptionValue(info.kind, info.skind)}
               onChange={(e) => {
                 const v = String(e.target.value ?? '');
-                const [k, s] = v.split('/');
-                setInfo((prev) => ({ ...prev, kind: (k ?? '').trim(), skind: (s ?? '').trim() }));
+                const [k, s = ''] = v.split('::');
+                const normalized = normalizeRoadClassification(k, s, '');
+                setInfo((prev) => ({ ...prev, kind: normalized.kind, skind: normalized.skind, skind2: normalized.skind2 }));
               }}
               onMouseDownCapture={(e) => e.stopPropagation()}
               onPointerDownCapture={(e) => e.stopPropagation()}
               onTouchStartCapture={(e) => e.stopPropagation()}
             >
               {rodTypeOptions.map((o) => (
-                <option key={`${o.kind}/${o.skind}`} value={`${o.kind}/${o.skind}`}>
+                <option key={makeRoadTypeOptionValue(o.kind, o.skind)} value={makeRoadTypeOptionValue(o.kind, o.skind)}>
                   {o.label}
                 </option>
               ))}

@@ -67,7 +67,7 @@ export function PlayerDetailCard({
 
       {/* 头部 */}
       <div className="relative flex items-start justify-between gap-3 bg-cyan-500 px-4 py-3 text-white">
-        <div className="min-w-0 pr-1 sm:pr-[96px]" data-draggable-title>
+        <div className="min-w-0 pr-1 sm:pr-[88px]" data-draggable-title>
           <div className="flex min-w-0 items-center gap-2">
             <User className="h-4 w-4 flex-none" />
             <h3 className="truncate text-base font-bold leading-6">{player.name}</h3>
@@ -77,7 +77,7 @@ export function PlayerDetailCard({
           </p>
         </div>
 
-        <div className="flex flex-none items-center gap-1 sm:absolute sm:right-[76px] sm:top-2.5">
+        <div className="flex flex-none items-center gap-1 sm:absolute sm:right-3 sm:top-[36px] sm:grid sm:grid-cols-2 sm:gap-1">
           <AppButton
             onClick={() => onNavigate?.(player)}
             className="flex h-7 w-7 items-center justify-center rounded text-white/90 transition hover:bg-white/15 hover:text-white"
