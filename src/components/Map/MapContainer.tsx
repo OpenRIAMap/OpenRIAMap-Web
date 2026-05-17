@@ -27,6 +27,7 @@ import { SettingsPanel } from '../Settings/SettingsPanel';
 import { useDataStore } from '@/store/dataStore';
 import { ensureLegacyDataLoaded } from '@/lib/legacyDataLoader';
 import { useRuleDataStore } from '@/store/ruleDataStore';
+import { useLoadingStore } from '@/store/loadingStore';
 import { fetchPlayersDetailed } from '@/lib/playerApi';
 import { loadMapSettings, saveMapSettings, MapStyle } from '@/lib/cookies';
 import type { ParsedStation, ParsedLine, Coordinate, Player } from '@/types';
@@ -65,7 +66,7 @@ type PendingShareTarget =
 
 type ShareLookupState = {
   pending: PendingShareTarget;
-  phase: 'waiting-pool' | 'searching-feature' | 'waiting-player-list' | 'searching-player';
+  phase: 'waiting-map-ready' | 'waiting-pool' | 'searching-feature' | 'waiting-player-list' | 'searching-player';
   attempt: number;
   maxAttempts: number;
 };
@@ -86,6 +87,8 @@ function createShareLookupState(
 
 function getShareLookupText(state: ShareLookupState): string {
   switch (state.phase) {
+    case 'waiting-map-ready':
+      return '正在等待地图数据加载完成...';
     case 'waiting-pool':
       return '正在准备分享目标索引...';
     case 'searching-feature':
@@ -315,6 +318,10 @@ function MapContainer() {
   const [mobileQuickDockHeight, setMobileQuickDockHeight] = useState(0);
   const suppressRuleFeatureCardOpenRef = useRef(false);
   const ensureRuleWorldLoaded = useRuleDataStore((s) => s.ensureWorldLoaded);
+  const currentRuleDataset = useRuleDataStore((s) => s.datasets[currentWorld]);
+  const currentRulePending = useRuleDataStore((s) => s.pending[currentWorld]);
+  const isGlobalLoading = useLoadingStore((s) => s.isLoading);
+  const activeRuleWorldId = useLoadingStore((s) => s.activeRuleWorldId);
   const measuringModuleState = useFeatureModuleStore((s) => s.modules.measuring);
   const legacyModuleState = useFeatureModuleStore((s) => s.modules.legacy);
   const featureDialogState = useFeatureModuleStore((s) => s.dialog);
@@ -330,6 +337,7 @@ function MapContainer() {
   const [lines, setLines] = useState<ParsedLine[]>([]);
   const [landmarks, setLandmarks] = useState<ParsedLandmark[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
+  const [playerSnapshotReadyWorld, setPlayerSnapshotReadyWorld] = useState<string | null>(null);
   const [routeHighlight, setRouteHighlight] = useState<RouteHighlightData | null>(null);
   const [showRouteHighlight] = useState(true);
 
@@ -750,16 +758,22 @@ if (mapStyle === 'sketch') {
 
     let cancelled = false;
     let intervalId: number | null = null;
+    const worldId = currentWorld;
 
     const loadPlayers = async () => {
-      const result = await fetchPlayersDetailed(currentWorld);
+      const result = await fetchPlayersDetailed(worldId);
       if (cancelled) return;
       setPlayers(result.players);
-      if (result.error) console.warn('[MapContainer] 玩家信息读取失败：', result.error);
+      if (result.error) {
+        console.warn('[MapContainer] 玩家信息读取失败：', result.error);
+      } else {
+        setPlayerSnapshotReadyWorld(worldId);
+      }
     };
 
     setPlayers([]);
     setSelectedPlayer(null);
+    setPlayerSnapshotReadyWorld(null);
     void loadPlayers();
     intervalId = window.setInterval(() => {
       void loadPlayers();
@@ -907,6 +921,18 @@ if (mapStyle === 'sketch') {
     if (!pending || shareTargetConsumedRef.current) return;
     if (!mapReady || currentWorld !== pending.target.worldId) return;
 
+    const currentRuleWorldReadyForShare = Boolean(currentRuleDataset) && !currentRulePending && !isGlobalLoading && activeRuleWorldId !== currentWorld;
+    if (pending.type === 'feature' && !currentRuleWorldReadyForShare) {
+      setShareLookupState(createShareLookupState(pending, 'waiting-map-ready', 0, 1));
+      return;
+    }
+
+    const playerSnapshotReadyForShare = playerSnapshotReadyWorld === pending.target.worldId;
+    if (pending.type === 'player' && !playerSnapshotReadyForShare) {
+      setShareLookupState(createShareLookupState(pending, 'waiting-player-list', 0, 1));
+      return;
+    }
+
     let cancelled = false;
     let timer: number | null = null;
     let waitingAttempts = 0;
@@ -1000,7 +1026,7 @@ if (mapStyle === 'sketch') {
       searchAttempts += 1;
       setShareLookupState(createShareLookupState(
         pending,
-        players.length ? 'searching-player' : 'waiting-player-list',
+        'searching-player',
         searchAttempts,
         PLAYER_SHARE_LOOKUP_ATTEMPTS,
       ));
@@ -1050,7 +1076,18 @@ if (mapStyle === 'sketch') {
       cancelled = true;
       clearTimer();
     };
-  }, [currentWorld, handleSearchSelect, mapReady, players, shareTargetRevision]);
+  }, [
+    activeRuleWorldId,
+    currentRuleDataset,
+    currentRulePending,
+    currentWorld,
+    handleSearchSelect,
+    isGlobalLoading,
+    mapReady,
+    playerSnapshotReadyWorld,
+    players,
+    shareTargetRevision,
+  ]);
 
 
   // 线路选中处理 - 高亮线路并调整视图
