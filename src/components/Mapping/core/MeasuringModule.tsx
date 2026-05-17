@@ -2839,19 +2839,32 @@ const handleImportFileSelected = async (e: ChangeEvent<HTMLInputElement>) => {
       return;
     }
 
-    // 先尝试按 RelayPackage 解析；若失败再回退旧 ZIP 批量 JSON 导入。
+    // 先尝试按 RelayPackage 解析。
+    // 若 ZIP 已具备 RelayPackage 结构，则不允许回退到旧 ZIP JSON 导入，避免 INDEX/Delete/Picture/Tool_Refresh 被误处理。
     try {
       const parsed = await parseRelayPackageZip(file);
-      if (Array.isArray(parsed.jsonItems) && parsed.jsonItems.length > 0) {
-        applyParsedRelayPackage(parsed);
-        setImportPanelOpen(false);
+      if (parsed.isRelayPackageLike) {
+        if (
+          (Array.isArray(parsed.jsonItems) && parsed.jsonItems.length > 0) ||
+          parsed.parsedPictureCount > 0 ||
+          parsed.parsedDeleteCount > 0
+        ) {
+          applyParsedRelayPackage(parsed);
+          setImportPanelOpen(false);
+          return;
+        }
+
+        alert(
+          '标准包结构无法解析：检测到 RelayPackage 结构，但未找到可导入的 Data_Spilt 条目、图片或删除标记。请检查包内 INDEX.json / Data_Spilt / Picture / Delete.json 结构。'
+        );
         return;
       }
-    } catch {
-      // ignore，继续走旧 ZIP JSON 导入流程
+    } catch (err: any) {
+      alert(`标准包结构无法解析：${String(err?.message ?? err)}`);
+      return;
     }
 
-    // ZIP：动态加载 jszip（可选依赖）
+    // 非 RelayPackage ZIP：动态加载 jszip，回退旧 ZIP 批量 JSON 导入。
     // - 使用 @ts-ignore 避免在未安装依赖时直接 TypeScript 编译报错
     // - 运行时若缺失，会给出安装提示
     let JSZip: any = null;

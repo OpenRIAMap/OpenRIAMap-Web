@@ -1769,7 +1769,7 @@ if (typeof item.Connect !== 'boolean') return '缺少或非法 Connect（boolean
         ID: featureInfo?.ID ?? '',
         Name: featureInfo?.Name ?? '',
         Kind: featureInfo?.Kind ?? 'NOM',
-        SKind: featureInfo?.SKind ?? featureInfo?.Kind ?? 'NOM',
+        SKind: featureInfo?.SKind ?? '',
         SKind2: featureInfo?.SKind2 ?? '',
         Level: Number.isFinite(Number(featureInfo?.Level)) ? Number(featureInfo.Level) : 0,
         Oneway: Boolean(featureInfo?.Oneway),
