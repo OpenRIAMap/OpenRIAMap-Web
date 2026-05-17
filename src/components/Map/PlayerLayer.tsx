@@ -45,6 +45,18 @@ function createPlayerAvatarHtml(playerName: string, size: number = 32, worldId: 
   `;
 }
 
+
+const PLAYER_TOOLTIP_PANE = 'ria-player-tooltip';
+const PLAYER_TOOLTIP_PANE_Z = 900;
+
+function ensurePlayerTooltipPane(map: L.Map) {
+  let pane = map.getPane(PLAYER_TOOLTIP_PANE);
+  if (!pane) pane = map.createPane(PLAYER_TOOLTIP_PANE);
+  pane.style.zIndex = String(PLAYER_TOOLTIP_PANE_Z);
+  pane.style.pointerEvents = 'none';
+  return pane;
+}
+
 interface PlayerLayerProps {
   map: L.Map;
   projection: DynmapProjection;
@@ -123,6 +135,12 @@ export function PlayerLayer({
     };
   }, [map]);
 
+  // 玩家 hover tooltip 使用专用 Leaflet pane，确保高于规则 symbol / label。
+  useEffect(() => {
+    if (!map) return;
+    ensurePlayerTooltipPane(map);
+  }, [map]);
+
   // 渲染玩家图层内容
   useEffect(() => {
     const group = layerGroupRef.current;
@@ -160,6 +178,8 @@ export function PlayerLayer({
           permanent: false,
           direction: 'top',
           offset: [0, -8],
+          pane: PLAYER_TOOLTIP_PANE,
+          className: 'player-hover-tooltip',
         }
       );
 

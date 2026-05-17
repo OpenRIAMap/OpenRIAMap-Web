@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ChangeEvent } from 'react';
+import { createPortal } from 'react-dom';
 import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -38,6 +39,7 @@ import WorkflowStyleEditPanel from '@/components/Mapping/Editor/WorkflowStyleEdi
 
 import type { DynmapProjection } from '@/lib/DynmapProjection';
 import { DraggablePanel } from '@/components/DraggablePanel/DraggablePanel';
+import { useDesktopWindowStackLayer } from '@/components/DraggablePanel/desktopWindowStack';
 import { Pencil, Upload, Trash2, X } from 'lucide-react';
 import ToolIconButton from '@/components/Toolbar/ToolIconButton';
 
@@ -618,7 +620,55 @@ useEffect(() => {
 
 // 下拉菜单开关（仅再次点击“测绘”主按钮才收回）
 const [measureDropdownOpen, setMeasureDropdownOpen] = useState(false);
+const [measureDropdownDesktop, setMeasureDropdownDesktop] = useState(false);
+const [measureDropdownRect, setMeasureDropdownRect] = useState<{ top: number; right: number } | null>(null);
+const measureLauncherRef = useRef<HTMLDivElement | null>(null);
 const lastOpenSignalRef = useRef(0);
+const {
+  portalRoot: measureDropdownPortalRoot,
+  effectiveZIndex: measureDropdownZIndex,
+  emitFocused: focusMeasureDropdown,
+} = useDesktopWindowStackLayer({
+  id: 'measuring-launcher-dropdown',
+  enabled: measureDropdownDesktop && measureDropdownOpen,
+  autoFocusOnEnable: false,
+});
+
+useEffect(() => {
+  const checkDesktop = () => setMeasureDropdownDesktop(window.innerWidth >= 640);
+  checkDesktop();
+  window.addEventListener('resize', checkDesktop);
+  return () => window.removeEventListener('resize', checkDesktop);
+}, []);
+
+const updateMeasureDropdownRect = () => {
+  const rect = measureLauncherRef.current?.getBoundingClientRect();
+  if (!rect) return;
+  const width = 176;
+  const margin = 8;
+  const right = Math.max(8, window.innerWidth - rect.right);
+  const top = Math.min(
+    Math.max(8, rect.bottom + margin),
+    Math.max(8, window.innerHeight - 8)
+  );
+  const maxRight = Math.max(8, window.innerWidth - width - 8);
+  setMeasureDropdownRect({ top, right: Math.min(right, maxRight) });
+};
+
+useEffect(() => {
+  if (!measureDropdownOpen || !measureDropdownDesktop) return;
+  updateMeasureDropdownRect();
+  focusMeasureDropdown();
+
+  const handleViewportChange = () => updateMeasureDropdownRect();
+  window.addEventListener('resize', handleViewportChange);
+  window.addEventListener('scroll', handleViewportChange, true);
+  return () => {
+    window.removeEventListener('resize', handleViewportChange);
+    window.removeEventListener('scroll', handleViewportChange, true);
+  };
+}, [focusMeasureDropdown, measureDropdownDesktop, measureDropdownOpen]);
+
 useEffect(() => {
   const next = openSignal ?? 0;
   if (next === lastOpenSignalRef.current) return;
@@ -627,7 +677,16 @@ useEffect(() => {
 }, [openSignal]);
 
 const toggleMeasureDropdown = () => {
-  setMeasureDropdownOpen((v) => !v);
+  setMeasureDropdownOpen((v) => {
+    const next = !v;
+    if (next) {
+      window.setTimeout(() => {
+        updateMeasureDropdownRect();
+        focusMeasureDropdown();
+      }, 0);
+    }
+    return next;
+  });
 };
 
 const confirmExitAndClear = (actionLabel: string) => {
@@ -3847,8 +3906,120 @@ const workflowBridge: WorkflowBridge = {
   exitWorkflowToSelector: () => stopWorkflowToSelector(),
 };
 
+  const measureDropdownMenu = (
+    <AppCard
+      className={`w-44 border border-gray-200 py-1 transition-all duration-150 ${
+        measureDropdownOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'
+      }`}
+      onMouseDownCapture={() => focusMeasureDropdown()}
+    >
+      {/* 开始测绘（完整/快捷） 或 结束测绘 */}
+      {!measuringActive ? (
+        <>
+          <AppButton
+            onClick={() => startMeasuringFromMenu('full')}
+            className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-50 transition-colors text-gray-700"
+            type="button"
+          >
+            <Pencil className="w-4 h-4" />
+            <span>开始测绘(完整)</span>
+          </AppButton>
+
+          <AppButton
+            onClick={() => startMeasuringFromMenu('workflow')}
+            className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-50 transition-colors text-gray-700"
+            type="button"
+          >
+            <Pencil className="w-4 h-4" />
+            <span>开始测绘(快捷)</span>
+          </AppButton>
+        </>
+      ) : (
+        <>
+          <AppButton
+            onClick={() => switchMeasuringVariantFromMenu('full')}
+            className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors ${
+              measuringVariant === 'full'
+                ? 'text-gray-400 cursor-not-allowed'
+                : 'hover:bg-gray-50 text-gray-700'
+            }`}
+            type="button"
+            disabled={measuringVariant === 'full'}
+            title={measuringVariant === 'full' ? '当前已是完整模式' : '切换到完整测绘模式'}
+          >
+            <Pencil className="w-4 h-4" />
+            <span>切换到完整模式</span>
+          </AppButton>
+
+          <AppButton
+            onClick={() => switchMeasuringVariantFromMenu('workflow')}
+            className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors ${
+              measuringVariant === 'workflow'
+                ? 'text-gray-400 cursor-not-allowed'
+                : 'hover:bg-gray-50 text-gray-700'
+            }`}
+            type="button"
+            disabled={measuringVariant === 'workflow'}
+            title={measuringVariant === 'workflow' ? '当前已是快捷模式' : '切换到快捷测绘模式'}
+          >
+            <Pencil className="w-4 h-4" />
+            <span>切换到快捷模式</span>
+          </AppButton>
+
+          <AppButton
+            onClick={endMeasuringFromMenu}
+            className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-50 transition-colors text-gray-700"
+            type="button"
+          >
+            <X className="w-4 h-4" />
+            <span className="font-medium">结束测绘</span>
+          </AppButton>
+        </>
+      )}
+
+      {/* 导入数据：仅开始测绘后显示 */}
+      {measuringActive && (
+        <AppButton
+          onClick={() => setImportPanelOpen(true)}
+          className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-50 transition-colors text-gray-700"
+          type="button"
+        >
+          <Upload className="w-4 h-4" />
+          <span>导入数据</span>
+        </AppButton>
+      )}
+
+      {/* 清空所有图层 */}
+      <AppButton
+        onClick={clearAllLayers}
+        className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-50 transition-colors text-gray-700"
+        type="button"
+      >
+        <Trash2 className="w-4 h-4" />
+        <span>清空所有图层</span>
+      </AppButton>
+    </AppCard>
+  );
+
+  const measureDropdownPortal = measureDropdownDesktop && measureDropdownOpen && measureDropdownPortalRoot && measureDropdownRect
+    ? createPortal(
+        <div
+          className="fixed pointer-events-auto origin-top-right"
+          style={{
+            top: measureDropdownRect.top,
+            right: measureDropdownRect.right,
+            zIndex: measureDropdownZIndex,
+          }}
+          onMouseDownCapture={() => focusMeasureDropdown()}
+        >
+          {measureDropdownMenu}
+        </div>,
+        measureDropdownPortalRoot
+      )
+    : null;
+
   const launcherContent = (
-    <div className="relative">
+    <div ref={measureLauncherRef} className="relative">
       <ToolIconButton
         label="测绘"
         icon={<Pencil className="w-5 h-5" />}
@@ -3858,98 +4029,13 @@ const workflowBridge: WorkflowBridge = {
         className="h-11 w-11"
       />
 
-      {/* 下拉菜单：仅再次点击“测绘”按钮才收回 */}
-      <AppCard
-        className={`absolute right-0 w-44 border border-gray-200 py-1 z-50 transition-all duration-150 sm:mt-2 sm:top-full sm:origin-top-right max-md:bottom-full max-md:mb-2 max-md:origin-bottom-right ${
-          measureDropdownOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'
-        }`}
-      >
-        {/* 开始测绘（完整/快捷） 或 结束测绘 */}
-        {!measuringActive ? (
-          <>
-            <AppButton
-              onClick={() => startMeasuringFromMenu('full')}
-              className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-50 transition-colors text-gray-700"
-              type="button"
-            >
-              <Pencil className="w-4 h-4" />
-              <span>开始测绘(完整)</span>
-            </AppButton>
-
-            <AppButton
-              onClick={() => startMeasuringFromMenu('workflow')}
-              className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-50 transition-colors text-gray-700"
-              type="button"
-            >
-              <Pencil className="w-4 h-4" />
-              <span>开始测绘(快捷)</span>
-            </AppButton>
-          </>
-        ) : (
-          <>
-            <AppButton
-              onClick={() => switchMeasuringVariantFromMenu('full')}
-              className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors ${
-                measuringVariant === 'full'
-                  ? 'text-gray-400 cursor-not-allowed'
-                  : 'hover:bg-gray-50 text-gray-700'
-              }`}
-              type="button"
-              disabled={measuringVariant === 'full'}
-              title={measuringVariant === 'full' ? '当前已是完整模式' : '切换到完整测绘模式'}
-            >
-              <Pencil className="w-4 h-4" />
-              <span>切换到完整模式</span>
-            </AppButton>
-
-            <AppButton
-              onClick={() => switchMeasuringVariantFromMenu('workflow')}
-              className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors ${
-                measuringVariant === 'workflow'
-                  ? 'text-gray-400 cursor-not-allowed'
-                  : 'hover:bg-gray-50 text-gray-700'
-              }`}
-              type="button"
-              disabled={measuringVariant === 'workflow'}
-              title={measuringVariant === 'workflow' ? '当前已是快捷模式' : '切换到快捷测绘模式'}
-            >
-              <Pencil className="w-4 h-4" />
-              <span>切换到快捷模式</span>
-            </AppButton>
-
-            <AppButton
-              onClick={endMeasuringFromMenu}
-              className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-50 transition-colors text-gray-700"
-              type="button"
-            >
-              <X className="w-4 h-4" />
-              <span className="font-medium">结束测绘</span>
-            </AppButton>
-          </>
-        )}
-
-        {/* 导入数据：仅开始测绘后显示 */}
-        {measuringActive && (
-          <AppButton
-            onClick={() => setImportPanelOpen(true)}
-            className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-50 transition-colors text-gray-700"
-            type="button"
-          >
-            <Upload className="w-4 h-4" />
-            <span>导入数据</span>
-          </AppButton>
-        )}
-
-        {/* 清空所有图层 */}
-        <AppButton
-          onClick={clearAllLayers}
-          className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-50 transition-colors text-gray-700"
-          type="button"
-        >
-          <Trash2 className="w-4 h-4" />
-          <span>清空所有图层</span>
-        </AppButton>
-      </AppCard>
+      {/* 移动端仍使用局部定位；桌面端通过桌面窗口 root portal 接入统一层级栈。 */}
+      {!measureDropdownDesktop ? (
+        <div className="absolute right-0 z-50 max-md:bottom-full max-md:mb-2 max-md:origin-bottom-right">
+          {measureDropdownMenu}
+        </div>
+      ) : null}
+      {measureDropdownPortal}
     </div>
   );
 

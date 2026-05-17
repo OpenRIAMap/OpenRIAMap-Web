@@ -6,6 +6,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Minus, Square, X } from 'lucide-react';
+import { useDesktopWindowStackLayer } from '@/components/DraggablePanel/desktopWindowStack';
 
 interface DraggablePanelProps {
   id: string;
@@ -29,51 +30,6 @@ const WINDOW_SIDE_PADDING = 12;
 const MINIMIZED_MIN_WIDTH = 156;
 const MINIMIZED_MAX_WIDTH = 320;
 const MIN_VISIBLE_EXPANDED_WIDTH = 96;
-const GLOBAL_WINDOW_Z_BASE = 5000;
-const DESKTOP_WINDOW_ROOT_Z = 20000;
-
-const DESKTOP_WINDOW_ROOT_ID = 'ria-desktop-window-root';
-
-function ensureDesktopWindowRoot(): HTMLDivElement | null {
-  if (typeof document === 'undefined') return null;
-  let root = document.getElementById(DESKTOP_WINDOW_ROOT_ID) as HTMLDivElement | null;
-  if (!root) {
-    root = document.createElement('div');
-    root.id = DESKTOP_WINDOW_ROOT_ID;
-    Object.assign(root.style, {
-      position: 'fixed',
-      inset: '0',
-      pointerEvents: 'none',
-      zIndex: String(DESKTOP_WINDOW_ROOT_Z),
-    });
-    document.body.appendChild(root);
-  }
-  return root;
-}
-
-const PANEL_STACK_ORDER = new Map<string, number>();
-const GROUP_STACK_ORDER = new Map<string, number>();
-let GLOBAL_STACK_CURSOR = 1;
-
-function nextStackOrder() {
-  GLOBAL_STACK_CURSOR += 1;
-  return GLOBAL_STACK_CURSOR;
-}
-
-function ensurePanelOrder(id: string) {
-  if (!PANEL_STACK_ORDER.has(id)) {
-    PANEL_STACK_ORDER.set(id, nextStackOrder());
-  }
-  return PANEL_STACK_ORDER.get(id) ?? 1;
-}
-
-function ensureGroupOrder(group: string) {
-  if (!GROUP_STACK_ORDER.has(group)) {
-    GROUP_STACK_ORDER.set(group, nextStackOrder());
-  }
-  return GROUP_STACK_ORDER.get(group) ?? 1;
-}
-
 function extractTitleText(root: HTMLElement | null, fallback: string): string {
   if (!root) return fallback;
 
@@ -131,8 +87,6 @@ export function DraggablePanel({
   const [panelTitle, setPanelTitle] = useState(id);
   const [hasCloseButton, setHasCloseButton] = useState(false);
   const [preferProxyClose, setPreferProxyClose] = useState(false);
-  const [stackOrder, setStackOrder] = useState(() => (stackGroup ? ensureGroupOrder(stackGroup) : ensurePanelOrder(id)));
-  const [portalRoot, setPortalRoot] = useState<HTMLDivElement | null>(null);
   const dragStartRef = useRef({ x: 0, y: 0 });
   const panelRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -160,52 +114,13 @@ export function DraggablePanel({
     return () => window.clearTimeout(timer);
   }, [children, isDesktop, refreshHeaderMeta]);
 
-  useEffect(() => {
-    if (!isDesktop) {
-      setPortalRoot(null);
-      return;
-    }
-    setPortalRoot(ensureDesktopWindowRoot());
-  }, [isDesktop]);
-
-  useEffect(() => {
-    const handleWindowFocus = (ev: Event) => {
-      const detail = (ev as CustomEvent<{ id?: string; stackGroup?: string; order?: number }>).detail;
-      if (!detail || typeof detail.order !== 'number') return;
-      if (stackGroup) {
-        if (detail.stackGroup === stackGroup) setStackOrder(detail.order);
-        return;
-      }
-      if (detail.id === id) setStackOrder(detail.order);
-    };
-
-    window.addEventListener('ria:draggable-panel-focus', handleWindowFocus as EventListener);
-    return () => {
-      window.removeEventListener('ria:draggable-panel-focus', handleWindowFocus as EventListener);
-    };
-  }, [id, stackGroup]);
-
-  const emitFocused = useCallback(() => {
-    const order = nextStackOrder();
-    if (stackGroup) {
-      GROUP_STACK_ORDER.set(stackGroup, order);
-    } else {
-      PANEL_STACK_ORDER.set(id, order);
-    }
-    setStackOrder(order);
-    window.dispatchEvent(new CustomEvent('ria:draggable-panel-focus', {
-      detail: { id, stackGroup, order },
-    }));
-    onFocus?.();
-  }, [id, onFocus, stackGroup]);
-
-  useEffect(() => {
-    if (!isDesktop) return;
-    const timer = window.setTimeout(() => {
-      emitFocused();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [emitFocused, isDesktop]);
+  const { portalRoot, effectiveZIndex, emitFocused } = useDesktopWindowStackLayer({
+    id,
+    stackGroup,
+    stackGroupOrder,
+    enabled: isDesktop,
+    onFocus,
+  });
 
   const clampPosition = useCallback((x: number, y: number, minimized: boolean) => {
     const panelWidth = panelRef.current?.offsetWidth || 300;
@@ -313,8 +228,6 @@ export function DraggablePanel({
   }
 
   // 桌面端窗口统一进入全局层级栈；zIndex 仅保留兼容旧调用，不再作为跨窗口层级屏障。
-  const effectiveZIndex = GLOBAL_WINDOW_Z_BASE + stackOrder * 100 + stackGroupOrder;
-
   const expandedControlButtonClass = windowControlTone === 'light'
     ? 'flex h-7 w-7 items-center justify-center rounded text-white/85 transition hover:bg-white/15 hover:text-white'
     : 'flex h-7 w-7 items-center justify-center rounded text-gray-400 transition hover:bg-gray-100 hover:text-gray-600';
