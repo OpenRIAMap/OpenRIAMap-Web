@@ -958,6 +958,108 @@ function supplementFloorIdsByDownwardRefs(
   }
 }
 
+type FloorOption = { value: string; label: string };
+
+type FloorViewBuildingData = {
+  floorIdSet: Set<string>;
+  options: FloorOption[];
+};
+
+function getFloorSelectorForSearchFocus(r: FeatureRecord): string {
+  const cls = String(r.meta?.Class ?? '').trim();
+  if (cls !== 'FLR' && cls !== 'STF') return '';
+
+  return String(
+    (r.featureInfo as any)?.[DEFAULT_FLOOR_VIEW.floorSelectorField] ?? '',
+  ).trim();
+}
+
+function buildFloorViewDataForBuilding(
+  store: FeatureStore,
+  building: FeatureRecord,
+): FloorViewBuildingData | null {
+  const floors: FeatureRecord[] = (
+    FLOOR_FLOOR_CLASSES as readonly string[]
+  ).flatMap((c) => store.byClass[c] ?? []);
+
+  const floorsById = new Map<string, FeatureRecord>();
+  for (const f of floors) {
+    const fid = getFloorIdForFloorView(f);
+    if (fid) floorsById.set(fid, f);
+  }
+
+  const buildingIds = getBuildingIdCandidatesForFloorView(building);
+  const floorIdSet = new Set<string>();
+
+  if (buildingIds.size) {
+    for (const f of floors) {
+      const parent = getFloorParentIdForFloorView(f);
+      if (!parent || !buildingIds.has(parent)) continue;
+      const fid = getFloorIdForFloorView(f);
+      if (fid) floorIdSet.add(fid);
+    }
+  }
+
+  supplementFloorIdsByDownwardRefs(building, floorsById, floorIdSet);
+
+  if (floorIdSet.size === 0) return null;
+
+  const selectorSet = new Set<string>();
+  for (const fid of floorIdSet) {
+    const f = floorsById.get(fid);
+    if (!f) continue;
+    const selector = String(
+      (f.featureInfo as any)?.[DEFAULT_FLOOR_VIEW.floorSelectorField] ?? '',
+    ).trim();
+    if (selector) selectorSet.add(selector);
+  }
+
+  const values = Array.from(selectorSet);
+  values.sort(compareFloorDisplayOrder);
+
+  return {
+    floorIdSet,
+    options: values.map((v) => ({
+      value: v,
+      label: formatFloorDisplayLabel(v),
+    })),
+  };
+}
+
+function resolveBuildingForFloorFeature(
+  store: FeatureStore,
+  floorFeature: FeatureRecord,
+): { building: FeatureRecord; options: FloorOption[] } | null {
+  const floorSelector = getFloorSelectorForSearchFocus(floorFeature);
+  if (!floorSelector) return null;
+
+  const floorId = getFloorIdForFloorView(floorFeature);
+  const parentId = getFloorParentIdForFloorView(floorFeature);
+  if (!floorId && !parentId) return null;
+
+  const buildings: FeatureRecord[] = (
+    FLOOR_BUILDING_CLASSES as readonly string[]
+  ).flatMap((c) => store.byClass[c] ?? []);
+
+  for (const building of buildings) {
+    const data = buildFloorViewDataForBuilding(store, building);
+    if (!data) continue;
+
+    const buildingIds = getBuildingIdCandidatesForFloorView(building);
+    const parentMatches = !!parentId && buildingIds.has(parentId);
+    const floorMatches = !!floorId && data.floorIdSet.has(floorId);
+    const floorOptionMatches = data.options.some(
+      (opt) => opt.value === floorSelector,
+    );
+
+    if ((parentMatches || floorMatches) && floorOptionMatches) {
+      return { building, options: data.options };
+    }
+  }
+
+  return null;
+}
+
 function distanceFromViewportCenterToBoundsPx(
   map: L.Map,
   bounds: L.LatLngBounds,
@@ -1257,13 +1359,13 @@ export default function RuleDrivenLayer(props: Props) {
   >(null);
 
   // floor UI
-  const [floorOptions, setFloorOptions] = useState<
-    Array<{ value: string; label: string }>
-  >([]);
+  const [floorOptions, setFloorOptions] = useState<FloorOption[]>([]);
+  const floorOptionsRef = useRef<FloorOption[]>([]);
   const [activeFloorIndex, setActiveFloorIndex] = useState<number>(0);
   const [activeBuildingUid, setActiveBuildingUid] = useState<string | null>(
     null,
   );
+  const activeBuildingUidRef = useRef<string | null>(null);
   const [activeBuildingFloorRefSet, setActiveBuildingFloorRefSet] =
     useState<Set<string> | null>(null);
   const [activeBuildingName, setActiveBuildingName] = useState<string>("");
@@ -1271,16 +1373,66 @@ export default function RuleDrivenLayer(props: Props) {
     buildingUid: string;
     floorValue: string;
   } | null>(null);
+  const pendingFloorFocusRef = useRef<{
+    sourceUid: string;
+    floorSelector: string;
+    buildingUid?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    floorOptionsRef.current = floorOptions;
+  }, [floorOptions]);
+
+  useEffect(() => {
+    activeBuildingUidRef.current = activeBuildingUid;
+  }, [activeBuildingUid]);
+
+  const applyFloorIndexForBuilding = (
+    buildingUid: string,
+    idx: number,
+    options: FloorOption[] = floorOptionsRef.current,
+  ) => {
+    const floorValue = options[idx]?.value;
+    if (!buildingUid || !floorValue) return false;
+    setActiveFloorIndex(idx);
+    lastFloorSelectionRef.current = {
+      buildingUid,
+      floorValue,
+    };
+    return true;
+  };
+
+  const applyPendingFloorFocusForBuilding = (
+    buildingUid: string,
+    options: FloorOption[] = floorOptionsRef.current,
+  ) => {
+    const pending = pendingFloorFocusRef.current;
+    if (!pending || pending.buildingUid !== buildingUid) return false;
+
+    const pendingIndex = options.findIndex(
+      (opt) => opt.value === pending.floorSelector,
+    );
+    if (pendingIndex < 0) {
+      pendingFloorFocusRef.current = null;
+      return false;
+    }
+
+    const applied = applyFloorIndexForBuilding(
+      buildingUid,
+      pendingIndex,
+      options,
+    );
+    if (applied) pendingFloorFocusRef.current = null;
+    return applied;
+  };
 
   const setActiveFloorIndexAndRemember = (idx: number) => {
-    setActiveFloorIndex(idx);
-    const floorValue = floorOptions[idx]?.value;
-    if (activeBuildingUid && floorValue) {
-      lastFloorSelectionRef.current = {
-        buildingUid: activeBuildingUid,
-        floorValue,
-      };
+    const buildingUid = activeBuildingUidRef.current;
+    if (!buildingUid) {
+      setActiveFloorIndex(idx);
+      return;
     }
+    applyFloorIndexForBuilding(buildingUid, idx, floorOptionsRef.current);
   };
 
   // 让 React 能感知 Leaflet 的 zoom/move（否则 ctx/showFloorUI 可能停留在旧值）
@@ -1636,6 +1788,40 @@ export default function RuleDrivenLayer(props: Props) {
     if (!store) return false;
     const rr = store.all.find((r) => r.uid === key);
     if (!rr) return false;
+
+    const focusFloorSelector = getFloorSelectorForSearchFocus(rr);
+    if (focusFloorSelector) {
+      const floorBuilding = resolveBuildingForFloorFeature(store, rr);
+      if (floorBuilding) {
+        const buildingUid = floorBuilding.building.uid;
+        pendingFloorFocusRef.current = {
+          sourceUid: rr.uid,
+          floorSelector: focusFloorSelector,
+          buildingUid,
+        };
+
+        const optionIndex = floorBuilding.options.findIndex(
+          (opt) => opt.value === focusFloorSelector,
+        );
+        if (optionIndex >= 0) {
+          lastFloorSelectionRef.current = {
+            buildingUid,
+            floorValue: focusFloorSelector,
+          };
+
+          if (activeBuildingUidRef.current === buildingUid) {
+            applyFloorIndexForBuilding(
+              buildingUid,
+              optionIndex,
+              floorBuilding.options,
+            );
+            pendingFloorFocusRef.current = null;
+          }
+        }
+      } else {
+        pendingFloorFocusRef.current = null;
+      }
+    }
 
     // 尽量复用“label click”规则（如果有），保证交互一致；否则仅打开信息卡。
     const curCtx = ctxRef.current;
@@ -2036,9 +2222,11 @@ export default function RuleDrivenLayer(props: Props) {
 
       if (!inFloorView) {
         setActiveBuildingUid(null);
+        activeBuildingUidRef.current = null;
         setActiveBuildingFloorRefSet(null);
         setActiveBuildingName("");
         setFloorOptions([]);
+        floorOptionsRef.current = [];
         setActiveFloorIndex(0);
         return;
       }
@@ -2148,11 +2336,15 @@ export default function RuleDrivenLayer(props: Props) {
         return;
       }
 
-      // picked 有值：如果还是同一栋建筑，可提前 return（减少重复算）
-      if (newUid === activeBuildingUid) return;
+      // picked 有值：如果还是同一栋建筑，可提前 return；但搜索/分享 FLR/STF 时仍允许切换目标楼层。
+      if (newUid === activeBuildingUid) {
+        if (newUid) applyPendingFloorFocusForBuilding(newUid, floorOptionsRef.current);
+        return;
+      }
 
       // 切换到新的建筑
       setActiveBuildingUid(newUid);
+      activeBuildingUidRef.current = newUid;
 
       // 建筑名兼容：STB/SBP/BUD
       const bfi: any = picked.featureInfo;
@@ -2162,77 +2354,57 @@ export default function RuleDrivenLayer(props: Props) {
       setActiveBuildingName(bName);
 
       // 楼层关联：优先 STF/FLR 向上索引建筑；再用建筑 Floors[] 向下补全
-      const floors: FeatureRecord[] = (
-        FLOOR_FLOOR_CLASSES as readonly string[]
-      ).flatMap((c) => store.byClass[c] ?? []);
-
-      const floorsById = new Map<string, FeatureRecord>();
-      for (const f of floors) {
-        const fid = getFloorIdForFloorView(f);
-        if (fid) floorsById.set(fid, f);
-      }
-
-      const buildingIds = getBuildingIdCandidatesForFloorView(picked);
-      const floorIdSet = new Set<string>();
-
-      // (A) STF/FLR 向上索引（parentId → buildingId）
-      if (buildingIds.size) {
-        for (const f of floors) {
-          const parent = getFloorParentIdForFloorView(f);
-          if (!parent || !buildingIds.has(parent)) continue;
-          const fid = getFloorIdForFloorView(f);
-          if (fid) floorIdSet.add(fid);
-        }
-      }
-
-      // (B) 兼容：STB/SBP/BUD.Floors[] 向下补全（可拆卸）
-      supplementFloorIdsByDownwardRefs(picked, floorsById, floorIdSet);
+      const floorData = buildFloorViewDataForBuilding(store, picked);
 
       // 若仍无任何楼层，则不进入楼层视角（避免“任何建筑都出楼层条”）
-      if (floorIdSet.size === 0) {
+      if (!floorData || floorData.floorIdSet.size === 0) {
+        if (pendingFloorFocusRef.current?.buildingUid === newUid) {
+          pendingFloorFocusRef.current = null;
+        }
         setActiveBuildingUid(null);
+        activeBuildingUidRef.current = null;
         setActiveBuildingFloorRefSet(null);
-        setActiveBuildingName("");
+        setActiveBuildingName('');
         setFloorOptions([]);
+        floorOptionsRef.current = [];
         setActiveFloorIndex(0);
         return;
       }
 
-      setActiveBuildingFloorRefSet(floorIdSet);
+      setActiveBuildingFloorRefSet(floorData.floorIdSet);
 
-      // 生成 floorOptions：从 STF/FLR 中筛选属于该建筑的楼层，按 NofFloor 去重排序
-      const selectorSet = new Set<string>();
-      for (const fid of floorIdSet) {
-        const f = floorsById.get(fid);
-        if (!f) continue;
-        const selector = String(
-          (f.featureInfo as any)?.[DEFAULT_FLOOR_VIEW.floorSelectorField] ?? "",
-        ).trim();
-        if (selector) selectorSet.add(selector);
-      }
+      const opts = floorData.options;
 
-      const values = Array.from(selectorSet);
-      values.sort(compareFloorDisplayOrder);
-
-      const opts = values.map((v) => ({
-        value: v,
-        label: formatFloorDisplayLabel(v),
-      }));
+      const pending = pendingFloorFocusRef.current;
+      const pendingIndex =
+        pending?.buildingUid === newUid
+          ? opts.findIndex((opt) => opt.value === pending.floorSelector)
+          : -1;
 
       const remembered = lastFloorSelectionRef.current;
       const rememberedIndex =
         remembered?.buildingUid === newUid
           ? opts.findIndex((opt) => opt.value === remembered.floorValue)
           : -1;
-      const nextIndex = rememberedIndex >= 0 ? rememberedIndex : 0;
+
+      const nextIndex =
+        pendingIndex >= 0
+          ? pendingIndex
+          : rememberedIndex >= 0
+            ? rememberedIndex
+            : 0;
 
       setFloorOptions(opts);
+      floorOptionsRef.current = opts;
       setActiveFloorIndex(nextIndex);
       if (newUid && opts[nextIndex]?.value) {
         lastFloorSelectionRef.current = {
           buildingUid: newUid,
           floorValue: opts[nextIndex].value,
         };
+      }
+      if (pendingIndex >= 0) {
+        pendingFloorFocusRef.current = null;
       }
     };
 

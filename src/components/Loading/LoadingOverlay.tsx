@@ -30,7 +30,7 @@ export function LoadingOverlay() {
       <div className="bg-white rounded-xl shadow-2xl p-6 w-80 max-w-[90vw]">
         {/* 标题 */}
         <div className="text-center mb-4">
-          <h2 className="text-lg font-bold text-gray-800">RIA 铁路在线地图</h2>
+          <h2 className="text-lg font-bold text-gray-800">RIA 在线地图</h2>
           <p className="text-sm text-gray-500 mt-1">正在加载数据...</p>
         </div>
 
